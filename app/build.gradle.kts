@@ -22,8 +22,11 @@ android {
         minSdk = 26
         targetSdk = 37
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
         buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
+        buildConfigField("Long", "BUILD_TIME", "${System.currentTimeMillis()}L")
+        buildConfigField("String", "versionCodeName", "\"Mondstadt\"")
+        buildConfigField("String", "versionCodeNameZH", "\"蒙德\"")
 
         ndkVersion = "30.0.15729638"
 

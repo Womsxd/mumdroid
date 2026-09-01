@@ -326,7 +326,7 @@
 
     <!-- About -->
     <string name="about">About</string>
-    <string name="about_version">Version %1$s (%2$d)\n(%3$s)</string>
+    <string name="about_version">Version %1$s (%2$s) · Build %3$d\n%4$s · %5$s</string>
     <string name="about_description">An open source Mumble voice client</string>
     <string name="open_source_licenses">Open Source Licenses</string>
     <string name="open_source_licenses_sub">View the open source components used by this app</string>

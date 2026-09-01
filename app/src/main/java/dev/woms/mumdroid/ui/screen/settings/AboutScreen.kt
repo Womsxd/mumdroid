@@ -29,6 +29,11 @@ import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.BuildConfig
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.ui.screen.OpenSourceLicensesScreen
+import java.util.Locale
+import androidx.compose.ui.platform.LocalConfiguration
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 // ---- About ----
 
@@ -53,6 +58,21 @@ internal fun AboutPageHost(onBack: () -> Unit) {
             onBack = { page = AboutPage.ABOUT },
         )
     }
+}
+
+private fun getBuildTime(): String {
+    val instant = Instant.ofEpochMilli(BuildConfig.BUILD_TIME)
+    val formatter = DateTimeFormatter
+        .ofPattern("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        .withZone(ZoneId.systemDefault())
+    return formatter.format(instant)
+}
+
+@Composable
+private fun isSimplifiedChinese(): Boolean {
+    val currentLocale = LocalConfiguration.current.locales[0]
+    return currentLocale.language == Locale.SIMPLIFIED_CHINESE.language
+            && currentLocale.country == Locale.SIMPLIFIED_CHINESE.country
 }
 
 private enum class AboutPage { ABOUT, LICENSES }
@@ -91,8 +111,10 @@ private fun AboutScreen(
                         stringResource(
                             R.string.about_version,
                             BuildConfig.VERSION_NAME,
+                            if (isSimplifiedChinese()) BuildConfig.versionCodeNameZH else BuildConfig.versionCodeName,
                             BuildConfig.VERSION_CODE,
-                            BuildConfig.GIT_HASH,
+                            getBuildTime(),
+                            BuildConfig.GIT_HASH
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

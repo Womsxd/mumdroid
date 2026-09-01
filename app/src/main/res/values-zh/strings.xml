@@ -326,7 +326,7 @@
 
     <!-- About -->
     <string name="about">关于</string>
-    <string name="about_version">版本 %1$s (%2$d)\n(%3$s)</string>
+    <string name="about_version">版本 %1$s (%2$s) · Build %3$d\n%4$s · %5$s</string>
     <string name="about_description">开源 Mumble 语音客户端</string>
     <string name="open_source_licenses">开源许可</string>
     <string name="open_source_licenses_sub">查看本应用使用的开源组件</string>
