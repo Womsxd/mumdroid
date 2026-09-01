@@ -1,0 +1,69 @@
+// Copyright The Mumble Developers. All rights reserved.
+// Use of this source code is governed by a BSD-style license
+// that can be found in the LICENSE file at the root of the
+// Mumble source tree or at <https://www.mumble.info/LICENSE>.
+//
+// Vendored from official src/MumbleUDP.proto at
+// mumble 1ce8d4262 (v1.6.870-163-g1ce8d4262).
+// Android-only delta: java_package / java_multiple_files / LITE_RUNTIME.
+// Packets on the wire are: [1 header byte][serialized protobuf message]
+// where the header byte selects the message type (0 = Audio, 1 = Ping).
+// The framing is used both for OCB2-encrypted datagrams and for plaintext
+// bodies inside TCP UDPTunnel messages.
+syntax = "proto3";
+
+package MumbleUDP;
+
+option java_package = "dev.woms.mumdroid.core.udpproto";
+option java_outer_classname = "MumbleUDP";
+option java_multiple_files = true;
+option optimize_for = LITE_RUNTIME;
+
+message Audio {
+  oneof header {
+    // Set when sent by the client to the server: the target of the audio
+    // (0 = normal talking, 31 = server loopback, others = shout/whisper
+    // targets registered via a VoiceTarget message).
+    uint32 target = 1;
+    // Set when sent by the server to the client: the context of the audio
+    // (0 = normal speech, 1 = shout to channel, 2 = whisper to user,
+    // 3 = received via channel listener).
+    uint32 context = 2;
+  }
+
+  // Session of the sender. Always set by the server; not required from clients.
+  uint32 sender_session = 3;
+
+  // Number of the first contained audio frame.
+  uint64 frame_number = 4;
+
+  // The actual voice data payload in Opus format.
+  bytes opus_data = 5;
+
+  // Optional positional data (exactly X, Y, Z when present).
+  repeated float positional_data = 6;
+
+  // Volume adjustment determined by the server (0 means unset).
+  float volume_adjustment = 7;
+
+  // Whether this packet ends the current audio transmission.
+  bool is_terminator = 16;
+}
+
+message Ping {
+  // Timestamp as encoded by the client (echoed back unchanged by the server).
+  uint64 timestamp = 1;
+
+  // Set by a client that wants additional information about the server.
+  bool request_extended_information = 2;
+
+  // Server version in the new version format (only set in replies to
+  // extended-information pings).
+  uint64 server_version_v2 = 3;
+
+  uint32 user_count = 4;
+
+  uint32 max_user_count = 5;
+
+  uint32 max_bandwidth_per_user = 6;
+}

@@ -1,0 +1,7 @@
+# Keep the whole app code path from shrinking / obfuscation.
+-keep class dev.woms.mumdroid.** { *; }
+
+# JNI entry points called from native code (rnnoise_jni.c, speexdsp_jni.c).
+-keepclasseswithmembernames class dev.woms.mumdroid.** {
+    native <methods>;
+}

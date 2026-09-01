@@ -1,0 +1,6 @@
+[submodule "app/src/main/cpp/speexdsp"]
+	path = app/src/main/cpp/speexdsp
+	url = https://github.com/xiph/speexdsp.git
+[submodule "app/src/main/cpp/rnnoise"]
+	path = app/src/main/cpp/rnnoise
+	url = https://github.com/xiph/rnnoise.git
