@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment: ReleaseCI
     permissions:
       contents: write  # 创建 release 所需权限
     
