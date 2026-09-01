@@ -36,6 +36,10 @@ jobs:
           echo "Warning: KEYSTORE_BASE64 not set, skipping signing"
         fi
 
+    - name: Accept Android SDK Licenses
+      run: |
+        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || yes | $ANDROID_HOME/tools/bin/sdkmanager --licenses
+
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
     
