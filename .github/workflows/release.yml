@@ -138,7 +138,6 @@ jobs:
         generate_release_notes: true
         make_latest: true
         files: |
-          app/build/outputs/apk/debug/*.apk
           app/build/outputs/apk/release/*.apk
         fail_on_unmatched_files: true
       env:
@@ -150,5 +149,4 @@ jobs:
       with:
         name: apks-${{ steps.extract_version.outputs.version }}
         path: |
-          app/build/outputs/apk/debug/*.apk
           app/build/outputs/apk/release/*.apk
