@@ -17,6 +17,17 @@ android {
         version = release(37)
     }
 
+    signingConfigs {
+        create("release") {
+            if (System.getenv("KEYSTORE_FILE") != null) {
+                storeFile = file(System.getenv("KEYSTORE_FILE"))
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword =  System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "dev.woms.mumdroid"
         minSdk = 26
@@ -35,6 +46,7 @@ android {
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             // Enables R8 code shrinking and resource shrinking (AGP 9.3+ DSL).
             optimization {
                 enable = true
