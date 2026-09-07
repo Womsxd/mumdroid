@@ -1,9 +1,9 @@
 package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.R
+import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChatMessage
-import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.net.BanEntry
 import dev.woms.mumdroid.core.net.CertificateDecision
 import dev.woms.mumdroid.core.net.MumbleClient
@@ -91,6 +91,10 @@ internal class MumbleServiceEvents(private val svc: MumbleService) : MumbleListe
         svc.admin.handleAcl(svc.client, acl) { id, token ->
             svc.admin.persistAccessToken(id, token, svc.channelAccessTokenStore, svc.host, svc.port)
         }
+    }
+
+    override fun onQueryUsers(ids: List<Int>, names: List<String>) {
+        svc.admin.onQueryUsers(ids, names)
     }
 
     override fun onUserList(users: List<RegisteredUser>) = svc.admin.onUserList(users)

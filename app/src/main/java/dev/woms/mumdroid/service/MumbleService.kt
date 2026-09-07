@@ -11,6 +11,7 @@ import android.os.IBinder
 import androidx.core.content.ContextCompat
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ServerConnectionInfo
 import dev.woms.mumdroid.core.model.ServerRemoval
@@ -128,6 +129,8 @@ class MumbleService : Service() {
     val permissionEpoch: StateFlow<Int> get() = roster.permissionEpoch
     val listeningChannels: StateFlow<Set<Int>> get() = roster.listeningChannels
     val channelAclPassword get() = admin.channelAclPassword
+    val channelAcl get() = admin.channelAcl
+    val aclUserNames get() = admin.aclUserNames
     val selfMuted: StateFlow<Boolean> get() = voice.selfMuted
     val selfDeafened: StateFlow<Boolean> get() = voice.selfDeafened
     val talking: StateFlow<Boolean> get() = voice.talking
@@ -542,6 +545,22 @@ class MumbleService : Service() {
     fun canAddChannel(channelId: Int) = roster.canAddChannel(channelId)
     fun canMakePermanentChannel(channelId: Int) = roster.canMakePermanentChannel(channelId)
     fun canLinkChannel(channelId: Int) = roster.canLinkChannel(channelId)
+    fun canTraverse(channelId: Int) = roster.canTraverse(channelId)
+    fun canSpeak(channelId: Int) = roster.canSpeak(channelId)
+    fun canWhisper(channelId: Int) = roster.canWhisper(channelId)
+    fun canEnter(channelId: Int) = roster.canEnter(channelId)
+    fun canJoinChannel(channelId: Int) = roster.canJoinChannel(channelId)
+    fun canEditAcl(channelId: Int) = roster.canEditAcl(channelId)
+    fun canViewUserInfo(user: User) = roster.canViewUserInfo(user)
+
+    fun canResetUserContent(): Boolean {
+        val c = client ?: return false
+        return UserModeration.canResetUserContent(
+            roster.rootPermissions(),
+            c.serverVersionV2,
+            c.serverVersionLegacy,
+        )
+    }
 
     fun linkChannel(targetId: Int) = sessionChannels.link(targetId)
     fun unlinkChannel(targetId: Int) = sessionChannels.unlink(targetId)
@@ -571,6 +590,22 @@ class MumbleService : Service() {
     fun requestChannelDescription(channelId: Int) = sessionChannels.requestDescription(channelId)
 
     fun requestChannelAcl(channelId: Int) = admin.requestAcl(client, channelId)
+
+    fun sendChannelAcl(snapshot: ChanAclSnapshot) = admin.sendAcl(client, snapshot)
+
+    fun queryAclUsersByName(names: List<String>) = admin.queryUsersByName(client, names)
+
+    fun queryAclUsersById(ids: List<Int>) = admin.queryUsersById(client, ids)
+
+    fun setUserComment(session: Int, comment: String) =
+        admin.setUserComment(client, session, comment)
+
+    fun resetUserComment(session: Int) = admin.resetUserComment(client, session)
+
+    fun setUserTexture(session: Int, texture: ByteArray) =
+        admin.setUserTexture(client, session, texture)
+
+    fun resetUserTexture(session: Int) = admin.resetUserTexture(client, session)
 
     fun requestUserList(clear: Boolean = true) = admin.requestUserList(client, clear)
 

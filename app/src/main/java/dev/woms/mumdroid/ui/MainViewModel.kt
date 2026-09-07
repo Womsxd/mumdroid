@@ -14,7 +14,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.woms.mumdroid.R
+import dev.woms.mumdroid.core.model.AclUserNames
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.MumbleServer
 import dev.woms.mumdroid.core.model.ServerPingInfo
 import dev.woms.mumdroid.core.model.User
@@ -599,6 +601,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun canLinkChannel(channelId: Int): Boolean = service?.canLinkChannel(channelId) ?: false
 
+    fun canTraverse(channelId: Int): Boolean = service?.canTraverse(channelId) ?: false
+
+    fun canSpeak(channelId: Int): Boolean = service?.canSpeak(channelId) ?: false
+
+    fun canWhisper(channelId: Int): Boolean = service?.canWhisper(channelId) ?: false
+
+    fun canEnter(channelId: Int): Boolean = service?.canEnter(channelId) ?: false
+
+    fun canJoinChannel(channelId: Int): Boolean = service?.canJoinChannel(channelId) ?: false
+
+    fun canEditAcl(channelId: Int): Boolean = service?.canEditAcl(channelId) ?: false
+
+    fun canViewUserInfo(user: User): Boolean = service?.canViewUserInfo(user) ?: false
+
+    fun canResetUserContent(): Boolean = service?.canResetUserContent() ?: false
+
     fun linkChannel(targetId: Int) = service?.linkChannel(targetId)
 
     fun unlinkChannel(targetId: Int) = service?.unlinkChannel(targetId)
@@ -629,6 +647,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun requestChannelDescription(channelId: Int) = service?.requestChannelDescription(channelId)
 
     fun requestChannelAcl(channelId: Int) = service?.requestChannelAcl(channelId)
+
+    fun sendChannelAcl(snapshot: ChanAclSnapshot) = service?.sendChannelAcl(snapshot)
+
+    fun channelAclSnapshot(): ChanAclSnapshot? = service?.channelAcl?.value
+
+    fun aclUserNames(): AclUserNames = service?.aclUserNames?.value ?: AclUserNames()
+
+    fun queryAclUsersByName(names: List<String>) = service?.queryAclUsersByName(names)
+
+    fun queryAclUsersById(ids: List<Int>) = service?.queryAclUsersById(ids)
+
+    fun setUserComment(session: Int, comment: String) =
+        service?.setUserComment(session, comment)
+
+    fun resetUserComment(session: Int) = service?.resetUserComment(session)
+
+    fun setUserTexture(session: Int, texture: ByteArray) =
+        service?.setUserTexture(session, texture)
+
+    fun resetUserTexture(session: Int) = service?.resetUserTexture(session)
 
     /** Dismisses a kick/ban/ghost dialog after the service has already stopped. */
     fun acknowledgeServerRemoval() {

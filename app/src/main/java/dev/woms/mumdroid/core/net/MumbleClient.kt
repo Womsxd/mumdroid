@@ -5,8 +5,10 @@ import android.util.Log
 import com.google.protobuf.ByteString
 import com.google.protobuf.MessageLite
 import dev.woms.mumdroid.BuildConfig
+import dev.woms.mumdroid.core.model.ChanACL
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
+import dev.woms.mumdroid.core.model.ChanAclWrite
 import dev.woms.mumdroid.core.model.ChannelModeration
-import dev.woms.mumdroid.core.model.ChannelPasswordAcl
 import dev.woms.mumdroid.core.model.UserModeration
 import dev.woms.mumdroid.core.proto.ACL
 import dev.woms.mumdroid.core.proto.Authenticate
@@ -49,7 +51,6 @@ import javax.net.ssl.KeyManager
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
-import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
@@ -980,12 +981,48 @@ class MumbleClient(
 
     /** Desktop `ServerHandler::requestACL`: query=true. */
     fun requestAcl(channelId: Int) {
-        sendMessage(MessageType.ACL, ChannelPasswordAcl.query(channelId))
+        sendMessage(MessageType.ACL, ChanAclWrite.query(channelId))
     }
 
     /** Desktop `ACLEditor::accept` ACL write (query unset). */
     fun sendAcl(msg: ACL) {
         sendMessage(MessageType.ACL, msg)
+    }
+
+    /** Desktop `ACLEditor::accept` from a structured snapshot. */
+    fun sendAcl(snapshot: ChanAclSnapshot) {
+        sendAcl(ChanAclWrite.toWriteMessage(snapshot))
+    }
+
+    /**
+     * Desktop `ACLEditor::id` / name refresh: server fills the missing
+     * id↔name side and replies with QueryUsers.
+     */
+    fun queryUsers(ids: List<Int> = emptyList(), names: List<String> = emptyList()) {
+        val builder = QueryUsers.newBuilder()
+        ids.filter { it >= ChanACL.UserId.SUPERUSER }.forEach { builder.addIds(it) }
+        names.forEach { builder.addNames(it) }
+        sendMessage(MessageType.QUERY_USERS, builder.build())
+    }
+
+    /** Desktop `ServerHandler::setUserComment`. */
+    fun setUserComment(session: Int, comment: String) {
+        sendMessage(MessageType.USER_STATE, UserModeration.setComment(session, comment))
+    }
+
+    /** Desktop `on_qaUserCommentReset_triggered`. */
+    fun resetUserComment(session: Int) {
+        setUserComment(session, "")
+    }
+
+    /** Desktop `ServerHandler::setUserTexture`. */
+    fun setUserTexture(session: Int, texture: ByteArray) {
+        sendMessage(MessageType.USER_STATE, UserModeration.setTexture(session, texture))
+    }
+
+    /** Desktop `on_qaUserTextureReset_triggered`. */
+    fun resetUserTexture(session: Int) {
+        setUserTexture(session, ByteArray(0))
     }
 
     /** Desktop `ServerHandler::requestUserList`. */

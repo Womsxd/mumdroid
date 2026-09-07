@@ -1,28 +1,128 @@
 package dev.woms.mumdroid.core.model
 
+import dev.woms.mumdroid.core.model.ChanACL.CACHED
+import dev.woms.mumdroid.core.model.ChanACL.MOVE
+import dev.woms.mumdroid.core.model.ChanACL.UserId.ANY
+
+
 /**
- * Channel ACL permission bits from official `ChanACL::Perm`.
+ * Official `ChanACL::Perm` bits, special user/channel IDs, and ACL group
+ * names from desktop `ACL.h` / `Group.cpp` / `ACLEditor.cpp`.
  *
- * Kick/Ban/Write are evaluated on the root channel (id 0), matching the
- * desktop client's `Global::pPermissions` checks for the user context menu.
+ * Kick/Ban/Register/Write are evaluated on the root channel (id 0), matching
+ * the desktop client's `Global::pPermissions` checks for the user context menu.
  */
 object ChanACL {
+    const val NONE = 0x0
     const val WRITE = 0x1
+    const val TRAVERSE = 0x2
     const val ENTER = 0x4
+    const val SPEAK = 0x8
     const val MUTE_DEAFEN = 0x10
     const val MOVE = 0x20
     const val MAKE_CHANNEL = 0x40
     const val LINK_CHANNEL = 0x80
+    const val WHISPER = 0x100
     const val TEXT_MESSAGE = 0x200
     const val MAKE_TEMP_CHANNEL = 0x400
     const val LISTEN = 0x800
+
+    /** Root-channel only. */
     const val KICK = 0x10000
     const val BAN = 0x20000
     const val REGISTER = 0x40000
     const val SELF_REGISTER = 0x80000
+    const val RESET_USER_CONTENT = 0x100000
+
+    /** Cache marker used by Murmur `effectivePermissions`; not a grantable ACL. */
+    const val CACHED = 0x8000000
+
+    /**
+     * Official `ChanACL::All`: every grantable bit, excluding [CACHED].
+     */
+    const val ALL =
+        WRITE or TRAVERSE or ENTER or SPEAK or MUTE_DEAFEN or MOVE or
+            MAKE_CHANNEL or LINK_CHANNEL or WHISPER or TEXT_MESSAGE or
+            MAKE_TEMP_CHANNEL or LISTEN or KICK or BAN or REGISTER or
+            SELF_REGISTER or RESET_USER_CONTENT
+
+    /**
+     * Murmur default grants before any ACL is applied:
+     * `Traverse | Enter | Speak | Whisper | TextMessage | Listen`.
+     */
+    const val DEFAULT = TRAVERSE or ENTER or SPEAK or WHISPER or TEXT_MESSAGE or LISTEN
+
+    /**
+     * SuperUser (`user_id == 0`) effective mask: `All & ~(Speak | Whisper)`.
+     */
+    const val SUPERUSER_EFFECTIVE = ALL and SPEAK.inv() and WHISPER.inv()
+
+    /**
+     * Official `User::iId` sentinels: `-1` unregistered, `0` SuperUser.
+     * An ACL with [ANY] applies to a [Group] name instead of a user.
+     */
+    object UserId {
+        const val UNREGISTERED = -1
+        const val SUPERUSER = 0
+        const val ANY = -1
+    }
+
+    object ChannelId {
+        const val ROOT = 0
+    }
+
+    /**
+     * Official meta-group names and prefix modifiers from `Group::appliesToUser`
+     * and the desktop ACL editor preset list.
+     */
+    object Group {
+        const val NONE = "none"
+        const val ALL = "all"
+        const val AUTH = "auth"
+        const val STRONG = "strong"
+        const val IN = "in"
+        const val OUT = "out"
+        const val SUB = "sub"
+
+        /** Channel creator's admin group (not a meta-group). */
+        const val ADMIN = "admin"
+
+        const val INVERT = '!'
+        const val ACL_CONTEXT = '~'
+        const val ACCESS_TOKEN = '#'
+        const val CERT_HASH = '$'
+
+        val META = listOf(NONE, ALL, AUTH, STRONG, IN, OUT, SUB)
+
+        /** Desktop `ACLEditor` combo presets, including `~` context variants. */
+        val EDITOR_PRESETS = listOf(ALL, AUTH, IN, SUB, OUT, "~in", "~sub", "~out")
+    }
+
+    /**
+     * Official `PermissionDenied.DenyType` numeric IDs from `Mumble.proto`.
+     */
+    object DenyType {
+        const val TEXT = 0
+        const val PERMISSION = 1
+        const val SUPERUSER = 2
+        const val CHANNEL_NAME = 3
+        const val TEXT_TOO_LONG = 4
+        const val H9K = 5
+        const val TEMPORARY_CHANNEL = 6
+        const val MISSING_CERTIFICATE = 7
+        const val USER_NAME = 8
+        const val CHANNEL_FULL = 9
+        const val NESTING_LIMIT = 10
+        const val CHANNEL_COUNT_LIMIT = 11
+        const val CHANNEL_LISTENER_LIMIT = 12
+        const val USER_LISTENER_LIMIT = 13
+    }
+
+    fun has(permissions: Int, bit: Int): Boolean =
+        permissions and bit != 0
 
     fun canMuteDeafen(permissions: Int): Boolean =
-        permissions and MUTE_DEAFEN != 0
+        has(permissions, MUTE_DEAFEN)
 
     /**
      * Desktop mute / deaf / priority-speaker menu:
@@ -30,7 +130,7 @@ object ChanACL {
      * Murmur's effective permissions, so either bit is enough.
      */
     fun canMuteDeafenOrWrite(permissions: Int): Boolean =
-        permissions and (WRITE or MUTE_DEAFEN) != 0
+        has(permissions, WRITE or MUTE_DEAFEN)
 
     /**
      * Desktop `qaUserPrioritySpeaker->setEnabled`:
@@ -45,43 +145,88 @@ object ChanACL {
      * effective permissions, so either bit is enough to show the action.
      */
     fun canMove(permissions: Int): Boolean =
-        permissions and (WRITE or MOVE) != 0
+        has(permissions, WRITE or MOVE)
 
     /**
      * Desktop `qaUserTextMessage` / `qaChannelSendMessage`:
      * `pPermissions & (Write | TextMessage)`.
      */
     fun canTextMessage(permissions: Int): Boolean =
-        permissions and (WRITE or TEXT_MESSAGE) != 0
+        has(permissions, WRITE or TEXT_MESSAGE)
 
     /**
      * Desktop channel Listen: Write implies Listen in effective permissions.
      * Murmur still requires the Listen bit on the target channel.
      */
     fun canListen(permissions: Int): Boolean =
-        permissions and (WRITE or LISTEN) != 0
+        has(permissions, WRITE or LISTEN)
 
     /** Desktop `qaChannelAdd`: Write, MakeChannel, or MakeTempChannel. */
     fun canAddChannel(permissions: Int): Boolean =
-        permissions and (WRITE or MAKE_CHANNEL or MAKE_TEMP_CHANNEL) != 0
+        has(permissions, WRITE or MAKE_CHANNEL or MAKE_TEMP_CHANNEL)
 
     /**
      * Permanent channels need Write or MakeChannel on the parent. Without
      * those, desktop forces the Temporary checkbox.
      */
     fun canMakePermanentChannel(permissions: Int): Boolean =
-        permissions and (WRITE or MAKE_CHANNEL) != 0
+        has(permissions, WRITE or MAKE_CHANNEL)
 
     /** Desktop `qaChannelRemove` / `qaChannelACL` properties: Write. */
     fun canWrite(permissions: Int): Boolean =
-        permissions and WRITE != 0
+        has(permissions, WRITE)
 
     /**
      * Desktop `qaChannelLink` / `qaChannelUnlink`: Write implies LinkChannel
      * in effective permissions.
      */
     fun canLinkChannel(permissions: Int): Boolean =
-        permissions and (WRITE or LINK_CHANNEL) != 0
+        has(permissions, WRITE or LINK_CHANNEL)
+
+    /** Write implies Traverse in Murmur effective permissions. */
+    fun canTraverse(permissions: Int): Boolean =
+        has(permissions, WRITE or TRAVERSE)
+
+    /** Write implies Enter in Murmur effective permissions. */
+    fun canEnter(permissions: Int): Boolean =
+        has(permissions, WRITE or ENTER)
+
+    /** Desktop `qaChannelJoin`: Write | Enter. */
+    fun canJoinChannel(permissions: Int): Boolean = canEnter(permissions)
+
+    /**
+     * Desktop `qaChannelACL`: Write on this channel, or Write on root
+     * (`Global::pPermissions`).
+     */
+    fun canEditAcl(channelPermissions: Int, rootPermissions: Int): Boolean =
+        canWrite(channelPermissions) || canWrite(rootPermissions)
+
+    /**
+     * Desktop `qaUserInformation`:
+     * root Write|Register, channel Write|Enter, or the target is self.
+     */
+    fun canViewUserInfo(
+        rootPermissions: Int,
+        channelPermissions: Int,
+        isSelf: Boolean,
+    ): Boolean =
+        isSelf ||
+            has(rootPermissions, WRITE or REGISTER) ||
+            has(channelPermissions, WRITE or ENTER)
+
+    /**
+     * Speak is **not** implied by Write (SuperUser is `All & ~(Speak|Whisper)`).
+     */
+    fun canSpeak(permissions: Int): Boolean =
+        has(permissions, SPEAK)
+
+    /** Whisper is not implied by Write. */
+    fun canWhisper(permissions: Int): Boolean =
+        has(permissions, WHISPER)
+
+    /** Root-only: Write implies ResetUserContent in Murmur effective permissions. */
+    fun canResetUserContent(permissions: Int): Boolean =
+        has(permissions, WRITE or RESET_USER_CONTENT)
 
     /**
      * Desktop `qaUserMute->setEnabled`: MuteDeafen, and for self only when
@@ -97,19 +242,19 @@ object ChanACL {
 
     /** Desktop: `pPermissions & (Kick | Ban | Write)`. */
     fun canKick(permissions: Int): Boolean =
-        permissions and (KICK or BAN or WRITE) != 0
+        has(permissions, KICK or BAN or WRITE)
 
     /** Desktop: `pPermissions & (Ban | Write)`. */
     fun canBan(permissions: Int): Boolean =
-        permissions and (BAN or WRITE) != 0
+        has(permissions, BAN or WRITE)
 
     /** Desktop: `pPermissions & (SelfRegister | Write)`. */
     fun canSelfRegister(permissions: Int): Boolean =
-        permissions and (SELF_REGISTER or WRITE) != 0
+        has(permissions, SELF_REGISTER or WRITE)
 
     /** Desktop: `pPermissions & (Register | Write)`. */
     fun canRegisterOthers(permissions: Int): Boolean =
-        permissions and (REGISTER or WRITE) != 0
+        has(permissions, REGISTER or WRITE)
 
     /**
      * Desktop user-menu Register: unregistered, has a certificate, and the

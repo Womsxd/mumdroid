@@ -160,4 +160,89 @@ class ChanACLTest {
         assertFalse(ChanACL.canWrite(0))
         assertTrue(ChanACL.canWrite(ChanACL.WRITE))
     }
+
+    @Test
+    fun officialPermissionBits_matchDesktopAclH() {
+        assertEquals(0x0, ChanACL.NONE)
+        assertEquals(0x1, ChanACL.WRITE)
+        assertEquals(0x2, ChanACL.TRAVERSE)
+        assertEquals(0x4, ChanACL.ENTER)
+        assertEquals(0x8, ChanACL.SPEAK)
+        assertEquals(0x10, ChanACL.MUTE_DEAFEN)
+        assertEquals(0x20, ChanACL.MOVE)
+        assertEquals(0x40, ChanACL.MAKE_CHANNEL)
+        assertEquals(0x80, ChanACL.LINK_CHANNEL)
+        assertEquals(0x100, ChanACL.WHISPER)
+        assertEquals(0x200, ChanACL.TEXT_MESSAGE)
+        assertEquals(0x400, ChanACL.MAKE_TEMP_CHANNEL)
+        assertEquals(0x800, ChanACL.LISTEN)
+        assertEquals(0x10000, ChanACL.KICK)
+        assertEquals(0x20000, ChanACL.BAN)
+        assertEquals(0x40000, ChanACL.REGISTER)
+        assertEquals(0x80000, ChanACL.SELF_REGISTER)
+        assertEquals(0x100000, ChanACL.RESET_USER_CONTENT)
+        assertEquals(0x8000000, ChanACL.CACHED)
+        assertEquals(
+            ChanACL.WRITE or ChanACL.TRAVERSE or ChanACL.ENTER or ChanACL.SPEAK or
+                ChanACL.MUTE_DEAFEN or ChanACL.MOVE or ChanACL.MAKE_CHANNEL or
+                ChanACL.LINK_CHANNEL or ChanACL.WHISPER or ChanACL.TEXT_MESSAGE or
+                ChanACL.MAKE_TEMP_CHANNEL or ChanACL.LISTEN or ChanACL.KICK or
+                ChanACL.BAN or ChanACL.REGISTER or ChanACL.SELF_REGISTER or
+                ChanACL.RESET_USER_CONTENT,
+            ChanACL.ALL,
+        )
+        assertEquals(
+            ChanACL.TRAVERSE or ChanACL.ENTER or ChanACL.SPEAK or ChanACL.WHISPER or
+                ChanACL.TEXT_MESSAGE or ChanACL.LISTEN,
+            ChanACL.DEFAULT,
+        )
+        assertFalse(ChanACL.has(ChanACL.SUPERUSER_EFFECTIVE, ChanACL.SPEAK))
+        assertFalse(ChanACL.has(ChanACL.SUPERUSER_EFFECTIVE, ChanACL.WHISPER))
+        assertTrue(ChanACL.has(ChanACL.SUPERUSER_EFFECTIVE, ChanACL.WRITE))
+    }
+
+    @Test
+    fun specialIdsAndGroups_matchDesktop() {
+        assertEquals(-1, ChanACL.UserId.UNREGISTERED)
+        assertEquals(0, ChanACL.UserId.SUPERUSER)
+        assertEquals(0, ChanACL.ChannelId.ROOT)
+        assertEquals(
+            listOf("none", "all", "auth", "strong", "in", "out", "sub"),
+            ChanACL.Group.META,
+        )
+        assertEquals('#', ChanACL.Group.ACCESS_TOKEN)
+        assertEquals(1, ChanACL.DenyType.PERMISSION)
+        assertEquals(13, ChanACL.DenyType.USER_LISTENER_LIMIT)
+    }
+
+    @Test
+    fun speakAndWhisper_areNotImpliedByWrite() {
+        assertFalse(ChanACL.canSpeak(ChanACL.WRITE))
+        assertFalse(ChanACL.canWhisper(ChanACL.WRITE))
+        assertTrue(ChanACL.canSpeak(ChanACL.SPEAK))
+        assertTrue(ChanACL.canWhisper(ChanACL.WHISPER))
+        assertTrue(ChanACL.canTraverse(ChanACL.WRITE))
+        assertTrue(ChanACL.canEnter(ChanACL.WRITE))
+        assertTrue(ChanACL.canResetUserContent(ChanACL.WRITE))
+        assertTrue(ChanACL.canResetUserContent(ChanACL.RESET_USER_CONTENT))
+    }
+
+    @Test
+    fun joinAndEditAcl_matchDesktopMenus() {
+        assertTrue(ChanACL.canJoinChannel(ChanACL.ENTER))
+        assertTrue(ChanACL.canJoinChannel(ChanACL.WRITE))
+        assertFalse(ChanACL.canJoinChannel(ChanACL.SPEAK))
+        assertTrue(ChanACL.canEditAcl(ChanACL.WRITE, 0))
+        assertTrue(ChanACL.canEditAcl(0, ChanACL.WRITE))
+        assertFalse(ChanACL.canEditAcl(ChanACL.ENTER, ChanACL.REGISTER))
+    }
+
+    @Test
+    fun viewUserInfo_matchesDesktopMenu() {
+        assertTrue(ChanACL.canViewUserInfo(0, 0, isSelf = true))
+        assertTrue(ChanACL.canViewUserInfo(ChanACL.REGISTER, 0, isSelf = false))
+        assertTrue(ChanACL.canViewUserInfo(ChanACL.WRITE, 0, isSelf = false))
+        assertTrue(ChanACL.canViewUserInfo(0, ChanACL.ENTER, isSelf = false))
+        assertFalse(ChanACL.canViewUserInfo(0, ChanACL.SPEAK, isSelf = false))
+    }
 }

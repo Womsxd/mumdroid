@@ -1,5 +1,6 @@
 package dev.woms.mumdroid
 
+import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.ChannelPasswordAcl
 import dev.woms.mumdroid.core.proto.ACL
 import org.junit.Assert.assertEquals
@@ -120,6 +121,9 @@ class ChannelPasswordAclTest {
             .build()
         assertTrue(ChannelPasswordAcl.isPasswordDenyAll(deny))
     }
+
+    @Test
+    fun query_setsChannelAndQueryFlag() {
         val msg = ChannelPasswordAcl.query(9)
         assertEquals(9, msg.channelId)
         assertTrue(msg.query)
@@ -131,7 +135,7 @@ class ChannelPasswordAclTest {
             .setApplySubs(true)
             .setInherited(true)
             .setGroup("all")
-            .setGrant(ChannelPasswordAcl.TRAVERSE or 0x4)
+            .setGrant(ChanACL.TRAVERSE or ChanACL.ENTER)
             .build()
 
     private fun denyAll(): ACL.ChanACL =

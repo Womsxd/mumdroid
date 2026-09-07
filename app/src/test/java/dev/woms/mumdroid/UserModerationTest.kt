@@ -1,5 +1,6 @@
 package dev.woms.mumdroid
 
+import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.UserModeration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -150,6 +151,37 @@ class UserModerationTest {
         assertEquals(4, remove.session)
         assertTrue(remove.listeningChannelAddList.isEmpty())
         assertEquals(listOf(9), remove.listeningChannelRemoveList)
+    }
+
+    @Test
+    fun resetComment_sendsEmptyComment() {
+        val msg = UserModeration.resetComment(6)
+        assertEquals(6, msg.session)
+        assertTrue(msg.hasComment())
+        assertEquals("", msg.comment)
+    }
+
+    @Test
+    fun resetTexture_sendsEmptyTexture() {
+        val msg = UserModeration.resetTexture(2)
+        assertEquals(2, msg.session)
+        assertTrue(msg.hasTexture())
+        assertEquals(0, msg.texture.size())
+        val set = UserModeration.setTexture(2, byteArrayOf(1, 2, 3))
+        assertEquals(3, set.texture.size())
+    }
+
+    @Test
+    fun resetUserContent_usesMoveBefore14AndResetAfter() {
+        val v13 = (1L shl 48) or (3L shl 32)
+        val v14 = (1L shl 48) or (4L shl 32)
+        assertFalse(UserModeration.canResetUserContent(ChanACL.MOVE, v14))
+        assertTrue(UserModeration.canResetUserContent(ChanACL.RESET_USER_CONTENT, v14))
+        assertTrue(UserModeration.canResetUserContent(ChanACL.WRITE, v14))
+        assertTrue(UserModeration.canResetUserContent(ChanACL.MOVE, v13))
+        assertFalse(UserModeration.canResetUserContent(ChanACL.RESET_USER_CONTENT, v13))
+        assertFalse(UserModeration.supportsResetUserContentPermission(v13))
+        assertTrue(UserModeration.supportsResetUserContentPermission(0, legacyVersion = 0x010400))
     }
 
     @Test

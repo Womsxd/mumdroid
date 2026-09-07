@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.model
 
+import com.google.protobuf.ByteString
 import dev.woms.mumdroid.core.proto.UserRemove
 import dev.woms.mumdroid.core.proto.UserState
 
@@ -42,8 +43,31 @@ object UserModeration {
     fun register(session: Int): UserState =
         UserState.newBuilder()
             .setSession(session)
-            .setUserId(0)
+            .setUserId(ChanACL.UserId.SUPERUSER)
             .build()
+
+    /** Desktop `ServerHandler::setUserComment`. Empty [comment] clears it. */
+    fun setComment(session: Int, comment: String): UserState =
+        UserState.newBuilder()
+            .setSession(session)
+            .setComment(comment)
+            .build()
+
+    /** Desktop `on_qaUserCommentReset_triggered`: comment = "". */
+    fun resetComment(session: Int): UserState = setComment(session, "")
+
+    /**
+     * Desktop `ServerHandler::setUserTexture` on servers >= 1.2.2 (raw bytes).
+     * Empty [texture] clears the avatar.
+     */
+    fun setTexture(session: Int, texture: ByteArray): UserState =
+        UserState.newBuilder()
+            .setSession(session)
+            .setTexture(ByteString.copyFrom(texture))
+            .build()
+
+    /** Desktop `on_qaUserTextureReset_triggered`: empty texture. */
+    fun resetTexture(session: Int): UserState = setTexture(session, ByteArray(0))
 
     /**
      * Desktop `MainWindow::on_qaUserPrioritySpeaker_triggered`:
@@ -111,7 +135,34 @@ object UserModeration {
     /**
      * Desktop hides Listen unless the server is >= 1.4.0.
      */
-    fun supportsChannelListen(versionV2: Long, legacyVersion: Int = 0): Boolean {
+    fun supportsChannelListen(versionV2: Long, legacyVersion: Int = 0): Boolean =
+        isAtLeast14(versionV2, legacyVersion)
+
+    /**
+     * Desktop `qaUserCommentReset` / `qaUserTextureReset` on 1.4.0+ use
+     * `ResetUserContent | Write` on root. Older servers fall back to
+     * `Move | Write`.
+     */
+    fun canResetUserContent(
+        rootPermissions: Int,
+        versionV2: Long,
+        legacyVersion: Int = 0,
+    ): Boolean {
+        val bits = if (supportsResetUserContentPermission(versionV2, legacyVersion)) {
+            ChanACL.WRITE or ChanACL.RESET_USER_CONTENT
+        } else {
+            ChanACL.WRITE or ChanACL.MOVE
+        }
+        return ChanACL.has(rootPermissions, bits)
+    }
+
+    /** Official `ResetUserContent` exists from 1.4.0. */
+    fun supportsResetUserContentPermission(
+        versionV2: Long,
+        legacyVersion: Int = 0,
+    ): Boolean = isAtLeast14(versionV2, legacyVersion)
+
+    private fun isAtLeast14(versionV2: Long, legacyVersion: Int): Boolean {
         val v2 = if (versionV2 != 0L) versionV2 else legacyToV2(legacyVersion)
         return v2 >= CHANNEL_LISTEN_VERSION_V2
     }

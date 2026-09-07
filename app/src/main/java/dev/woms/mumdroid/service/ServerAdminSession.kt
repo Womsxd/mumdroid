@@ -1,6 +1,9 @@
 package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.core.model.AccessTokens
+import dev.woms.mumdroid.core.model.AclUserNames
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
+import dev.woms.mumdroid.core.model.ChanAclWrite
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelPasswordAcl
@@ -57,6 +60,12 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
 
     private val _channelAclPassword = MutableStateFlow<ChannelAclPassword?>(null)
     val channelAclPassword: StateFlow<ChannelAclPassword?> = _channelAclPassword
+
+    private val _channelAcl = MutableStateFlow<ChanAclSnapshot?>(null)
+    val channelAcl: StateFlow<ChanAclSnapshot?> = _channelAcl
+
+    private val _aclUserNames = MutableStateFlow(AclUserNames())
+    val aclUserNames: StateFlow<AclUserNames> = _aclUserNames
 
     private val _channelPasswordPrompt = MutableStateFlow<ChannelPasswordPrompt?>(null)
     val channelPasswordPrompt: StateFlow<ChannelPasswordPrompt?> = _channelPasswordPrompt
@@ -151,6 +160,7 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
 
     fun onAcl(acl: dev.woms.mumdroid.core.proto.ACL): Pair<dev.woms.mumdroid.core.proto.ACL, String>? {
         lastAclQuery = acl
+        _channelAcl.value = ChanAclWrite.fromProto(acl)
         _channelAclPassword.value = ChannelAclPassword(
             acl.channelId,
             ChannelPasswordAcl.extractPassword(acl),
@@ -351,6 +361,43 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
         scope.launch { c.requestAcl(channelId) }
     }
 
+    fun sendAcl(client: MumbleClient?, snapshot: ChanAclSnapshot) {
+        val c = client ?: return
+        scope.launch { c.sendAcl(snapshot) }
+    }
+
+    fun queryUsersByName(client: MumbleClient?, names: List<String>) {
+        if (names.isEmpty()) return
+        val c = client ?: return
+        scope.launch { c.queryUsers(names = names) }
+    }
+
+    fun queryUsersById(client: MumbleClient?, ids: List<Int>) {
+        if (ids.isEmpty()) return
+        val c = client ?: return
+        scope.launch { c.queryUsers(ids = ids) }
+    }
+
+    fun onQueryUsers(ids: List<Int>, names: List<String>) {
+        _aclUserNames.value = _aclUserNames.value.merge(ids, names)
+    }
+
+    fun setUserComment(client: MumbleClient?, session: Int, comment: String) {
+        client?.setUserComment(session, comment)
+    }
+
+    fun resetUserComment(client: MumbleClient?, session: Int) {
+        client?.resetUserComment(session)
+    }
+
+    fun setUserTexture(client: MumbleClient?, session: Int, texture: ByteArray) {
+        client?.setUserTexture(session, texture)
+    }
+
+    fun resetUserTexture(client: MumbleClient?, session: Int) {
+        client?.resetUserTexture(session)
+    }
+
     fun banUser(
         client: MumbleClient?,
         session: Int,
@@ -462,6 +509,8 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
         lastAclQuery = null
         pendingPasswordApply = null
         pendingCreatePassword = null
+        _channelAcl.value = null
+        _aclUserNames.value = AclUserNames()
         _channelAclPassword.value = null
         _registeredUsers.value = null
         _banList.value = null

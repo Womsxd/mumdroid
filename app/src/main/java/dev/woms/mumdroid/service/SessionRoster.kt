@@ -276,15 +276,15 @@ internal class SessionRoster(private val scope: CoroutineScope) {
     fun canMoveInChannel(channelId: Int): Boolean =
         ChanACL.canMove(permissions(channelId))
 
-    fun canKickUser(): Boolean = ChanACL.canKick(permissions(0))
+    fun canKickUser(): Boolean = ChanACL.canKick(rootPermissions())
 
-    fun canBanUser(): Boolean = ChanACL.canBan(permissions(0))
+    fun canBanUser(): Boolean = ChanACL.canBan(rootPermissions())
 
-    fun canEditRegisteredUsers(): Boolean = ChanACL.canRegisterOthers(permissions(0))
+    fun canEditRegisteredUsers(): Boolean = ChanACL.canRegisterOthers(rootPermissions())
 
     fun canRegisterUser(user: User): Boolean =
         ChanACL.canOfferRegister(
-            permissions(0),
+            rootPermissions(),
             isSelf = user.isLocalUser,
             isRegistered = user.isRegistered,
             hasCertificate = user.hash.isNotEmpty(),
@@ -307,6 +307,33 @@ internal class SessionRoster(private val scope: CoroutineScope) {
 
     fun canLinkChannel(channelId: Int): Boolean =
         ChanACL.canLinkChannel(permissions(channelId))
+
+    fun canTraverse(channelId: Int): Boolean =
+        ChanACL.canTraverse(permissions(channelId))
+
+    fun canSpeak(channelId: Int): Boolean =
+        ChanACL.canSpeak(permissions(channelId))
+
+    fun canWhisper(channelId: Int): Boolean =
+        ChanACL.canWhisper(permissions(channelId))
+
+    fun canEnter(channelId: Int): Boolean =
+        ChanACL.canEnter(permissions(channelId))
+
+    fun canJoinChannel(channelId: Int): Boolean =
+        ChanACL.canJoinChannel(permissions(channelId))
+
+    fun canEditAcl(channelId: Int): Boolean =
+        ChanACL.canEditAcl(permissions(channelId), rootPermissions())
+
+    fun canViewUserInfo(user: User): Boolean =
+        ChanACL.canViewUserInfo(
+            rootPermissions(),
+            permissions(user.channelId),
+            isSelf = user.isLocalUser,
+        )
+
+    fun rootPermissions(): Int = permissions(ChanACL.ChannelId.ROOT)
 
     fun clear() {
         channelMap.clear()
