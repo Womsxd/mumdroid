@@ -159,6 +159,10 @@ internal class ConnectionNotifications(private val service: Service) {
         return session to (actorName to text)
     }
 
+    fun stopForeground() {
+        service.stopForeground(Service.STOP_FOREGROUND_REMOVE)
+    }
+
     fun cancelChat() {
         val manager = service.getSystemService(NotificationManager::class.java) ?: return
         privateChatNotifIds.forEach { manager.cancel(it) }

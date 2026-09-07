@@ -1,35 +1,33 @@
 package dev.woms.mumdroid.ui
 
 import android.app.Application
+import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.MumbleServer
-import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.core.model.ChannelAclPassword
-import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
-import dev.woms.mumdroid.core.model.CertificatePrompt
-import dev.woms.mumdroid.core.model.ServerConnectionInfo
-import dev.woms.mumdroid.core.model.ServerRemoval
-import dev.woms.mumdroid.core.model.UserConnectionInfo
-import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.model.ServerPingInfo
+import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.UserCertificate
-import dev.woms.mumdroid.core.net.BanEntry
-import dev.woms.mumdroid.core.net.RegisteredUser
+import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.model.pingKey
+import dev.woms.mumdroid.core.net.BanEntry
 import dev.woms.mumdroid.core.net.ServerListPinger
 import dev.woms.mumdroid.data.CertificateStore
 import dev.woms.mumdroid.data.ServerStore
 import dev.woms.mumdroid.data.SettingsStore
 import dev.woms.mumdroid.data.db.CertificateEntity
 import dev.woms.mumdroid.service.MumbleService
-import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -99,8 +97,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _connectionState = MutableStateFlow(ConnectionState())
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    private val service: MumbleService?
-        get() = MumbleService.current()
+    private val app: Application
+        get() = getApplication()
+
+    @Volatile
+    private var service: MumbleService? = null
+    private var serviceBound = false
+    private var attachJob: Job? = null
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+            val svc = (binder as MumbleService.LocalBinder).service()
+            service = svc
+            attachToService(svc)
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            detachFromService()
+            service = null
+            serviceBound = false
+            clearStaleConnectionState()
+        }
+
+        override fun onBindingDied(name: ComponentName) {
+            detachFromService()
+            service = null
+            serviceBound = false
+            clearStaleConnectionState()
+            bindToRunningService()
+        }
+    }
+
+    private val sessionLeftReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != MumbleService.ACTION_SESSION_LEFT) return
+            detachFromService()
+            unbindService()
+            clearStaleConnectionState()
+        }
+    }
 
     /**
      * Grace window (ms) during which the optimistic "connecting" flag set by
@@ -167,52 +202,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             certificateStore.certificates.collect { _certificates.value = it }
         }
-        viewModelScope.launch {
-            while (isActive) {
-                val svc = service
-                if (svc == null) {
-                    // The service is gone; drop any stale connection state so
-                    // a leftover "connecting" flag cannot make the UI believe
-                    // a session is still being established.
-                    clearStaleConnectionState()
-                    kotlinx.coroutines.delay(200)
-                    continue
-                }
-                coroutineScope {
-                    _connectionState.value = snapshotFrom(svc)
-                    val collectors = bindServiceFlows(svc)
-                    // Wait until this service instance is replaced (a manual
-                    // disconnect stops the service; the next connect starts a
-                    // new instance).
-                    while (service === svc && isActive) {
-                        delay(1000)
-                        // Latency and UDP crypt counters change without a
-                        // StateFlow emission; patch only serverInfo so the
-                        // info dialog stays live without rebuilding the rest
-                        // of the session snapshot.
-                        if (svc.connected.value) {
-                            val info = svc.connectionInfo()
-                            _connectionState.update { current ->
-                                if (current.serverInfo == info) current
-                                else current.copy(serverInfo = info)
-                            }
+        ContextCompat.registerReceiver(
+            app,
+            sessionLeftReceiver,
+            IntentFilter(MumbleService.ACTION_SESSION_LEFT),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        bindToRunningService()
+    }
+
+    override fun onCleared() {
+        try {
+            app.unregisterReceiver(sessionLeftReceiver)
+        } catch (_: IllegalArgumentException) {
+        }
+        detachFromService()
+        unbindService()
+        pinger.stop()
+        super.onCleared()
+    }
+
+    /**
+     * Attaches if the voice service is already running. Does not start it —
+     * BIND_AUTO_CREATE would spawn an empty background service.
+     */
+    private fun bindToRunningService(autoCreate: Boolean = false) {
+        if (serviceBound) return
+        val flags = if (autoCreate) Context.BIND_AUTO_CREATE else 0
+        serviceBound = app.bindService(
+            Intent(app, MumbleService::class.java),
+            serviceConnection,
+            flags,
+        )
+    }
+
+    private fun unbindService() {
+        if (!serviceBound) return
+        try {
+            app.unbindService(serviceConnection)
+        } catch (_: IllegalArgumentException) {
+        }
+        serviceBound = false
+        service = null
+    }
+
+    private fun attachToService(svc: MumbleService) {
+        attachJob?.cancel()
+        attachJob = viewModelScope.launch {
+            _connectionState.value = snapshotFrom(svc)
+            coroutineScope {
+                val collectors = bindServiceFlows(svc)
+                while (isActive && service === svc) {
+                    delay(1000)
+                    // Latency and UDP crypt counters change without a
+                    // StateFlow emission; patch only serverInfo so the
+                    // info dialog stays live without rebuilding the rest
+                    // of the session snapshot.
+                    if (svc.connected.value) {
+                        val info = svc.connectionInfo()
+                        _connectionState.update { current ->
+                            if (current.serverInfo == info) current
+                            else current.copy(serverInfo = info)
                         }
                     }
-                    // StateFlow.collect never completes on its own: without
-                    // cancelling the collectors, coroutineScope would hang on
-                    // them forever and this loop could never re-attach to the
-                    // new service instance — which froze the UI on the
-                    // "connecting" spinner after a disconnect → reconnect.
-                    collectors.forEach { it.cancel() }
                 }
-                // Loop around and attach to the new service instance.
+                collectors.forEach { it.cancel() }
             }
         }
     }
 
-    override fun onCleared() {
-        pinger.stop()
-        super.onCleared()
+    private fun detachFromService() {
+        attachJob?.cancel()
+        attachJob = null
     }
 
     /**
@@ -406,6 +467,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             serverRemoval = null,
         )
         app.startForegroundServiceCompat(intent)
+        bindToRunningService(autoCreate = true)
         viewModelScope.launch { store.markConnected(server) }
     }
 

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
+import android.os.Binder
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import dev.woms.mumdroid.R
@@ -56,11 +57,6 @@ class MumbleService : Service() {
         private const val ACTION_RECONNECT_NOW = "dev.woms.mumdroid.action.RECONNECT_NOW"
 
         const val ACTION_SESSION_LEFT = "dev.woms.mumdroid.action.SESSION_LEFT"
-
-        @Volatile
-        private var instance: MumbleService? = null
-
-        fun current(): MumbleService? = instance
 
         fun connectIntent(
             context: Context,
@@ -163,6 +159,12 @@ class MumbleService : Service() {
     internal var port = 64738
     internal var serverMaxUsers = 0
 
+    inner class LocalBinder : Binder() {
+        fun service(): MumbleService = this@MumbleService
+    }
+
+    private val binder = LocalBinder()
+
     fun favoriteId(): Long = lastConnectParams?.serverId ?: connectedServerId
 
     private val privateReplyReceiver = object : BroadcastReceiver() {
@@ -213,7 +215,6 @@ class MumbleService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
         settingsStore = SettingsStore(this)
         certificateStore = CertificateStore(this)
         userCertificateStore = UserCertificateStore(this)
@@ -386,6 +387,7 @@ class MumbleService : Service() {
                 voice.resetEncodeToSettings(currentSettings)
             }
             notifications.cancelChat()
+            notifications.stopForeground()
             sendBroadcast(Intent(ACTION_SESSION_LEFT).setPackage(packageName))
             stopSelf()
         }
@@ -632,11 +634,10 @@ class MumbleService : Service() {
         forceTcp = forceTcp,
     )
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
         super.onDestroy()
-        instance = null
         try {
             unregisterReceiver(privateReplyReceiver)
         } catch (_: IllegalArgumentException) {
