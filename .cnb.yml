@@ -7,3 +7,33 @@ $:
       services:
         - vscode
         - docker
+
+.task-ci-base: &task-ci-base
+  - runner:
+      cpus: 1
+    docker:
+      image: docker.cnb.cool/womsxd/base/fedora-base-env:latest
+
+.check-repo: &check-repo
+  stages:
+    - name: check_repo
+      script: |
+        if [ "${CNB_REPO_SLUG_LOWERCASE}" != "womsxd/mumdroid" ]; then
+          echo "❌ 定时同步仅允许在 womsxd/mumdroid 仓库执行"
+          exit 78
+        fi
+        echo "✅ 仓库验证通过"
+
+.github-sync: &github-sync
+  stages:
+    - name: sync
+      script: |
+        git clone --bare https://github.com/Womsxd/mumdroid.git syncRepo
+        cd syncRepo
+        git push --prune ${CNB_REPO_URL_HTTPS} '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+
+master:
+  "crontab: 0 6 * * *":
+    - <<: [*task-ci-base, *check-repo, *github-sync]
+  web_trigger_sync:
+    - <<: [*task-ci-base, *github-sync]
