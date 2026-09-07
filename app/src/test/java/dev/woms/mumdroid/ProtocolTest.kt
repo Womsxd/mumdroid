@@ -500,6 +500,22 @@ class ProtocolTest {
     }
 
     @Test
+    fun ocb2_clearKeysReturnsFailureInsteadOfThrowing() {
+        val crypt = CryptOCB2()
+        crypt.setKey(crypt.generateKey())
+        crypt.setNonce(crypt.generateNonce())
+        crypt.clearKeys()
+        val payload = ByteArray(16) { it.toByte() }
+        assertEquals(0, crypt.encrypt(ByteArray(16), payload, ByteArray(16)))
+        assertEquals(-1, crypt.decrypt(ByteArray(16), payload, ByteArray(3)))
+        val state = CryptState()
+        state.setKey(ByteArray(16) { it.toByte() }, ByteArray(16), ByteArray(16))
+        state.reset()
+        assertNull(state.encrypt(payload))
+        assertNull(state.decrypt(ByteArray(20)))
+    }
+
+    @Test
     fun cryptState_resyncCountsNonceNotFullKey() {
         val key = ByteArray(16) { it.toByte() }
         val clientNonce = ByteArray(16) { 1 }

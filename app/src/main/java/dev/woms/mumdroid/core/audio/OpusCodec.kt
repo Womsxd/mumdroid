@@ -1,10 +1,11 @@
 package dev.woms.mumdroid.core.audio
 
+import android.util.Log
+import dev.woms.mumdroid.core.audio.OpusCodec.Companion.DECODER_TTL_MS
 import io.github.jaredmdobson.concentus.OpusApplication
 import io.github.jaredmdobson.concentus.OpusDecoder
 import io.github.jaredmdobson.concentus.OpusEncoder
 import io.github.jaredmdobson.concentus.OpusException
-import android.util.Log
 
 /**
  * A thin wrapper around the Concentus Opus codec (a pure-Java port of libopus)
@@ -259,7 +260,7 @@ class OpusCodec {
      *                     the decoder is reset afterwards to avoid state bleed.
      */
     fun decodeForSession(session: Int, packet: ByteArray, isTerminator: Boolean = false): ShortArray? {
-        val dec = getOrCreateDecoder(session)
+        val dec = getOrCreateDecoder(session) ?: return null
         // Allocate per-call buffer to avoid sharing pcmBuffer across threads
         // (UDP thread vs. TCP-tunnel thread can decode concurrently).
         val out = ShortArray(MAX_PACKET)
@@ -287,7 +288,7 @@ class OpusCodec {
      * lost in transit").
      */
     fun decodePlc(session: Int, frameSize: Int): ShortArray? {
-        val dec = getOrCreateDecoder(session)
+        val dec = getOrCreateDecoder(session) ?: return null
         val out = ShortArray(frameSize.coerceAtMost(MAX_PACKET))
         return try {
             val len = synchronized(dec) {
@@ -334,16 +335,16 @@ class OpusCodec {
         }
     }
 
-    private fun getOrCreateDecoder(session: Int): OpusDecoder {
+    private fun getOrCreateDecoder(session: Int): OpusDecoder? {
         decoderLastUse[session] = System.currentTimeMillis()
         // Periodic reap (cheap, ~once per 100 decodes)
         if ((decoderLastUse.size and 0x7F) == 0) reapIdleDecoders()
-        return decoders.computeIfAbsent(session) {
-            try {
-                OpusDecoder(SAMPLE_RATE, CHANNELS)
-            } catch (e: OpusException) {
-                throw IllegalStateException("Failed to create Opus decoder for session $session", e)
-            }
+        return try {
+            decoders.computeIfAbsent(session) { OpusDecoder(SAMPLE_RATE, CHANNELS) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to create Opus decoder for session $session", e)
+            decoderLastUse.remove(session)
+            null
         }
     }
 

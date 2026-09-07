@@ -142,7 +142,7 @@ class CryptOCB2 {
         if (!validSlice(input, inputOffset, inputLength)) return 0
         if (!validSlice(output, outputOffset, inputLength)) return 0
 
-        var delta = aesBlock(nonce)
+        var delta = aesBlock(nonce) ?: return 0
         var written = 0
 
         val checksum = ByteArray(BLOCK_SIZE)
@@ -167,7 +167,7 @@ class CryptOCB2 {
                 tmp[0] = (tmp[0].toInt() xor 1).toByte()
             }
 
-            val enc = aesBlock(tmp)
+            val enc = aesBlock(tmp) ?: return 0
             xorBlock(output, outputOffset + written, delta, 0, enc, 0)
             written += BLOCK_SIZE
 
@@ -186,7 +186,7 @@ class CryptOCB2 {
         tmp[BLOCK_SIZE - 1] = (len * 8).toByte()
         xorBlock(tmp, 0, delta, 0)
 
-        val pad = aesBlock(tmp)
+        val pad = aesBlock(tmp) ?: return 0
 
         // tmpBytes = plaintext || pad_tail (matching the reference algorithm)
         tmp.fill(0)
@@ -203,7 +203,7 @@ class CryptOCB2 {
         if (tag.isNotEmpty()) {
             delta = s3(delta)
             xorBlock(tmp, 0, delta, 0, checksum, 0)
-            val computedTag = aesBlock(tmp)
+            val computedTag = aesBlock(tmp) ?: return 0
             System.arraycopy(computedTag, 0, tag, 0, BLOCK_SIZE)
         }
 
@@ -232,7 +232,7 @@ class CryptOCB2 {
         if (inputLength < 0 || !validSlice(input, inputOffset, inputLength)) return -1
         if (!validSlice(output, 0, inputLength)) return -1
 
-        var delta = aesBlock(nonce)
+        var delta = aesBlock(nonce) ?: return -1
         var written = 0
 
         val checksum = ByteArray(BLOCK_SIZE)
@@ -243,7 +243,7 @@ class CryptOCB2 {
         while (inputEnd - inOffset > BLOCK_SIZE) {
             delta = s2(delta)
             xorBlock(tmp, 0, delta, 0, input, inOffset)
-            val dec = aesBlockDecrypt(tmp)
+            val dec = aesBlockDecrypt(tmp) ?: return -1
             xorBlock(output, written, delta, 0, dec, 0)
             written += BLOCK_SIZE
 
@@ -259,7 +259,7 @@ class CryptOCB2 {
         tmp[BLOCK_SIZE - 1] = (len * 8).toByte()
         xorBlock(tmp, 0, delta, 0)
 
-        val pad = aesBlock(tmp)
+        val pad = aesBlock(tmp) ?: return -1
 
         // tmpBytes = ciphertext || zeros
         tmp.fill(0)
@@ -289,7 +289,7 @@ class CryptOCB2 {
         if (tag.isNotEmpty()) {
             delta = s3(delta)
             xorBlock(tmp, 0, delta, 0, checksum, 0)
-            val computedTag = aesBlock(tmp)
+            val computedTag = aesBlock(tmp) ?: return -1
             // libmumble `std::equal(tag.begin(), tag.end(), retrievedTag)`:
             // the wire header only carries 3 tag bytes (`CryptStateOCB2`).
             if (tag.size > computedTag.size) return -1
@@ -309,14 +309,27 @@ class CryptOCB2 {
 
     // ---- helpers ----
 
-    private fun aesBlock(input: ByteArray): ByteArray {
-        val cipher = encryptCipher ?: error("OCB2 encrypt cipher not initialised")
-        return cipher.doFinal(input)
+    /**
+     * One AES block. Returns null instead of throwing when the cipher was
+     * dropped ([clearKeys] / failed [setKey]) so a future refactor cannot
+     * crash the audio thread with [IllegalStateException].
+     */
+    private fun aesBlock(input: ByteArray): ByteArray? {
+        val cipher = encryptCipher ?: return null
+        return try {
+            cipher.doFinal(input)
+        } catch (_: GeneralSecurityException) {
+            null
+        }
     }
 
-    private fun aesBlockDecrypt(input: ByteArray): ByteArray {
-        val cipher = decryptCipher ?: error("OCB2 decrypt cipher not initialised")
-        return cipher.doFinal(input)
+    private fun aesBlockDecrypt(input: ByteArray): ByteArray? {
+        val cipher = decryptCipher ?: return null
+        return try {
+            cipher.doFinal(input)
+        } catch (_: GeneralSecurityException) {
+            null
+        }
     }
 
     private fun xorBlock(dst: ByteArray, dstOffset: Int, a: ByteArray, aOffset: Int) {
