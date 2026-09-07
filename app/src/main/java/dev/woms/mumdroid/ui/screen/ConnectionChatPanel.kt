@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.ui.screen
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -26,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -38,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChatMessage
+import dev.woms.mumdroid.core.model.ChatTime
 import dev.woms.mumdroid.core.model.User
 
 /** Chat panel with inline @ (private message) and # (channel) pickers. */
@@ -70,24 +74,49 @@ private fun ChatMessageList(
     messages: List<ChatMessage>,
     modifier: Modifier = Modifier,
 ) {
+    val use24Hour = DateFormat.is24HourFormat(LocalContext.current)
     LazyColumn(
         modifier = modifier,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
     ) {
-        items(messages) { msg ->
-            ChatMessageItem(msg)
+        itemsIndexed(messages) { index, msg ->
+            val previous = messages.getOrNull(index - 1)
+            if (previous == null || !ChatTime.sameLocalDate(previous.timestamp, msg.timestamp)) {
+                ChatDateChangedItem(msg.timestamp)
+            }
+            ChatMessageItem(msg, use24Hour)
         }
     }
 }
 
 @Composable
-private fun ChatMessageItem(msg: ChatMessage) {
+private fun ChatDateChangedItem(timestamp: Long) {
+    Text(
+        text = stringResource(R.string.chat_date_changed, ChatTime.formatDate(timestamp)),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontStyle = FontStyle.Italic,
+        modifier = Modifier.padding(vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun ChatMessageItem(msg: ChatMessage, use24Hour: Boolean) {
     val colorScheme = MaterialTheme.colorScheme
+    val timeLabel = remember(msg.timestamp, use24Hour) {
+        ChatTime.formatTime(msg.timestamp, use24Hour)
+    }
     if (msg.isSystem) {
         // System/server messages (incl. join/leave/move hints) are
         // shown without a sender prefix.
         Text(
-            text = msg.text,
+            text = buildAnnotatedString {
+                withStyle(SpanStyle(color = colorScheme.onSurfaceVariant)) {
+                    append(timeLabel)
+                    append(" ")
+                }
+                append(msg.text)
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontStyle = FontStyle.Italic,
@@ -125,6 +154,10 @@ private fun ChatMessageItem(msg: ChatMessage) {
         ) {
             Text(
                 text = buildAnnotatedString {
+                    withStyle(SpanStyle(color = colorScheme.onSurfaceVariant)) {
+                        append(timeLabel)
+                        append(" ")
+                    }
                     withStyle(
                         SpanStyle(
                             color = if (isPrivate) colorScheme.primary

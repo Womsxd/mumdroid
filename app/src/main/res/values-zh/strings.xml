@@ -262,6 +262,7 @@
     <!-- Chat message header context: sender → channel / private recipient. -->
     <string name="chat_channel_header">%1$s → #%2$s</string>
     <string name="chat_private_header">%1$s → @%2$s</string>
+    <string name="chat_date_changed">[日期变更为 %1$s]</string>
     <string name="udp_unavailable_remembered">掉线前已判定此服务器 UDP 不可用。语音将继续走 TCP，直到 UDP 恢复。</string>
     <string name="udp_unavailable_both">UDP 数据包无法发送到服务器或从服务器接收。将切换为 TCP 模式。</string>
     <string name="udp_unavailable_send">UDP 数据包无法发送到服务器。将切换为 TCP 模式。</string>

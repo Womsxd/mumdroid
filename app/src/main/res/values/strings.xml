@@ -262,6 +262,7 @@
     <!-- Chat message header context: sender → channel / private recipient. -->
     <string name="chat_channel_header">%1$s → #%2$s</string>
     <string name="chat_private_header">%1$s → @%2$s</string>
+    <string name="chat_date_changed">[Date changed to %1$s]</string>
     <string name="udp_unavailable_remembered">UDP was marked unusable after the last drop. Voice will stay on TCP until UDP works again.</string>
     <string name="udp_unavailable_both">UDP packets cannot be sent to or received from the server. Switching to TCP mode.</string>
     <string name="udp_unavailable_send">UDP packets cannot be sent to the server. Switching to TCP mode.</string>
