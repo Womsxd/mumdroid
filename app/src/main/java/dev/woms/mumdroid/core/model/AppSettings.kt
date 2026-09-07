@@ -115,7 +115,7 @@ data class AppSettings(
     val vadHoldFrames: Int = 20,
     val aecMode: AecMode = AecMode.SYSTEM,
     val aecEnabled: Boolean = false,
-    val micSource: MicSource = MicSource.MIC,
+    val micSource: MicSource = MicSource.VOICE_COMMUNICATION,
     val voicePlaybackMode: VoicePlaybackMode = VoicePlaybackMode.COMMUNICATION,
     val outputDeviceOrder: List<VoiceOutputTarget> = VoiceOutputTarget.DEFAULT_ORDER,
     val outputVolume: Int = 100,

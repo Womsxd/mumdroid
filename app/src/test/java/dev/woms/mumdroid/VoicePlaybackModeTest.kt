@@ -15,6 +15,7 @@ class VoicePlaybackModeTest {
     @Test
     fun defaultsToCommunication() {
         val settings = AppSettings()
+        assertEquals(MicSource.VOICE_COMMUNICATION, settings.micSource)
         assertEquals(VoicePlaybackMode.COMMUNICATION, settings.voicePlaybackMode)
         assertFalse(settings.anyMediaPlayback())
         assertFalse(settings.usesMediaPlayback(VoiceOutputTarget.HEADSET))
@@ -23,7 +24,10 @@ class VoicePlaybackModeTest {
 
     @Test
     fun mediaSharedByHeadsetBluetoothAndSpeaker() {
-        val media = AppSettings(voicePlaybackMode = VoicePlaybackMode.MEDIA)
+        val media = AppSettings(
+            micSource = MicSource.MIC,
+            voicePlaybackMode = VoicePlaybackMode.MEDIA,
+        )
         assertTrue(media.usesMediaPlayback(VoiceOutputTarget.HEADSET))
         assertTrue(media.usesMediaPlayback(VoiceOutputTarget.BLUETOOTH))
         assertTrue(media.usesMediaPlayback(VoiceOutputTarget.SPEAKER))
@@ -46,6 +50,7 @@ class VoicePlaybackModeTest {
     @Test
     fun mediaForcesSpeexAecExceptEarpiece() {
         val settings = AppSettings(
+            micSource = MicSource.MIC,
             voicePlaybackMode = VoicePlaybackMode.MEDIA,
             aecMode = AecMode.SYSTEM,
         )

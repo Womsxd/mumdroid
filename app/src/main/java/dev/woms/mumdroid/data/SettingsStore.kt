@@ -11,12 +11,12 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.woms.mumdroid.core.audio.VoiceBandwidth
 import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
-import dev.woms.mumdroid.core.model.AppLanguage
-import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AgcMode
-import dev.woms.mumdroid.core.model.MicSource
+import dev.woms.mumdroid.core.model.AppLanguage
+import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.AppTheme
+import dev.woms.mumdroid.core.model.MicSource
 import dev.woms.mumdroid.core.model.VadMethod
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
@@ -124,7 +124,7 @@ class SettingsStore(private val context: Context) {
             vadHoldFrames = prefs[KEY_VAD_HOLD_FRAMES] ?: 20,
             aecEnabled = prefs[KEY_AEC_ENABLED] ?: false,
             aecMode = parseEnum(prefs[KEY_AEC_MODE], AecMode.SYSTEM),
-            micSource = parseEnum(prefs[KEY_MIC_SOURCE], MicSource.MIC),
+            micSource = parseEnum(prefs[KEY_MIC_SOURCE], MicSource.VOICE_COMMUNICATION),
             voicePlaybackMode = parseEnum(
                 prefs[KEY_VOICE_PLAYBACK_MODE],
                 VoicePlaybackMode.COMMUNICATION,
