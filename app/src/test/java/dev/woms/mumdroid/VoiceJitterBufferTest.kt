@@ -9,9 +9,24 @@ import org.junit.Test
 
 class VoiceJitterBufferTest {
 
+    /** JVM tests cannot call [android.os.SystemClock.elapsedRealtime]. */
+    private fun buffer(
+        prerollFrames: Int = 2,
+        maxQueuedFrames: Int = 16,
+        idleTimeoutMs: Long = 400L,
+        clock: () -> Long = { 0L },
+        minTimedPreroll: Int = 3,
+    ) = VoiceJitterBuffer(
+        prerollFrames = prerollFrames,
+        maxQueuedFrames = maxQueuedFrames,
+        idleTimeoutMs = idleTimeoutMs,
+        clock = clock,
+        minTimedPreroll = minTimedPreroll,
+    )
+
     @Test
     fun preroll_holdsUntilTwoFrames() {
-        val jb = VoiceJitterBuffer(prerollFrames = 2)
+        val jb = buffer(prerollFrames = 2)
         jb.push(1, shortArrayOf(100, 100, 100, 100))
         val out = ShortArray(4)
         assertFalse(jb.mix(out))
@@ -24,7 +39,7 @@ class VoiceJitterBufferTest {
 
     @Test
     fun mix_addsTwoSpeakers() {
-        val jb = VoiceJitterBuffer(prerollFrames = 1)
+        val jb = buffer(prerollFrames = 1)
         jb.push(1, ShortArray(4) { 1000 })
         jb.push(2, ShortArray(4) { 2000 })
         val out = ShortArray(4)
@@ -34,7 +49,7 @@ class VoiceJitterBufferTest {
 
     @Test
     fun underrun_fillsSilence() {
-        val jb = VoiceJitterBuffer(prerollFrames = 1)
+        val jb = buffer(prerollFrames = 1)
         jb.push(1, shortArrayOf(7, 8))
         val out = ShortArray(4)
         assertTrue(jb.mix(out))
@@ -46,7 +61,7 @@ class VoiceJitterBufferTest {
 
     @Test
     fun overflow_dropsOldest() {
-        val jb = VoiceJitterBuffer(prerollFrames = 1, maxQueuedFrames = 2)
+        val jb = buffer(prerollFrames = 1, maxQueuedFrames = 2)
         jb.push(1, ShortArray(2) { 1 })
         jb.push(1, ShortArray(2) { 2 })
         jb.push(1, ShortArray(2) { 3 })
@@ -60,7 +75,7 @@ class VoiceJitterBufferTest {
 
     @Test
     fun leftover_spansQuantums() {
-        val jb = VoiceJitterBuffer(prerollFrames = 1)
+        val jb = buffer(prerollFrames = 1)
         jb.push(1, shortArrayOf(1, 2, 3, 4))
         val a = ShortArray(2)
         val b = ShortArray(2)
@@ -75,7 +90,7 @@ class VoiceJitterBufferTest {
     @Test
     fun talking_followsPlaybackLiveness() {
         val events = mutableListOf<Pair<Int, Boolean>>()
-        val jb = VoiceJitterBuffer(prerollFrames = 1)
+        val jb = buffer(prerollFrames = 1)
         jb.onTalking = { id, on -> events += id to on }
         jb.push(3, ShortArray(4) { 10 })
         val out = ShortArray(4)
@@ -92,7 +107,7 @@ class VoiceJitterBufferTest {
     @Test
     fun idleSession_isReaped() {
         var now = 1_000L
-        val jb = VoiceJitterBuffer(prerollFrames = 1, idleTimeoutMs = 50, clock = { now })
+        val jb = buffer(prerollFrames = 1, idleTimeoutMs = 50, clock = { now })
         jb.push(7, ShortArray(2) { 9 })
         val out = ShortArray(2)
         jb.mix(out)
@@ -103,7 +118,7 @@ class VoiceJitterBufferTest {
 
     @Test
     fun timed_official20msSequence_playsWithoutInsertedGap() {
-        val jb = VoiceJitterBuffer(prerollFrames = 1, minTimedPreroll = 1)
+        val jb = buffer(prerollFrames = 1, minTimedPreroll = 1)
         jb.pushTimed(1, 0L, ShortArray(4) { 1 }, spanFrames = 2)
         jb.pushTimed(1, 2L, ShortArray(4) { 2 }, spanFrames = 2)
         val first = ShortArray(4)
@@ -116,7 +131,7 @@ class VoiceJitterBufferTest {
 
     @Test
     fun timed_reordersOutOfOrderPackets() {
-        val jb = VoiceJitterBuffer(prerollFrames = 2, minTimedPreroll = 3)
+        val jb = buffer(prerollFrames = 2, minTimedPreroll = 3)
         jb.pushTimed(1, 2L, ShortArray(4) { 20 }, spanFrames = 2)
         jb.pushTimed(1, 0L, ShortArray(4) { 10 }, spanFrames = 2)
         val first = ShortArray(4)
@@ -129,7 +144,7 @@ class VoiceJitterBufferTest {
 
     @Test
     fun timed_latePacketAfterPlayhead_isDropped() {
-        val jb = VoiceJitterBuffer(prerollFrames = 1, minTimedPreroll = 1)
+        val jb = buffer(prerollFrames = 1, minTimedPreroll = 1)
         jb.pushTimed(1, 0L, ShortArray(4) { 1 }, spanFrames = 2)
         val first = ShortArray(4)
         assertTrue(jb.mix(first))
@@ -163,7 +178,7 @@ class VoiceJitterBufferTest {
     @Test
     fun timed_underrun_usesPlcNotHardSilence() {
         var concealed = 0
-        val jb = VoiceJitterBuffer(prerollFrames = 1, minTimedPreroll = 1)
+        val jb = buffer(prerollFrames = 1, minTimedPreroll = 1)
         jb.decoder = object : VoiceJitterBuffer.Decoder {
             override fun decode(session: Int, payload: ByteArray, isLast: Boolean) = null
             override fun conceal(session: Int, samples: Int): ShortArray {
@@ -182,7 +197,7 @@ class VoiceJitterBufferTest {
 
     @Test
     fun timed_fadeIn_softensFirstTenMs() {
-        val jb = VoiceJitterBuffer(prerollFrames = 1, minTimedPreroll = 1)
+        val jb = buffer(prerollFrames = 1, minTimedPreroll = 1)
         jb.pushTimed(1, 0L, ShortArray(OpusCodec.FRAME_SIZE_10MS) { 10_000 }, spanFrames = 1)
         val out = ShortArray(OpusCodec.FRAME_SIZE_10MS)
         assertTrue(jb.mix(out))

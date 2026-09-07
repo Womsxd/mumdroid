@@ -4,6 +4,7 @@ import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.SystemClock
 import android.util.Log
 import kotlin.math.roundToInt
 
@@ -34,7 +35,10 @@ class AudioOutput(
     }
 
     private val opus = OpusCodec()
-    private val jitter = VoiceJitterBuffer(maxQueuedFrames = 16).apply {
+    private val jitter = VoiceJitterBuffer(
+        maxQueuedFrames = 16,
+        clock = { SystemClock.elapsedRealtime() },
+    ).apply {
         decoder = object : VoiceJitterBuffer.Decoder {
             override fun decode(session: Int, payload: ByteArray, isLast: Boolean): ShortArray? =
                 opus.decodeForSession(session, payload, isLast)

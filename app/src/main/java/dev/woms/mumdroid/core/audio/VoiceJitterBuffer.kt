@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.audio
 
+import android.os.SystemClock
 import java.util.TreeMap
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -25,7 +26,9 @@ class VoiceJitterBuffer(
     private val prerollFrames: Int = 2,
     private val maxQueuedFrames: Int = 16,
     private val idleTimeoutMs: Long = 400L,
-    private val clock: () -> Long = { System.currentTimeMillis() },
+    // Monotonic like official QElapsedTimer / UdpVoiceManager. Wall time
+    // would let an NTP step exceed idleTimeoutMs and reap a live speaker.
+    private val clock: () -> Long = { SystemClock.elapsedRealtime() },
     private val minTimedPreroll: Int = 3,
     private val maxTimedPreroll: Int = 12,
 ) {
