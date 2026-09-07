@@ -11,6 +11,7 @@ import dev.woms.mumdroid.core.audio.VoicePlaybackRouter
 import dev.woms.mumdroid.core.audio.VoiceRouteSelection
 import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.SelfMuteDeaf
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.net.MumbleClient
@@ -95,6 +96,7 @@ internal class VoiceSession(
     private var pendingVoicePcm: ShortArray? = null
     private var pendingVoiceFrames = 0
     private var voiceUtteranceOpen = false
+    private var unmuteOnUndeaf = false
 
     private val useTcp: Boolean
         get() = callbacks.forceTcp() || !udpAvailable
@@ -226,37 +228,41 @@ internal class VoiceSession(
     }
 
     fun toggleSelfMute(): Boolean {
-        val newMute = !_selfMuted.value
-        _selfMuted.value = newMute
-        if (newMute) {
-            endTransmission()
-        } else if (voiceMode == VoiceMode.CONTINUOUS && !isTransmitBlocked()) {
-            _talking.value = true
-            callbacks.setUserTalking(callbacks.localSession(), true)
-        }
-        return newMute
+        applySelfMuteDeaf(currentMuteDeaf().toggleMute())
+        return _selfMuted.value
     }
 
     fun toggleSelfDeafen(): Boolean {
-        val newDeaf = !_selfDeafened.value
-        _selfDeafened.value = newDeaf
-        _selfMuted.value = newDeaf
-        if (newDeaf) {
-            endTransmission()
-            audioOutput?.stop()
-        } else {
-            audioOutput?.start()
-            if (voiceMode == VoiceMode.CONTINUOUS && !isTransmitBlocked()) {
-                _talking.value = true
-                callbacks.setUserTalking(callbacks.localSession(), true)
-            }
-        }
-        return newDeaf
+        applySelfMuteDeaf(currentMuteDeaf().toggleDeafen())
+        return _selfDeafened.value
     }
 
     fun clearMuteDeafen() {
         _selfMuted.value = false
         _selfDeafened.value = false
+        unmuteOnUndeaf = false
+    }
+
+    private fun currentMuteDeaf(): SelfMuteDeaf =
+        SelfMuteDeaf(_selfMuted.value, _selfDeafened.value, unmuteOnUndeaf)
+
+    private fun applySelfMuteDeaf(next: SelfMuteDeaf) {
+        val wasMuted = _selfMuted.value
+        val wasDeafened = _selfDeafened.value
+        _selfMuted.value = next.muted
+        _selfDeafened.value = next.deafened
+        unmuteOnUndeaf = next.unmuteOnUndeaf
+        if (next.muted && !wasMuted) {
+            endTransmission()
+        } else if (!next.muted && wasMuted && voiceMode == VoiceMode.CONTINUOUS && !isTransmitBlocked()) {
+            _talking.value = true
+            callbacks.setUserTalking(callbacks.localSession(), true)
+        }
+        if (next.deafened && !wasDeafened) {
+            audioOutput?.stop()
+        } else if (!next.deafened && wasDeafened) {
+            audioOutput?.start()
+        }
     }
 
     fun applyLocalSpeakBlock(wasBlocked: Boolean, nowBlocked: Boolean) {

@@ -422,30 +422,28 @@ class MumbleService : Service() {
     fun setOutputTarget(target: VoiceOutputTarget) = voice.setOutputTarget(target)
 
     fun toggleSelfMute() {
-        val newMute = voice.toggleSelfMute()
-        roster.updateLocalMuteDeafen(voice.selfMutedValue(), voice.selfDeafenedValue())
-        val c = client ?: return
-        scope.launch {
-            c.sendMessage(
-                dev.woms.mumdroid.core.net.MessageType.USER_STATE,
-                dev.woms.mumdroid.core.proto.UserState.newBuilder()
-                    .setSession(c.currentSession)
-                    .setSelfMute(newMute).build(),
-            )
-        }
+        voice.toggleSelfMute()
+        sendLocalMuteDeafen()
     }
 
     fun toggleSelfDeafen() {
-        val newDeaf = voice.toggleSelfDeafen()
-        roster.updateLocalMuteDeafen(voice.selfMutedValue(), voice.selfDeafenedValue())
+        voice.toggleSelfDeafen()
+        sendLocalMuteDeafen()
+    }
+
+    private fun sendLocalMuteDeafen() {
+        val muted = voice.selfMutedValue()
+        val deafened = voice.selfDeafenedValue()
+        roster.updateLocalMuteDeafen(muted, deafened)
         val c = client ?: return
         scope.launch {
             c.sendMessage(
                 dev.woms.mumdroid.core.net.MessageType.USER_STATE,
                 dev.woms.mumdroid.core.proto.UserState.newBuilder()
                     .setSession(c.currentSession)
-                    .setSelfDeaf(newDeaf)
-                    .setSelfMute(newDeaf).build(),
+                    .setSelfMute(muted)
+                    .setSelfDeaf(deafened)
+                    .build(),
             )
         }
     }
