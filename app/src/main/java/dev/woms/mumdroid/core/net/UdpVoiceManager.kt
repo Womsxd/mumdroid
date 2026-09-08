@@ -202,7 +202,7 @@ class UdpVoiceManager(
      * Outgoing `frameNumber` in 10 ms units (official `iFrameCounter`).
      * A 20 ms packet is stamped N then advances to N+2.
      */
-    private val frameCounter = VoiceFrameCounter()
+    private val frameCounter = VoiceFrameCounter(clock = clock)
 
     /** Whether the UDP voice channel has been started. */
     val isRunning: Boolean get() = running.get()

@@ -1,5 +1,7 @@
 package dev.woms.mumdroid.core.audio
 
+import android.os.SystemClock
+
 /**
  * Outgoing voice `frameNumber`, matching official `AudioInput::iFrameCounter`.
  *
@@ -11,7 +13,10 @@ package dev.woms.mumdroid.core.audio
  * later talk spurt does not look like a huge timestamp jump.
  */
 class VoiceFrameCounter(
-    private val clock: () -> Long = { System.currentTimeMillis() },
+    // Monotonic like official QElapsedTimer / UdpVoiceManager. Wall time
+    // would let an NTP step exceed resetAfterMs and restart iFrameCounter
+    // mid-spurt (or delay the 5 s idle reset).
+    private val clock: () -> Long = { SystemClock.elapsedRealtime() },
     private val resetAfterMs: Long = 5_000L,
 ) {
     var value: Long = 0L

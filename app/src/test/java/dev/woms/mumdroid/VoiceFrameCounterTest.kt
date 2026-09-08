@@ -7,9 +7,12 @@ import org.junit.Test
 
 class VoiceFrameCounterTest {
 
+    /** JVM tests cannot call [android.os.SystemClock.elapsedRealtime]. */
+    private fun counter() = VoiceFrameCounter(clock = { 1L })
+
     @Test
     fun twentyMsPackets_stampEvenFrameNumbers() {
-        val counter = VoiceFrameCounter()
+        val counter = counter()
         assertEquals(0L, counter.allocate(2))
         assertEquals(2L, counter.allocate(2))
         assertEquals(4L, counter.allocate(2))
@@ -18,7 +21,7 @@ class VoiceFrameCounterTest {
 
     @Test
     fun tenMsPackets_incrementByOne() {
-        val counter = VoiceFrameCounter()
+        val counter = counter()
         assertEquals(0L, counter.allocate(1))
         assertEquals(1L, counter.allocate(1))
         assertEquals(2L, counter.allocate(1))
@@ -26,7 +29,7 @@ class VoiceFrameCounterTest {
 
     @Test
     fun fortyMsPackets_incrementByFour() {
-        val counter = VoiceFrameCounter()
+        val counter = counter()
         assertEquals(0L, counter.allocate(4))
         assertEquals(4L, counter.allocate(4))
     }
