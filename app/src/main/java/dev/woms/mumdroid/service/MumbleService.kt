@@ -152,6 +152,7 @@ class MumbleService : Service() {
     private lateinit var userCertificateStore: UserCertificateStore
     internal lateinit var channelAccessTokenStore: ChannelAccessTokenStore
     private lateinit var serverStore: ServerStore
+    private lateinit var connectionFactory: ConnectionFactory
 
     internal var currentSettings = AppSettings()
     internal var forceTcp = false
@@ -223,6 +224,12 @@ class MumbleService : Service() {
         userCertificateStore = UserCertificateStore(this)
         channelAccessTokenStore = ChannelAccessTokenStore(this)
         serverStore = ServerStore(this)
+        connectionFactory = ConnectionFactory(
+            userCertificateStore,
+            serverStore,
+            channelAccessTokenStore,
+            certificateStore,
+        )
         lastChannel.attach(serverStore)
         notifications = ConnectionNotifications(this)
         voice = VoiceSession(
@@ -309,7 +316,8 @@ class MumbleService : Service() {
             this.host = host
             this.port = port
             val label = displayName.ifEmpty { lastConnectParams?.displayName.orEmpty() }.ifEmpty { host }
-            lastConnectParams = ConnectParams(host, port, username, password, label, serverId)
+            val params = ConnectParams(host, port, username, password, label, serverId)
+            lastConnectParams = params
             _manualDisconnect.value = false
             _connecting.value = true
             _serverName.value = label
@@ -323,39 +331,22 @@ class MumbleService : Service() {
             serverMaxUsers = 0
             tcpPing.reset()
 
-            val listener = events
             try {
-                val (clientCert, clientKey) = userCertificateStore.keyStoreMaterial()
-                    ?: (null to null)
-                connectedServerId = serverStore.resolveId(serverId, host, port)
+                val prepared = connectionFactory.create(
+                    params,
+                    currentSettings.certificatePinning,
+                    events,
+                )
+                connectedServerId = prepared.resolvedServerId
                 if (connectedServerId > 0L) {
-                    lastConnectParams = lastConnectParams?.copy(serverId = connectedServerId)
+                    lastConnectParams = params.copy(serverId = connectedServerId)
                 }
-                admin.setTokens(channelAccessTokenStore.tokensFor(host, port))
+                admin.setTokens(prepared.accessTokens)
                 admin.notePasswordJoin(null)
                 admin.clearPasswordPrompt()
-                val pinnedFingerprint = if (currentSettings.certificatePinning) {
-                    certificateStore.pinnedFingerprint(host, port)
-                } else {
-                    null
-                }
-                val c = MumbleClient(
-                    host,
-                    port,
-                    username,
-                    password,
-                    listener,
-                    clientCert = clientCert,
-                    clientKey = clientKey,
-                    initialAccessTokens = admin.tokens(),
-                    certificatePinning = currentSettings.certificatePinning,
-                    pinnedFingerprint = pinnedFingerprint,
-                )
-                c.statsProvider = MumbleClient.StatsProvider { buildConnectionStats() }
-                c.tcpPingListener = MumbleClient.TcpPingListener { rtt -> tcpPing.record(rtt) }
-                c.pingStatsListener = { remoteGood, _ -> voice.evaluateUdpAvailability(remoteGood) }
-                client = c
-                Thread { c.connect() }.start()
+                attachClientRuntime(prepared.client)
+                client = prepared.client
+                Thread { prepared.client.connect() }.start()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 _connecting.value = false
                 throw e
@@ -364,6 +355,12 @@ class MumbleService : Service() {
                 updateStatus(getString(R.string.status_connection_failed, e.message ?: ""))
             }
         }
+    }
+
+    private fun attachClientRuntime(c: MumbleClient) {
+        c.statsProvider = MumbleClient.StatsProvider { buildConnectionStats() }
+        c.tcpPingListener = MumbleClient.TcpPingListener { rtt -> tcpPing.record(rtt) }
+        c.pingStatsListener = { remoteGood, _ -> voice.evaluateUdpAvailability(remoteGood) }
     }
 
     private fun disconnect() {
