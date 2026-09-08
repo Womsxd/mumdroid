@@ -686,12 +686,16 @@ internal class VoiceSession(
     ) {
         val udpManager = udp ?: return
         val body = udpManager.buildTunnelPacket(encoded, isLastFrame, frameCount)
-        if (useTcp) {
-            callbacks.client()?.sendTunneledVoice(body)
-            return
-        }
-        if (udpManager.isRunning && udpManager.isCryptoReady()) {
+        // Official ServerHandler::sendMessage: TcpModeEnabled || !bUdp →
+        // UDPTunnel. A failed datagram write (socket closed, network switch)
+        // is the same as !bUdp for this packet — reuse the already-stamped
+        // body so the sequence number is not allocated twice.
+        val sentUdp = !useTcp &&
+            udpManager.isRunning &&
+            udpManager.isCryptoReady() &&
             udpManager.sendPlaintextUdp(body)
+        if (!sentUdp) {
+            callbacks.client()?.sendTunneledVoice(body)
         }
     }
 
