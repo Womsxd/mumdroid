@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
@@ -517,5 +518,25 @@ internal class ServiceSessionController(
             return
         }
         _connectionState.value = ConnectionState()
+    }
+}
+
+/** Starts a foreground service across API levels with an explicit component. */
+private fun Context.startForegroundServiceCompat(intent: Intent) {
+    // Guard against the "Service Intent must be explicit" crash: Android throws
+    // IllegalArgumentException when a service is started with an implicit intent.
+    // Resolve it to an explicit component before starting, if possible.
+    val explicit = if (intent.component != null) {
+        intent
+    } else {
+        val resolved = packageManager.resolveService(intent, 0)?.serviceInfo ?: return
+        Intent(intent).apply {
+            component = ComponentName(resolved.packageName, resolved.name)
+        }
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        startForegroundService(explicit)
+    } else {
+        startService(explicit)
     }
 }
