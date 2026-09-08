@@ -2,6 +2,7 @@ package dev.woms.mumdroid.core.audio
 
 import android.util.Log
 import dev.woms.mumdroid.core.audio.OpusCodec.Companion.DECODER_TTL_MS
+import dev.woms.mumdroid.core.audio.OpusCodec.Companion.tenMsFrames
 import io.github.jaredmdobson.concentus.OpusApplication
 import io.github.jaredmdobson.concentus.OpusDecoder
 import io.github.jaredmdobson.concentus.OpusEncoder
@@ -47,6 +48,18 @@ class OpusCodec {
             samples >= 240 -> 240
             samples >= 120 -> 120
             else -> 0
+        }
+
+        /**
+         * 10 ms units actually consumed by [encode]: [tenMsFrames] of the
+         * snapped size. 30 ms / 50 ms PCM is not a legal Opus packet, so
+         * using raw [tenMsFrames] would advance [VoiceFrameCounter] past
+         * the audio that went on the wire.
+         */
+        fun encodedTenMsFrames(samples: Int): Int {
+            val snapped = snapSupportedFrameSize(samples)
+            if (snapped <= 0) return 0
+            return tenMsFrames(snapped)
         }
 
         /**

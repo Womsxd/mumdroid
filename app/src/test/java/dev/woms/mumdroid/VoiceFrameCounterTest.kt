@@ -58,5 +58,13 @@ class VoiceFrameCounterTest {
         assertEquals(2, OpusCodec.tenMsFrames(960))
         assertEquals(4, OpusCodec.tenMsFrames(1920))
         assertEquals(1, OpusCodec.tenMsFrames(480))
+        assertEquals(2, OpusCodec.encodedTenMsFrames(960))
+        assertEquals(4, OpusCodec.encodedTenMsFrames(1920))
+        // 30/50 ms are not legal Opus packet sizes; sequence must follow
+        // the snapped encode, not raw PCM / framesPerPacket.
+        assertEquals(2, OpusCodec.encodedTenMsFrames(1440))
+        assertEquals(4, OpusCodec.encodedTenMsFrames(2400))
+        assertEquals(3, OpusCodec.tenMsFrames(1440))
+        assertEquals(5, OpusCodec.tenMsFrames(2400))
     }
 }

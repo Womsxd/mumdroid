@@ -363,7 +363,7 @@ class UdpVoiceManager(
 
     private fun outgoingFrameCount(sampleCount: Int? = null): Int {
         val samples = sampleCount ?: (OpusCodec.FRAME_SIZE_10MS * framesPerPacket.coerceIn(1, 6))
-        return OpusCodec.tenMsFrames(samples).coerceAtLeast(1)
+        return OpusCodec.encodedTenMsFrames(samples).coerceAtLeast(1)
     }
 
     /** Decodes an Opus payload to PCM (legacy single-stream compat). */
@@ -766,8 +766,17 @@ class UdpVoiceManager(
     /**
      * Encodes one frame of digital silence — the payload used by the official
      * client for its end-of-transmission packet.
+     *
+     * @return Opus bytes and the 10 ms frame count that [encode] actually
+     *         consumed (not the configured [framesPerPacket], which is not a
+     *         legal Opus size at 30/50 ms).
      */
-    fun encodeSilence(): ByteArray? = opus.encode(ShortArray(opus.getFrameSize()))
+    fun encodeSilence(): Pair<ByteArray, Int>? {
+        val pcm = ShortArray(opus.getFrameSize())
+        val encoded = opus.encode(pcm) ?: return null
+        val frames = OpusCodec.encodedTenMsFrames(pcm.size).coerceAtLeast(1)
+        return encoded to frames
+    }
 
     /**
      * Builds the full plaintext voice packet body (header + payload in the

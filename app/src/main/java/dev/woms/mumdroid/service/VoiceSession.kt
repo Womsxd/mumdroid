@@ -651,7 +651,7 @@ internal class VoiceSession(
         val held = pendingVoicePcm
         val heldFrames = pendingVoiceFrames
         pendingVoicePcm = pcm.copyOf()
-        pendingVoiceFrames = OpusCodec.tenMsFrames(pcm.size).coerceAtLeast(1)
+        pendingVoiceFrames = OpusCodec.encodedTenMsFrames(pcm.size).coerceAtLeast(1)
         if (held != null) {
             emitVoicePcm(held, isLastFrame = false, heldFrames)
         }
@@ -675,14 +675,14 @@ internal class VoiceSession(
         } else if (isLastFrame) {
             val udpManager = udp ?: return
             val encoded = udpManager.encodeSilence() ?: return
-            sendEncodedVoice(encoded, isLastFrame = true)
+            sendEncodedVoice(encoded.first, isLastFrame = true, encoded.second)
         }
     }
 
     private fun sendEncodedVoice(
         encoded: ByteArray,
         isLastFrame: Boolean,
-        frameCount: Int = effectiveFramesPerPacket.coerceIn(1, 6),
+        frameCount: Int,
     ) {
         val udpManager = udp ?: return
         val body = udpManager.buildTunnelPacket(encoded, isLastFrame, frameCount)
