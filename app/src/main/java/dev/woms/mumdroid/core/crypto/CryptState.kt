@@ -23,6 +23,7 @@ class CryptState {
     private val decCrypt = CryptOCB2()
     private val encryptLock = Any()
     private val decryptLock = Any()
+    private val encryptTag = ByteArray(CryptOCB2.BLOCK_SIZE)
 
     /** The current encryption/decryption nonce (16 bytes). */
     var encryptNonce = ByteArray(CryptOCB2.NONCE_SIZE)
@@ -123,39 +124,61 @@ class CryptState {
     }
 
     /**
-     * Encrypts [source] into a legacy Mumble voice packet.
-     * Ciphertext is written directly into the returned datagram at offset 4
-     * so the 4-byte header does not need a second copy of the payload.
-     * @return the complete packet (overhead + ciphertext), or null on failure.
+     * Encrypts [source] into a newly allocated legacy Mumble voice packet.
+     * Prefer [encrypt] with a caller buffer on the audio send path.
      */
     fun encrypt(source: ByteArray): ByteArray? = encrypt(source, 0, source.size)
 
     /**
-     * Encrypts `source[offset, offset+length)` into a legacy Mumble voice packet.
+     * Encrypts `source[offset, offset+length)` into a newly allocated packet.
      */
     fun encrypt(source: ByteArray, offset: Int, length: Int): ByteArray? {
-        if (!isReady) return null
-        if (offset < 0 || length < 0 || offset > source.size) return null
-        if (length > source.size - offset) return null
+        if (length < 0) return null
+        val packet = ByteArray(4 + length)
+        val n = encrypt(source, offset, length, packet, 0)
+        return if (n < 0) null else packet
+    }
+
+    /**
+     * Official `CryptStateOCB2::encrypt(source, dst, plain_length)`:
+     * writes `[iv0|tag0..2|ciphertext]` into [dest] at [destOffset].
+     *
+     * @return datagram length (`4 + length`), or -1 on failure. Does not
+     * increment the nonce when the destination is too small.
+     */
+    fun encrypt(
+        source: ByteArray,
+        dest: ByteArray,
+        destOffset: Int = 0,
+    ): Int = encrypt(source, 0, source.size, dest, destOffset)
+
+    fun encrypt(
+        source: ByteArray,
+        sourceOffset: Int,
+        length: Int,
+        dest: ByteArray,
+        destOffset: Int = 0,
+    ): Int {
+        if (!isReady) return -1
+        if (sourceOffset < 0 || length < 0 || sourceOffset > source.size) return -1
+        if (length > source.size - sourceOffset) return -1
+        if (destOffset < 0 || destOffset > dest.size) return -1
+        if (4 + length > dest.size - destOffset) return -1
         synchronized(encryptLock) {
             incrementNonce(encryptNonce)
             encCrypt.setNonce(encryptNonce)
-
-            val packet = ByteArray(4 + length)
-            val tag = ByteArray(CryptOCB2.BLOCK_SIZE)
             val written = encCrypt.encrypt(
-                packet, source, tag,
-                inputOffset = offset,
+                dest, source, encryptTag,
+                inputOffset = sourceOffset,
                 inputLength = length,
-                outputOffset = 4,
+                outputOffset = destOffset + 4,
             )
-            if (written != length) return null
-
-            packet[0] = encryptNonce[0]
-            packet[1] = tag[0]
-            packet[2] = tag[1]
-            packet[3] = tag[2]
-            return packet
+            if (written != length) return -1
+            dest[destOffset] = encryptNonce[0]
+            dest[destOffset + 1] = encryptTag[0]
+            dest[destOffset + 2] = encryptTag[1]
+            dest[destOffset + 3] = encryptTag[2]
+            return 4 + length
         }
     }
 
@@ -311,6 +334,7 @@ class CryptState {
                 Arrays.fill(encryptNonce, 0)
                 Arrays.fill(decryptNonce, 0)
                 Arrays.fill(decryptHistory, 0)
+                Arrays.fill(encryptTag, 0)
                 goodPackets = 0
                 latePackets = 0
                 lostPackets = 0

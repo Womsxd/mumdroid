@@ -144,7 +144,7 @@ class CryptOCB2 {
         if (!validSlice(input, inputOffset, inputLength)) return 0
         if (!validSlice(output, outputOffset, inputLength)) return 0
 
-        var delta = aesBlock(nonce) ?: return 0
+        val delta = aesBlock(nonce) ?: return 0
         var written = 0
 
         val checksum = ByteArray(BLOCK_SIZE)
@@ -162,7 +162,7 @@ class CryptOCB2 {
                 if (sum == 0) flipABit = true
             }
 
-            delta = s2(delta)
+            s2(delta)
             xorBlock(tmp, 0, delta, 0, input, inOffset)
 
             if (flipABit) {
@@ -181,7 +181,7 @@ class CryptOCB2 {
             inOffset += BLOCK_SIZE
         }
 
-        delta = s2(delta)
+        s2(delta)
 
         val len = inputEnd - inOffset
         tmp.fill(0)
@@ -203,7 +203,7 @@ class CryptOCB2 {
         written += len
 
         if (tag.isNotEmpty()) {
-            delta = s3(delta)
+            s3(delta)
             xorBlock(tmp, 0, delta, 0, checksum, 0)
             val computedTag = aesBlock(tmp) ?: return 0
             System.arraycopy(computedTag, 0, tag, 0, BLOCK_SIZE)
@@ -234,7 +234,7 @@ class CryptOCB2 {
         if (inputLength < 0 || !validSlice(input, inputOffset, inputLength)) return -1
         if (!validSlice(output, 0, inputLength)) return -1
 
-        var delta = aesBlock(nonce) ?: return -1
+        val delta = aesBlock(nonce) ?: return -1
         var written = 0
 
         val checksum = ByteArray(BLOCK_SIZE)
@@ -243,7 +243,7 @@ class CryptOCB2 {
         val inputEnd = inputOffset + inputLength
         var inOffset = inputOffset
         while (inputEnd - inOffset > BLOCK_SIZE) {
-            delta = s2(delta)
+            s2(delta)
             xorBlock(tmp, 0, delta, 0, input, inOffset)
             val dec = aesBlockDecrypt(tmp) ?: return -1
             xorBlock(output, written, delta, 0, dec, 0)
@@ -254,7 +254,7 @@ class CryptOCB2 {
             inOffset += BLOCK_SIZE
         }
 
-        delta = s2(delta)
+        s2(delta)
 
         val len = inputEnd - inOffset
         tmp.fill(0)
@@ -289,7 +289,7 @@ class CryptOCB2 {
         written += len
 
         if (tag.isNotEmpty()) {
-            delta = s3(delta)
+            s3(delta)
             xorBlock(tmp, 0, delta, 0, checksum, 0)
             val computedTag = aesBlock(tmp) ?: return -1
             // libmumble `std::equal(tag.begin(), tag.end(), retrievedTag)`:
@@ -346,27 +346,33 @@ class CryptOCB2 {
         }
     }
 
-    /** OCB2 double: left shift by one with the 0x87 reduction. */
-    private fun s2(blockIn: ByteArray): ByteArray {
-        val block = blockIn.copyOf()
+    /**
+     * Official `S2`: in-place GF(2^128) double (left shift + 0x87 reduction).
+     * Walks low-to-high so `block[i+1]` is still unread when `block[i]` is
+     * overwritten; no scratch copy. Instance is serial (see class KDoc).
+     */
+    private fun s2(block: ByteArray) {
         val carry = (block[0].toInt() and 0xff) ushr 7
         for (i in 0 until BLOCK_SIZE - 1) {
             block[i] = (((block[i].toInt() and 0xff) shl 1) or ((block[i + 1].toInt() and 0xff) ushr 7)).toByte()
         }
-        block[BLOCK_SIZE - 1] = (((block[BLOCK_SIZE - 1].toInt() and 0xff) shl 1) xor (carry * 0x87)).toByte()
-        return block
+        block[BLOCK_SIZE - 1] =
+            (((block[BLOCK_SIZE - 1].toInt() and 0xff) shl 1) xor (carry * 0x87)).toByte()
     }
 
     /**
-     * OCB2 "s3" operation: returns block XOR (block shifted left by one with the
-     * 0x87 reduction). In OCB terminology s3(x) = x ^ s2(x).
+     * Official `S3`: in-place `block ^= s2(block)`. Same low-to-high walk as
+     * [s2]; the XOR keeps the original byte while the shift still needs it.
      */
-    private fun s3(blockIn: ByteArray): ByteArray {
-        val shift = s2(blockIn)
-        val result = blockIn.copyOf()
-        for (i in 0 until BLOCK_SIZE) {
-            result[i] = (result[i].toInt() xor shift[i].toInt()).toByte()
+    private fun s3(block: ByteArray) {
+        val carry = (block[0].toInt() and 0xff) ushr 7
+        for (i in 0 until BLOCK_SIZE - 1) {
+            val shifted =
+                ((block[i].toInt() and 0xff) shl 1) or ((block[i + 1].toInt() and 0xff) ushr 7)
+            block[i] = (block[i].toInt() xor shifted).toByte()
         }
-        return result
+        val shiftedLast =
+            ((block[BLOCK_SIZE - 1].toInt() and 0xff) shl 1) xor (carry * 0x87)
+        block[BLOCK_SIZE - 1] = (block[BLOCK_SIZE - 1].toInt() xor shiftedLast).toByte()
     }
 }

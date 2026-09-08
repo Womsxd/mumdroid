@@ -493,6 +493,34 @@ class ProtocolTest {
     }
 
     @Test
+    fun cryptStateEncrypt_writesIntoCallerBuffer() {
+        val key = ByteArray(16) { it.toByte() }
+        val clientNonce = ByteArray(16)
+        val serverNonce = ByteArray(16)
+        val crypt = CryptState()
+        assertTrue(crypt.setKey(key, clientNonce, serverNonce))
+
+        val payload = ByteArray(50) { it.toByte() }
+        val dest = ByteArray(8 + 4 + payload.size + 3)
+        dest.fill(0x7f)
+        val n = crypt.encrypt(payload, dest, destOffset = 8)
+        assertEquals(4 + payload.size, n)
+        assertEquals(0x7f.toByte(), dest[7])
+        assertEquals(0x7f.toByte(), dest[8 + n])
+
+        val mirror = CryptState()
+        mirror.setKey(key, clientNonce, serverNonce)
+        val decrypted = mirror.decrypt(dest, 8, n)
+        assertNotNull(decrypted)
+        assertArrayEquals(payload, decrypted)
+
+        assertEquals(-1, crypt.encrypt(payload, ByteArray(3)))
+        val emptyDest = ByteArray(4)
+        assertEquals(4, crypt.encrypt(ByteArray(0), emptyDest))
+        assertNotNull(mirror.decrypt(emptyDest))
+    }
+
+    @Test
     fun cryptStateDecrypt_readsFromOffsetInLargerBuffer() {
         val key = ByteArray(16) { it.toByte() }
         val clientNonce = ByteArray(16)

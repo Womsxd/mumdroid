@@ -125,6 +125,8 @@ class UdpVoiceManager(
     }
 
     private val crypt = CryptState()
+    private val sendLock = Any()
+    private val encryptPacket = ByteArray(MAX_PACKET)
     private val opus = OpusCodec()
     private var socket: DatagramSocket? = null
     private val running = AtomicBoolean(false)
@@ -693,8 +695,7 @@ class UdpVoiceManager(
      */
     private fun sendPing() {
         if (!crypt.isReady || !running.get()) return
-        val packetData = crypt.encrypt(plaintextPingBody()) ?: return
-        sendDatagram(packetData)
+        encryptAndSend(plaintextPingBody())
     }
 
     /**
@@ -724,8 +725,7 @@ class UdpVoiceManager(
         frameCount: Int = outgoingFrameCount(),
     ): Boolean {
         if (!crypt.isReady || socket == null) return false
-        val packetData = crypt.encrypt(buildVoiceBody(payload, isLastFrame, frameCount)) ?: return false
-        return sendDatagram(packetData)
+        return encryptAndSend(buildVoiceBody(payload, isLastFrame, frameCount))
     }
 
     /**
@@ -735,16 +735,27 @@ class UdpVoiceManager(
      */
     fun sendPlaintextUdp(body: ByteArray): Boolean {
         if (!crypt.isReady || socket == null) return false
-        val packetData = crypt.encrypt(body) ?: return false
-        return sendDatagram(packetData)
+        return encryptAndSend(body)
+    }
+
+    /**
+     * Encrypts [plain] into the reused send buffer and writes the datagram.
+     * Capture and ping threads share [encryptPacket], so this is serialised.
+     */
+    private fun encryptAndSend(plain: ByteArray): Boolean {
+        synchronized(sendLock) {
+            val n = crypt.encrypt(plain, encryptPacket)
+            if (n < 0) return false
+            return sendDatagram(encryptPacket, n)
+        }
     }
 
     /** Writes an already-encrypted datagram. UDP pings use this (`force` in official). */
-    private fun sendDatagram(packetData: ByteArray): Boolean {
+    private fun sendDatagram(packetData: ByteArray, length: Int = packetData.size): Boolean {
         val sock = socket ?: return false
         val dest = peerAddress ?: return false
         return try {
-            sock.send(DatagramPacket(packetData, packetData.size, dest, peerPort))
+            sock.send(DatagramPacket(packetData, length, dest, peerPort))
             true
         } catch (e: Exception) {
             Log.e(TAG, "UDP send error", e)
