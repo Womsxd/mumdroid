@@ -32,22 +32,22 @@ class ChanAclWriteTest {
                     ChanAclRule(
                         inherited = true,
                         group = ChanACL.Group.ALL,
-                        grant = ChanACL.ENTER,
+                        grant = ChanACL.ENTER.toLong(),
                     ),
                     ChanAclRule(
                         userId = -2,
-                        grant = ChanACL.SPEAK,
+                        grant = ChanACL.SPEAK.toLong(),
                     ),
                     ChanAclRule(
                         userId = 7,
                         applyHere = true,
                         applySubs = false,
-                        grant = ChanACL.TEXT_MESSAGE,
+                        grant = ChanACL.TEXT_MESSAGE.toLong(),
                     ),
                     ChanAclRule(
                         group = ChanACL.Group.AUTH,
-                        grant = ChanACL.SPEAK,
-                        deny = ChanACL.WHISPER,
+                        grant = ChanACL.SPEAK.toLong(),
+                        deny = ChanACL.WHISPER.toLong(),
                     ),
                 ),
             ),

@@ -175,11 +175,11 @@ class UserModerationTest {
     fun resetUserContent_usesMoveBefore14AndResetAfter() {
         val v13 = (1L shl 48) or (3L shl 32)
         val v14 = (1L shl 48) or (4L shl 32)
-        assertFalse(UserModeration.canResetUserContent(ChanACL.MOVE, v14))
-        assertTrue(UserModeration.canResetUserContent(ChanACL.RESET_USER_CONTENT, v14))
-        assertTrue(UserModeration.canResetUserContent(ChanACL.WRITE, v14))
-        assertTrue(UserModeration.canResetUserContent(ChanACL.MOVE, v13))
-        assertFalse(UserModeration.canResetUserContent(ChanACL.RESET_USER_CONTENT, v13))
+        assertFalse(UserModeration.canResetUserContent(ChanACL.MOVE.toLong(), v14))
+        assertTrue(UserModeration.canResetUserContent(ChanACL.RESET_USER_CONTENT.toLong(), v14))
+        assertTrue(UserModeration.canResetUserContent(ChanACL.WRITE.toLong(), v14))
+        assertTrue(UserModeration.canResetUserContent(ChanACL.MOVE.toLong(), v13))
+        assertFalse(UserModeration.canResetUserContent(ChanACL.RESET_USER_CONTENT.toLong(), v13))
         assertFalse(UserModeration.supportsResetUserContentPermission(v13))
         assertTrue(UserModeration.supportsResetUserContentPermission(0, legacyVersion = 0x010400))
     }
