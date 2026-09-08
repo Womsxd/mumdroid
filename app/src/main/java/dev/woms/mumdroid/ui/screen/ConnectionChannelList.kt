@@ -12,20 +12,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Login
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -111,58 +100,68 @@ internal fun ChannelList(
         ChannelLinks.allLinkedIds(linksById, localChannelId)
     }
     val homeDirectLinks = linksById[localChannelId] ?: emptySet()
+    val actions = ChannelTreeActions(
+        onJoinChannel = onJoinChannel,
+        onJoinUserChannel = onJoinUserChannel,
+        onMoveUser = onMoveUser,
+        localChannelId = localChannelId,
+        moveChannels = moveChannels,
+        onSetLocalBlock = onSetLocalBlock,
+        onSetLocalIgnore = onSetLocalIgnore,
+        onSetRemoteMute = onSetRemoteMute,
+        onSetRemoteDeafen = onSetRemoteDeafen,
+        onSetPrioritySpeaker = onSetPrioritySpeaker,
+        onKickUser = onKickUser,
+        onBanUser = onBanUser,
+        onRegisterUser = onRegisterUser,
+        canAdministerChannel = canAdministerChannel,
+        canMuteUser = canMuteUser,
+        canPrioritySpeaker = canPrioritySpeaker,
+        canMoveInChannel = canMoveInChannel,
+        onQueryChannelPermissions = onQueryChannelPermissions,
+        canKickUser = canKickUser,
+        canBanUser = canBanUser,
+        canRegisterUser = canRegisterUser,
+        supportsSelectiveBan = supportsSelectiveBan,
+        canTextMessage = canTextMessage,
+        canListen = canListen,
+        supportsChannelListen = supportsChannelListen,
+        listeningChannels = listeningChannels,
+        onSendChat = onSendChat,
+        onSendPrivateChat = onSendPrivateChat,
+        onSetChannelListening = onSetChannelListening,
+        canWriteChannel = canWriteChannel,
+        canAddChannel = canAddChannel,
+        canMakePermanentChannel = canMakePermanentChannel,
+        canLinkChannel = canLinkChannel,
+        onLinkChannel = onLinkChannel,
+        onUnlinkChannel = onUnlinkChannel,
+        onUnlinkAllChannels = onUnlinkAllChannels,
+        onCreateChannel = onCreateChannel,
+        onUpdateChannel = onUpdateChannel,
+        onRemoveChannel = onRemoveChannel,
+        onRequestChannelDescription = onRequestChannelDescription,
+        onRequestChannelAcl = onRequestChannelAcl,
+        channelAclPassword = channelAclPassword,
+        permissionEpoch = permissionEpoch,
+        showUserCount = showUserCount,
+        onUserInformation = onUserInformation,
+        homeAllLinks = homeAllLinks,
+        homeDirectLinks = homeDirectLinks,
+    )
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
     ) {
         items(channels, key = { it.id }) { channel ->
             ChannelNode(
-                channel = channel, indent = 0, onJoinChannel = onJoinChannel,
-                onJoinUserChannel = onJoinUserChannel, onMoveUser = onMoveUser,
-                localChannelId = localChannelId, moveChannels = moveChannels,
+                channel = channel,
+                indent = 0,
                 collapsedIds = collapsed,
                 onToggleCollapsed = {
                     collapsedIds = ChannelTree.toggleCollapsed(collapsed, it).toList()
                 },
-                onSetLocalBlock = onSetLocalBlock,
-                onSetLocalIgnore = onSetLocalIgnore,
-                onSetRemoteMute = onSetRemoteMute, onSetRemoteDeafen = onSetRemoteDeafen,
-                onSetPrioritySpeaker = onSetPrioritySpeaker,
-                onKickUser = onKickUser, onBanUser = onBanUser,
-                onRegisterUser = onRegisterUser,
-                canAdministerChannel = canAdministerChannel,
-                canMuteUser = canMuteUser,
-                canPrioritySpeaker = canPrioritySpeaker,
-                canMoveInChannel = canMoveInChannel,
-                onQueryChannelPermissions = onQueryChannelPermissions,
-                canKickUser = canKickUser, canBanUser = canBanUser,
-                canRegisterUser = canRegisterUser,
-                supportsSelectiveBan = supportsSelectiveBan,
-                canTextMessage = canTextMessage,
-                canListen = canListen,
-                supportsChannelListen = supportsChannelListen,
-                listeningChannels = listeningChannels,
-                onSendChat = onSendChat,
-                onSendPrivateChat = onSendPrivateChat,
-                onSetChannelListening = onSetChannelListening,
-                canWriteChannel = canWriteChannel,
-                canAddChannel = canAddChannel,
-                canMakePermanentChannel = canMakePermanentChannel,
-                canLinkChannel = canLinkChannel,
-                onLinkChannel = onLinkChannel,
-                onUnlinkChannel = onUnlinkChannel,
-                onUnlinkAllChannels = onUnlinkAllChannels,
-                homeAllLinks = homeAllLinks,
-                homeDirectLinks = homeDirectLinks,
-                onCreateChannel = onCreateChannel,
-                onUpdateChannel = onUpdateChannel,
-                onRemoveChannel = onRemoveChannel,
-                onRequestChannelDescription = onRequestChannelDescription,
-                onRequestChannelAcl = onRequestChannelAcl,
-                channelAclPassword = channelAclPassword,
-                permissionEpoch = permissionEpoch,
-                showUserCount = showUserCount,
-                onUserInformation = onUserInformation,
+                actions = actions,
             )
         }
     }
@@ -170,89 +169,50 @@ internal fun ChannelList(
 
 @Composable
 private fun ChannelNode(
-    channel: Channel, indent: Int, onJoinChannel: (Channel) -> Unit,
-    onJoinUserChannel: (Int) -> Unit, onMoveUser: (Int, Int) -> Unit,
-    localChannelId: Int, moveChannels: List<ChannelPick>,
+    channel: Channel,
+    indent: Int,
     collapsedIds: Set<Int>,
     onToggleCollapsed: (Int) -> Unit,
-    onSetLocalBlock: (Int, Boolean) -> Unit,
-    onSetLocalIgnore: (Int, Boolean) -> Unit,
-    onSetRemoteMute: (Int, Boolean) -> Unit, onSetRemoteDeafen: (Int, Boolean) -> Unit,
-    onSetPrioritySpeaker: (Int, Boolean) -> Unit,
-    onKickUser: (Int, String) -> Unit, onBanUser: (Int, String, Boolean, Boolean, Int) -> Unit,
-    onRegisterUser: (Int) -> Unit,
-    canAdministerChannel: (Int) -> Boolean,
-    canMuteUser: (User) -> Boolean,
-    canPrioritySpeaker: (User) -> Boolean,
-    canMoveInChannel: (Int) -> Boolean,
-    onQueryChannelPermissions: (Int) -> Unit,
-    canKickUser: () -> Boolean, canBanUser: () -> Boolean,
-    canRegisterUser: (User) -> Boolean,
-    supportsSelectiveBan: () -> Boolean,
-    canTextMessage: (Int) -> Boolean,
-    canListen: (Int) -> Boolean,
-    supportsChannelListen: () -> Boolean,
-    listeningChannels: Set<Int>,
-    onSendChat: (Int, String) -> Unit,
-    onSendPrivateChat: (Int, String) -> Unit,
-    onSetChannelListening: (Int, Boolean) -> Unit,
-    canWriteChannel: (Int) -> Boolean,
-    canAddChannel: (Int) -> Boolean,
-    canMakePermanentChannel: (Int) -> Boolean,
-    canLinkChannel: (Int) -> Boolean,
-    onLinkChannel: (Int) -> Unit,
-    onUnlinkChannel: (Int) -> Unit,
-    onUnlinkAllChannels: () -> Unit,
-    homeAllLinks: Set<Int>,
-    homeDirectLinks: Set<Int>,
-    onCreateChannel: (Int, String, String, Int, Boolean, Int, String) -> Unit,
-    onUpdateChannel: (Int, String, String, Int, Int, String) -> Unit,
-    onRemoveChannel: (Int) -> Unit,
-    onRequestChannelDescription: (Int) -> Unit,
-    onRequestChannelAcl: (Int) -> Unit,
-    channelAclPassword: ChannelAclPassword?,
-    permissionEpoch: Int,
-    showUserCount: Boolean,
-    onUserInformation: (Int, String) -> Unit,
+    actions: ChannelTreeActions,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var sendDialog by remember { mutableStateOf(false) }
     var addDialog by remember { mutableStateOf(false) }
     var editDialog by remember { mutableStateOf(false) }
     var removeDialog by remember { mutableStateOf(false) }
-    val listening = channel.id in listeningChannels
-    val showJoin = channel.id != localChannelId
-    val showSend = canTextMessage(channel.id)
-    val showListen = supportsChannelListen() && (canListen(channel.id) || listening)
-    val showAdd = !channel.temporary && canAddChannel(channel.id)
-    val showEdit = canWriteChannel(channel.id)
+    val listening = channel.id in actions.listeningChannels
+    val showJoin = channel.id != actions.localChannelId
+    val showSend = actions.canTextMessage(channel.id)
+    val showListen = actions.supportsChannelListen() &&
+        (actions.canListen(channel.id) || listening)
+    val showAdd = !channel.temporary && actions.canAddChannel(channel.id)
+    val showEdit = actions.canWriteChannel(channel.id)
     val showRemove = showEdit && channel.id != 0
-    val showAdmin = showAdd || showEdit || showRemove
-    val forceTemporary = showAdd && !canMakePermanentChannel(channel.id)
+    val forceTemporary = showAdd && !actions.canMakePermanentChannel(channel.id)
     val canCollapse = ChannelTree.canCollapse(channel)
     val collapsed = canCollapse && channel.id in collapsedIds
     val linkMenu = ChannelLinks.menu(
-        homeId = localChannelId,
+        homeId = actions.localChannelId,
         targetId = channel.id,
-        homeDirectLinks = homeDirectLinks,
-        targetInHomeComponent = channel.id in homeAllLinks,
-        homeCanLink = canLinkChannel(localChannelId),
-        targetCanLink = canLinkChannel(channel.id),
+        homeDirectLinks = actions.homeDirectLinks,
+        targetInHomeComponent = channel.id in actions.homeAllLinks,
+        homeCanLink = actions.canLinkChannel(actions.localChannelId),
+        targetCanLink = actions.canLinkChannel(channel.id),
     )
-    val isCurrentChannel = channel.id == localChannelId
-    val isLinked = channel.id in homeAllLinks && homeAllLinks.size > 1
+    val isCurrentChannel = channel.id == actions.localChannelId
+    val isLinked = channel.id in actions.homeAllLinks && actions.homeAllLinks.size > 1
     val showLinkIcon = isLinked && !isCurrentChannel
 
-    LaunchedEffect(menuOpen, permissionEpoch) {
+    LaunchedEffect(menuOpen, actions.permissionEpoch) {
         if (menuOpen) {
-            onQueryChannelPermissions(channel.id)
-            onQueryChannelPermissions(localChannelId)
+            actions.onQueryChannelPermissions(channel.id)
+            actions.onQueryChannelPermissions(actions.localChannelId)
         }
     }
     LaunchedEffect(editDialog) {
         if (editDialog) {
-            onRequestChannelDescription(channel.id)
-            onRequestChannelAcl(channel.id)
+            actions.onRequestChannelDescription(channel.id)
+            actions.onRequestChannelAcl(channel.id)
         }
     }
 
@@ -288,7 +248,7 @@ private fun ChannelNode(
                     modifier = Modifier
                         .weight(1f)
                         .combinedClickable(
-                            onClick = { onJoinChannel(channel) },
+                            onClick = { actions.onJoinChannel(channel) },
                             onLongClick = { menuOpen = true },
                         )
                         .padding(end = 8.dp, top = 6.dp, bottom = 6.dp),
@@ -324,7 +284,7 @@ private fun ChannelNode(
                                 .size(16.dp),
                         )
                     }
-                    if (showUserCount && channel.users.isNotEmpty()) {
+                    if (actions.showUserCount && channel.users.isNotEmpty()) {
                         Text(
                             " (${channel.users.size})",
                             style = MaterialTheme.typography.bodySmall,
@@ -333,125 +293,35 @@ private fun ChannelNode(
                     }
                 }
             }
-            DropdownMenu(
+            ChannelContextMenu(
                 expanded = menuOpen,
-                onDismissRequest = { menuOpen = false },
-            ) {
-                if (showJoin) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.join_channel)) },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onJoinChannel(channel)
-                        },
-                    )
-                }
-                if (showListen) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                stringResource(
-                                    if (listening) R.string.stop_listening_channel
-                                    else R.string.listening_channel,
-                                )
-                            )
-                        },
-                        leadingIcon = { Icon(Icons.Filled.Hearing, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onSetChannelListening(channel.id, !listening)
-                        },
-                    )
-                }
-                if ((showJoin || showListen) && (showAdmin || linkMenu.any || showSend)) {
-                    HorizontalDivider()
-                }
-                if (showAdd) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.add_channel)) },
-                        leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            addDialog = true
-                        },
-                    )
-                }
-                if (showEdit) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.edit_channel)) },
-                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            editDialog = true
-                        },
-                    )
-                }
-                if (showRemove) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.remove_channel)) },
-                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            removeDialog = true
-                        },
-                    )
-                }
-                if (showAdmin && (linkMenu.any || showSend)) {
-                    HorizontalDivider()
-                }
-                if (linkMenu.showLink) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.link_channel)) },
-                        leadingIcon = { Icon(Icons.Filled.Link, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onLinkChannel(channel.id)
-                        },
-                    )
-                }
-                if (linkMenu.showUnlink) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.unlink_channel)) },
-                        leadingIcon = { Icon(Icons.Filled.LinkOff, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onUnlinkChannel(channel.id)
-                        },
-                    )
-                }
-                if (linkMenu.showUnlinkAll) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.unlink_all_channels)) },
-                        leadingIcon = { Icon(Icons.Filled.LinkOff, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onUnlinkAllChannels()
-                        },
-                    )
-                }
-                if (linkMenu.any && showSend) {
-                    HorizontalDivider()
-                }
-                if (showSend) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.send_message)) },
-                        leadingIcon = {
-                            Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
-                        },
-                        onClick = {
-                            menuOpen = false
-                            sendDialog = true
-                        },
-                    )
-                }
-            }
+                onDismiss = { menuOpen = false },
+                showJoin = showJoin,
+                showListen = showListen,
+                listening = listening,
+                showAdd = showAdd,
+                showEdit = showEdit,
+                showRemove = showRemove,
+                showSend = showSend,
+                linkMenu = linkMenu,
+                onJoin = { actions.onJoinChannel(channel) },
+                onToggleListen = {
+                    actions.onSetChannelListening(channel.id, !listening)
+                },
+                onAdd = { addDialog = true },
+                onEdit = { editDialog = true },
+                onRemove = { removeDialog = true },
+                onLink = { actions.onLinkChannel(channel.id) },
+                onUnlink = { actions.onUnlinkChannel(channel.id) },
+                onUnlinkAll = actions.onUnlinkAllChannels,
+                onSend = { sendDialog = true },
+            )
             if (sendDialog) {
                 SendTextMessageDialog(
                     title = stringResource(R.string.send_channel_message_title, channel.name),
                     onConfirm = { text ->
                         sendDialog = false
-                        onSendChat(channel.id, text)
+                        actions.onSendChat(channel.id, text)
                     },
                     onDismiss = { sendDialog = false },
                 )
@@ -465,7 +335,7 @@ private fun ChannelNode(
                     incomingPassword = "",
                     onConfirm = { name, description, position, maxUsers, temporary, password ->
                         addDialog = false
-                        onCreateChannel(
+                        actions.onCreateChannel(
                             channel.id, name, description, position, temporary, maxUsers, password,
                         )
                     },
@@ -478,13 +348,13 @@ private fun ChannelNode(
                     parentName = channel.name,
                     forceTemporary = false,
                     incomingDescription = channel.description,
-                    incomingPassword = channelAclPassword
+                    incomingPassword = actions.channelAclPassword
                         ?.takeIf { it.channelId == channel.id }
                         ?.password
                         ?: "",
                     onConfirm = { name, description, position, maxUsers, _, password ->
                         editDialog = false
-                        onUpdateChannel(
+                        actions.onUpdateChannel(
                             channel.id, name, description, position, maxUsers, password,
                         )
                     },
@@ -496,7 +366,7 @@ private fun ChannelNode(
                     channelName = channel.name,
                     onConfirm = {
                         removeDialog = false
-                        onRemoveChannel(channel.id)
+                        actions.onRemoveChannel(channel.id)
                     },
                     onDismiss = { removeDialog = false },
                 )
@@ -506,76 +376,19 @@ private fun ChannelNode(
             channel.users.forEach { user ->
                 key(user.session, user.isChannelListener, user.talking) {
                     UserRow(
-                        user = user, indent = indent + 1,
-                        onJoinUserChannel = onJoinUserChannel, onMoveUser = onMoveUser,
-                        localChannelId = localChannelId, moveChannels = moveChannels,
-                        onSetLocalBlock = onSetLocalBlock,
-                        onSetLocalIgnore = onSetLocalIgnore,
-                        onSetRemoteMute = onSetRemoteMute, onSetRemoteDeafen = onSetRemoteDeafen,
-                        onSetPrioritySpeaker = onSetPrioritySpeaker,
-                        onKickUser = onKickUser, onBanUser = onBanUser,
-                        onRegisterUser = onRegisterUser,
-                        canAdministerChannel = canAdministerChannel,
-                        canMuteUser = canMuteUser,
-                        canPrioritySpeaker = canPrioritySpeaker,
-                        canMoveInChannel = canMoveInChannel,
-                        onQueryChannelPermissions = onQueryChannelPermissions,
-                        canKickUser = canKickUser, canBanUser = canBanUser,
-                        canRegisterUser = canRegisterUser,
-                        supportsSelectiveBan = supportsSelectiveBan,
-                        canTextMessage = canTextMessage,
-                        onSendPrivateChat = onSendPrivateChat,
-                        onSetChannelListening = onSetChannelListening,
-                        onUserInformation = onUserInformation,
+                        user = user,
+                        indent = indent + 1,
+                        actions = actions,
                     )
                 }
             }
             channel.children.forEach { child ->
                 ChannelNode(
-                    channel = child, indent = indent + 1, onJoinChannel = onJoinChannel,
-                    onJoinUserChannel = onJoinUserChannel, onMoveUser = onMoveUser,
-                    localChannelId = localChannelId, moveChannels = moveChannels,
+                    channel = child,
+                    indent = indent + 1,
                     collapsedIds = collapsedIds,
                     onToggleCollapsed = onToggleCollapsed,
-                    onSetLocalBlock = onSetLocalBlock,
-                    onSetLocalIgnore = onSetLocalIgnore,
-                    onSetRemoteMute = onSetRemoteMute, onSetRemoteDeafen = onSetRemoteDeafen,
-                    onSetPrioritySpeaker = onSetPrioritySpeaker,
-                    onKickUser = onKickUser, onBanUser = onBanUser,
-                    onRegisterUser = onRegisterUser,
-                    canAdministerChannel = canAdministerChannel,
-                    canMuteUser = canMuteUser,
-                    canPrioritySpeaker = canPrioritySpeaker,
-                    canMoveInChannel = canMoveInChannel,
-                    onQueryChannelPermissions = onQueryChannelPermissions,
-                    canKickUser = canKickUser, canBanUser = canBanUser,
-                    canRegisterUser = canRegisterUser,
-                    supportsSelectiveBan = supportsSelectiveBan,
-                    canTextMessage = canTextMessage,
-                    canListen = canListen,
-                    supportsChannelListen = supportsChannelListen,
-                    listeningChannels = listeningChannels,
-                    onSendChat = onSendChat,
-                    onSendPrivateChat = onSendPrivateChat,
-                    onSetChannelListening = onSetChannelListening,
-                    canWriteChannel = canWriteChannel,
-                    canAddChannel = canAddChannel,
-                    canMakePermanentChannel = canMakePermanentChannel,
-                    canLinkChannel = canLinkChannel,
-                    onLinkChannel = onLinkChannel,
-                    onUnlinkChannel = onUnlinkChannel,
-                    onUnlinkAllChannels = onUnlinkAllChannels,
-                    homeAllLinks = homeAllLinks,
-                    homeDirectLinks = homeDirectLinks,
-                    onCreateChannel = onCreateChannel,
-                    onUpdateChannel = onUpdateChannel,
-                    onRemoveChannel = onRemoveChannel,
-                    onRequestChannelDescription = onRequestChannelDescription,
-                    onRequestChannelAcl = onRequestChannelAcl,
-                    channelAclPassword = channelAclPassword,
-                    permissionEpoch = permissionEpoch,
-                    showUserCount = showUserCount,
-                    onUserInformation = onUserInformation,
+                    actions = actions,
                 )
             }
         }

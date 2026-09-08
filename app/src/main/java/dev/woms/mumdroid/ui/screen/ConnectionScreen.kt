@@ -42,11 +42,9 @@ import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
 import dev.woms.mumdroid.core.model.ChannelTree
-import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceMode
-import dev.woms.mumdroid.core.model.VoiceOutputTarget
-import dev.woms.mumdroid.core.net.BanEntry
 import dev.woms.mumdroid.ui.ConnectionState
+import dev.woms.mumdroid.ui.SessionCommands
 import kotlinx.coroutines.delay
 
 /**
@@ -56,69 +54,11 @@ import kotlinx.coroutines.delay
 @Composable
 fun ConnectionScreen(
     state: ConnectionState,
+    commands: SessionCommands,
     onBack: () -> Unit,
     onDisconnect: () -> Unit,
-    onToggleMute: () -> Unit,
-    onToggleDeafen: () -> Unit,
-    onJoinChannel: (Int) -> Unit,
-    onMoveUser: (Int, Int) -> Unit,
-    onSetLocalBlock: (Int, Boolean) -> Unit,
-    onSetLocalIgnore: (Int, Boolean) -> Unit,
-    onSetRemoteMute: (Int, Boolean) -> Unit,
-    onSetRemoteDeafen: (Int, Boolean) -> Unit,
-    onSetPrioritySpeaker: (Int, Boolean) -> Unit,
-    onKickUser: (Int, String) -> Unit,
-    onBanUser: (Int, String, Boolean, Boolean, Int) -> Unit,
-    onRegisterUser: (Int) -> Unit,
-    canAdministerChannel: (Int) -> Boolean,
-    canMuteUser: (User) -> Boolean,
-    canPrioritySpeaker: (User) -> Boolean,
-    canMoveInChannel: (Int) -> Boolean,
-    onQueryChannelPermissions: (Int) -> Unit,
-    canKickUser: () -> Boolean,
-    canBanUser: () -> Boolean,
-    canRegisterUser: (User) -> Boolean,
-    supportsSelectiveBan: () -> Boolean,
-    onSendChat: (Int, String) -> Unit,
-    onSendPrivateChat: (Int, String) -> Unit,
-    canTextMessage: (Int) -> Boolean = { false },
-    canListen: (Int) -> Boolean = { false },
-    supportsChannelListen: () -> Boolean = { false },
-    onSetChannelListening: (Int, Boolean) -> Unit = { _, _ -> },
-    canWriteChannel: (Int) -> Boolean = { false },
-    canAddChannel: (Int) -> Boolean = { false },
-    canMakePermanentChannel: (Int) -> Boolean = { false },
-    canLinkChannel: (Int) -> Boolean = { false },
-    onLinkChannel: (Int) -> Unit = {},
-    onUnlinkChannel: (Int) -> Unit = {},
-    onUnlinkAllChannels: () -> Unit = {},
-    onCreateChannel: (Int, String, String, Int, Boolean, Int, String) -> Unit = { _, _, _, _, _, _, _ -> },
-    onUpdateChannel: (Int, String, String, Int, Int, String) -> Unit = { _, _, _, _, _, _ -> },
-    onRemoveChannel: (Int) -> Unit = {},
-    onRequestChannelDescription: (Int) -> Unit = {},
-    onRequestChannelAcl: (Int) -> Unit = {},
     showUserCount: Boolean = false,
-    onTalkStart: () -> Unit = {},
-    onTalkStop: () -> Unit = {},
     voiceMode: VoiceMode = VoiceMode.CONTINUOUS,
-    outputTarget: VoiceOutputTarget? = null,
-    onSelectOutputTarget: (VoiceOutputTarget) -> Unit = {},
-    onRequestUserStats: (Int, Boolean) -> Unit = { _, _ -> },
-    onClearUserStats: () -> Unit = {},
-    onJoinChannelWithPassword: (Int, String) -> Unit = { _, _ -> },
-    onClearChannelPasswordPrompt: () -> Unit = {},
-    onUpdatePinnedCertificate: () -> Unit = {},
-    onTrustCertificateOnce: () -> Unit = {},
-    onRejectCertificate: () -> Unit = {},
-    onReplaceAccessTokens: (List<String>) -> Unit = {},
-    canEditRegisteredUsers: () -> Boolean = { false },
-    onRequestUserList: () -> Unit = {},
-    onRenameRegisteredUser: (Int, String) -> Unit = { _, _ -> },
-    onUnregisterUser: (Int) -> Unit = {},
-    onRefreshUserList: () -> Unit = {},
-    onRequestBanList: () -> Unit = {},
-    onReplaceBanList: (List<BanEntry>) -> Unit = {},
-    onRefreshBanList: () -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
     var showServerInfo by remember { mutableStateOf(false) }
@@ -131,44 +71,44 @@ fun ConnectionScreen(
     val showVoiceControls = tab != 1 || !keyboardOpen
     val localChannelId = state.users.firstOrNull { it.isLocalUser }?.channelId ?: 0
     val moveChannels = ChannelTree.flattenForPicker(state.channels)
-    val joinById = remember(state.channels, onJoinChannel) {
+    val joinById = remember(state.channels, commands) {
         { channelId: Int ->
             val channel = ChannelTree.find(state.channels, channelId)
             if (channel != null && channel.isEnterRestricted && !channel.canEnter) {
                 localPasswordPrompt = ChannelPasswordPrompt(channel.id, channel.name)
             } else {
-                onJoinChannel(channelId)
+                commands.joinChannel(channelId)
             }
         }
     }
     val onJoinChannelFromList = remember(joinById) {
         { channel: Channel -> joinById(channel.id) }
     }
-    val onUserInformation = remember(onClearUserStats, onRequestUserStats) {
-        { session: Int, name: String ->
-            if (infoSession != session) onClearUserStats()
+    val onUserInformation = remember(commands) {
+        { userSession: Int, name: String ->
+            if (infoSession != userSession) commands.clearUserStats()
             infoUserName = name
-            infoSession = session
-            onRequestUserStats(session, false)
+            infoSession = userSession
+            commands.requestUserStats(userSession, false)
         }
     }
     val onShowServerInfo = remember { { showServerInfo = true } }
     val onShowAccessTokens = remember { { showAccessTokens = true } }
-    val onOpenRegisteredUsers = remember(onRequestUserList) {
+    val onOpenRegisteredUsers = remember(commands) {
         {
-            onRequestUserList()
+            commands.requestUserList()
             adminPage = AdminPage.RegisteredUsers
         }
     }
-    val onOpenBanList = remember(onRequestBanList) {
+    val onOpenBanList = remember(commands) {
         {
-            onRequestBanList()
+            commands.requestBanList()
             adminPage = AdminPage.BanList
         }
     }
 
     LaunchedEffect(state.connected) {
-        if (state.connected) onQueryChannelPermissions(0)
+        if (state.connected) commands.ensureChannelPermissions(0)
     }
 
     when (adminPage) {
@@ -178,9 +118,9 @@ fun ConnectionScreen(
                 channels = state.channels,
                 isRefreshing = state.userListRefreshing,
                 onBack = { adminPage = null },
-                onRename = onRenameRegisteredUser,
-                onRemove = onUnregisterUser,
-                onRefresh = onRefreshUserList,
+                onRename = commands::renameRegisteredUser,
+                onRemove = commands::unregisterUser,
+                onRefresh = { commands.requestUserList(clear = false) },
             )
             return
         }
@@ -189,8 +129,8 @@ fun ConnectionScreen(
                 bans = state.banList,
                 isRefreshing = state.banListRefreshing,
                 onBack = { adminPage = null },
-                onReplace = onReplaceBanList,
-                onRefresh = onRefreshBanList,
+                onReplace = commands::replaceBanList,
+                onRefresh = { commands.requestBanList(clear = false) },
             )
             return
         }
@@ -203,11 +143,11 @@ fun ConnectionScreen(
             prompt = passwordPrompt,
             onSubmit = { token ->
                 localPasswordPrompt = null
-                onJoinChannelWithPassword(passwordPrompt.channelId, token)
+                commands.joinChannel(passwordPrompt.channelId, token)
             },
             onDismiss = {
                 localPasswordPrompt = null
-                onClearChannelPasswordPrompt()
+                commands.clearChannelPasswordPrompt()
             },
         )
     }
@@ -217,9 +157,9 @@ fun ConnectionScreen(
     state.certificatePrompt?.let { prompt ->
         CertificatePromptDialog(
             prompt = prompt,
-            onUpdatePin = onUpdatePinnedCertificate,
-            onTrustOnce = onTrustCertificateOnce,
-            onReject = onRejectCertificate,
+            onUpdatePin = commands::updatePinnedCertificate,
+            onTrustOnce = commands::trustCertificateOnce,
+            onReject = commands::rejectCertificate,
         )
     }
 
@@ -233,7 +173,7 @@ fun ConnectionScreen(
     if (showAccessTokens && state.connected) {
         AccessTokensDialog(
             tokens = state.accessTokens,
-            onReplace = onReplaceAccessTokens,
+            onReplace = commands::replaceAccessTokens,
             onDismiss = { showAccessTokens = false },
         )
     }
@@ -243,7 +183,7 @@ fun ConnectionScreen(
         LaunchedEffect(viewingSession) {
             while (true) {
                 delay(6_000)
-                onRequestUserStats(viewingSession, true)
+                commands.requestUserStats(viewingSession, true)
             }
         }
         UserInformationDialog(
@@ -252,7 +192,7 @@ fun ConnectionScreen(
             onDismiss = {
                 infoSession = null
                 infoUserName = ""
-                onClearUserStats()
+                commands.clearUserStats()
             },
         )
     }
@@ -263,8 +203,8 @@ fun ConnectionScreen(
             ConnectionTopBar(
                 serverName = state.serverName,
                 connected = state.connected,
-                canEditRegisteredUsers = canEditRegisteredUsers(),
-                canBan = canBanUser(),
+                canEditRegisteredUsers = commands.canEditRegisteredUsers(),
+                canBan = commands.canBanUser(),
                 onBack = onBack,
                 onDisconnect = onDisconnect,
                 onShowServerInfo = onShowServerInfo,
@@ -281,13 +221,13 @@ fun ConnectionScreen(
                 VoiceControlBar(
                     selfMuted = state.selfMuted,
                     selfDeafened = state.selfDeafened,
-                    onToggleMute = onToggleMute,
-                    onToggleDeafen = onToggleDeafen,
-                    onTalkStart = onTalkStart,
-                    onTalkStop = onTalkStop,
+                    onToggleMute = commands::toggleSelfMute,
+                    onToggleDeafen = commands::toggleSelfDeafen,
+                    onTalkStart = commands::startTalking,
+                    onTalkStop = commands::stopTalking,
                     voiceMode = voiceMode,
-                    outputTarget = outputTarget,
-                    onSelectOutputTarget = onSelectOutputTarget,
+                    outputTarget = state.outputTarget,
+                    onSelectOutputTarget = commands::setOutputTarget,
                 )
             }
         },
@@ -304,45 +244,45 @@ fun ConnectionScreen(
                     users = state.users,
                     onJoinChannel = onJoinChannelFromList,
                     onJoinUserChannel = joinById,
-                    onMoveUser = onMoveUser,
+                    onMoveUser = commands::moveUser,
                     localChannelId = localChannelId,
                     moveChannels = moveChannels,
-                    onSetLocalBlock = onSetLocalBlock,
-                    onSetLocalIgnore = onSetLocalIgnore,
-                    onSetRemoteMute = onSetRemoteMute,
-                    onSetRemoteDeafen = onSetRemoteDeafen,
-                    onSetPrioritySpeaker = onSetPrioritySpeaker,
-                    onKickUser = onKickUser,
-                    onBanUser = onBanUser,
-                    onRegisterUser = onRegisterUser,
-                    canAdministerChannel = canAdministerChannel,
-                    canMuteUser = canMuteUser,
-                    canPrioritySpeaker = canPrioritySpeaker,
-                    canMoveInChannel = canMoveInChannel,
-                    onQueryChannelPermissions = onQueryChannelPermissions,
-                    canKickUser = canKickUser,
-                    canBanUser = canBanUser,
-                    canRegisterUser = canRegisterUser,
-                    supportsSelectiveBan = supportsSelectiveBan,
-                    canTextMessage = canTextMessage,
-                    canListen = canListen,
-                    supportsChannelListen = supportsChannelListen,
+                    onSetLocalBlock = commands::setLocalBlock,
+                    onSetLocalIgnore = commands::setLocalIgnore,
+                    onSetRemoteMute = commands::setRemoteMute,
+                    onSetRemoteDeafen = commands::setRemoteDeafen,
+                    onSetPrioritySpeaker = commands::setPrioritySpeaker,
+                    onKickUser = commands::kickUser,
+                    onBanUser = commands::banUser,
+                    onRegisterUser = commands::registerUser,
+                    canAdministerChannel = commands::canAdministerChannel,
+                    canMuteUser = commands::canMuteUser,
+                    canPrioritySpeaker = commands::canPrioritySpeaker,
+                    canMoveInChannel = commands::canMoveInChannel,
+                    onQueryChannelPermissions = commands::ensureChannelPermissions,
+                    canKickUser = commands::canKickUser,
+                    canBanUser = commands::canBanUser,
+                    canRegisterUser = commands::canRegisterUser,
+                    supportsSelectiveBan = commands::supportsSelectiveBan,
+                    canTextMessage = commands::canTextMessage,
+                    canListen = commands::canListen,
+                    supportsChannelListen = commands::supportsChannelListen,
                     listeningChannels = state.listeningChannels,
-                    onSendChat = onSendChat,
-                    onSendPrivateChat = onSendPrivateChat,
-                    onSetChannelListening = onSetChannelListening,
-                    canWriteChannel = canWriteChannel,
-                    canAddChannel = canAddChannel,
-                    canMakePermanentChannel = canMakePermanentChannel,
-                    canLinkChannel = canLinkChannel,
-                    onLinkChannel = onLinkChannel,
-                    onUnlinkChannel = onUnlinkChannel,
-                    onUnlinkAllChannels = onUnlinkAllChannels,
-                    onCreateChannel = onCreateChannel,
-                    onUpdateChannel = onUpdateChannel,
-                    onRemoveChannel = onRemoveChannel,
-                    onRequestChannelDescription = onRequestChannelDescription,
-                    onRequestChannelAcl = onRequestChannelAcl,
+                    onSendChat = commands::sendChat,
+                    onSendPrivateChat = commands::sendPrivateChat,
+                    onSetChannelListening = commands::setChannelListening,
+                    canWriteChannel = commands::canWriteChannel,
+                    canAddChannel = commands::canAddChannel,
+                    canMakePermanentChannel = commands::canMakePermanentChannel,
+                    canLinkChannel = commands::canLinkChannel,
+                    onLinkChannel = commands::linkChannel,
+                    onUnlinkChannel = commands::unlinkChannel,
+                    onUnlinkAllChannels = commands::unlinkAllChannels,
+                    onCreateChannel = commands::createChannel,
+                    onUpdateChannel = commands::updateChannel,
+                    onRemoveChannel = commands::removeChannel,
+                    onRequestChannelDescription = commands::requestChannelDescription,
+                    onRequestChannelAcl = commands::requestChannelAcl,
                     channelAclPassword = state.channelAclPassword,
                     permissionEpoch = state.permissionEpoch,
                     showUserCount = showUserCount,
@@ -357,8 +297,8 @@ fun ConnectionScreen(
                     // go to the wrong channel and appear to never be sent.
                     channelId = state.users.firstOrNull { it.isLocalUser }?.channelId
                         ?: state.channels.firstOrNull()?.id ?: 0,
-                    onSend = onSendChat,
-                    onSendPrivate = onSendPrivateChat,
+                    onSend = commands::sendChat,
+                    onSendPrivate = commands::sendPrivateChat,
                 )
             }
         }

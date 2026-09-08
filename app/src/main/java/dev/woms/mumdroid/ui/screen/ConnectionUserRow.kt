@@ -2,31 +2,17 @@ package dev.woms.mumdroid.ui.screen
 
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.DriveFileMove
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CommentsDisabled
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Hearing
-import androidx.compose.material.icons.filled.HowToReg
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.PersonRemove
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -43,12 +29,48 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.ChannelPick
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.UserStatusIcon
+
+@Composable
+internal fun UserRow(
+    user: User,
+    indent: Int,
+    actions: ChannelTreeActions,
+) {
+    UserRow(
+        user = user,
+        indent = indent,
+        onJoinUserChannel = actions.onJoinUserChannel,
+        onMoveUser = actions.onMoveUser,
+        localChannelId = actions.localChannelId,
+        moveChannels = actions.moveChannels,
+        onSetLocalBlock = actions.onSetLocalBlock,
+        onSetLocalIgnore = actions.onSetLocalIgnore,
+        onSetRemoteMute = actions.onSetRemoteMute,
+        onSetRemoteDeafen = actions.onSetRemoteDeafen,
+        onSetPrioritySpeaker = actions.onSetPrioritySpeaker,
+        onKickUser = actions.onKickUser,
+        onBanUser = actions.onBanUser,
+        onRegisterUser = actions.onRegisterUser,
+        canAdministerChannel = actions.canAdministerChannel,
+        canMuteUser = actions.canMuteUser,
+        canPrioritySpeaker = actions.canPrioritySpeaker,
+        canMoveInChannel = actions.canMoveInChannel,
+        onQueryChannelPermissions = actions.onQueryChannelPermissions,
+        canKickUser = actions.canKickUser,
+        canBanUser = actions.canBanUser,
+        canRegisterUser = actions.canRegisterUser,
+        supportsSelectiveBan = actions.supportsSelectiveBan,
+        canTextMessage = actions.canTextMessage,
+        onSendPrivateChat = actions.onSendPrivateChat,
+        onSetChannelListening = actions.onSetChannelListening,
+        onUserInformation = actions.onUserInformation,
+    )
+}
 
 @Composable
 internal fun UserRow(
@@ -210,27 +232,7 @@ internal fun UserRow(
             }
         }
 
-        // Desktop `qmUser_aboutToShow` order, with Move and moderation nested
-        // so the long-press list stays short on a phone. Listener proxies use
-        // a shorter menu (desktop `qmListener`).
-        val isListener = user.isChannelListener
-        val inOtherChannel = !user.isLocalUser && user.channelId != localChannelId
-        val canMoveFrom = !isListener && !user.isLocalUser && canMoveInChannel(user.channelId)
         val moveDests = moveChannels.filter { it.id != user.channelId && canMoveInChannel(it.id) }
-        val showMoveHere = canMoveFrom && inOtherChannel && canMoveInChannel(localChannelId)
-        val showMoveTo = canMoveFrom && moveDests.isNotEmpty()
-        val showMoveMenu = showMoveHere || showMoveTo
-        val showMuteAction = !isListener && canMuteUser(user)
-        val showDeafAction = !isListener && !user.isLocalUser && canAdministerChannel(user.channelId)
-        val showPrioritySpeaker = !isListener && canPrioritySpeaker(user)
-        val showKick = !isListener && !user.isLocalUser && canKickUser()
-        val showBan = !isListener && !user.isLocalUser && canBanUser()
-        val showAdminMenu = showKick || showBan || showMuteAction || showDeafAction || showPrioritySpeaker
-        val showRegister = !isListener && canRegisterUser(user)
-        val showStopListening = isListener && user.isLocalUser
-        val showSendMessage = !user.isLocalUser && canTextMessage(
-            if (isListener) user.listenerChannelId else user.channelId,
-        )
 
         LaunchedEffect(menuOpen) {
             if (!menuOpen) {
@@ -238,7 +240,7 @@ internal fun UserRow(
                 adminSubOpen = false
             } else {
                 onQueryChannelPermissions(user.channelId)
-                if (isListener) onQueryChannelPermissions(user.listenerChannelId)
+                if (user.isChannelListener) onQueryChannelPermissions(user.listenerChannelId)
                 onQueryChannelPermissions(localChannelId)
             }
         }
@@ -248,219 +250,39 @@ internal fun UserRow(
             }
         }
 
-        DropdownMenu(
+        UserContextMenu(
+            user = user,
             expanded = menuOpen,
-            onDismissRequest = { menuOpen = false },
-        ) {
-            if (showStopListening) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.stop_listening_channel)) },
-                    leadingIcon = { Icon(Icons.Filled.Hearing, contentDescription = null) },
-                    onClick = {
-                        menuOpen = false
-                        onSetChannelListening(user.listenerChannelId, false)
-                    },
-                )
-            }
-            if (inOtherChannel) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.join_user_channel)) },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null) },
-                    onClick = {
-                        menuOpen = false
-                        onJoinUserChannel(user.channelId)
-                    },
-                )
-            }
-            if (showMoveMenu) {
-                NestedDropdownMenu(
-                    label = stringResource(R.string.move_user_menu),
-                    icon = Icons.AutoMirrored.Filled.DriveFileMove,
-                    expanded = moveSubOpen,
-                    onExpandedChange = { moveSubOpen = it },
-                ) {
-                    if (showMoveHere) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.move_user_here)) },
-                            leadingIcon = { Icon(Icons.Filled.PersonAdd, contentDescription = null) },
-                            onClick = {
-                                moveSubOpen = false
-                                menuOpen = false
-                                onMoveUser(user.session, localChannelId)
-                            },
-                        )
-                    }
-                    if (showMoveTo) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.move_user_to_channel)) },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
-                            onClick = {
-                                moveSubOpen = false
-                                menuOpen = false
-                                moveDialog = true
-                            },
-                        )
-                    }
-                }
-            }
-            if (showAdminMenu) {
-                if (inOtherChannel || showMoveMenu) {
-                    HorizontalDivider()
-                }
-                NestedDropdownMenu(
-                    label = stringResource(R.string.user_menu_admin),
-                    icon = Icons.Filled.AdminPanelSettings,
-                    expanded = adminSubOpen,
-                    onExpandedChange = { adminSubOpen = it },
-                ) {
-                    if (showKick) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.kick_user)) },
-                            leadingIcon = { Icon(Icons.Filled.PersonRemove, contentDescription = null) },
-                            onClick = {
-                                adminSubOpen = false
-                                menuOpen = false
-                                kickDialog = true
-                            },
-                        )
-                    }
-                    if (showBan) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.ban_user)) },
-                            leadingIcon = { Icon(Icons.Filled.Block, contentDescription = null) },
-                            onClick = {
-                                adminSubOpen = false
-                                menuOpen = false
-                                banDialog = true
-                            },
-                        )
-                    }
-                    if (showMuteAction) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    stringResource(
-                                        if (silencedByServer) R.string.unmute_user else R.string.mute_user
-                                    )
-                                )
-                            },
-                            leadingIcon = { Icon(Icons.Filled.MicOff, contentDescription = null) },
-                            onClick = {
-                                adminSubOpen = false
-                                menuOpen = false
-                                onSetRemoteMute(user.session, !silencedByServer)
-                            },
-                        )
-                    }
-                    if (showDeafAction) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    stringResource(
-                                        if (user.deaf) R.string.undeafen_user else R.string.deafen_user
-                                    )
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(Icons.AutoMirrored.Filled.VolumeOff, contentDescription = null)
-                            },
-                            onClick = {
-                                adminSubOpen = false
-                                menuOpen = false
-                                onSetRemoteDeafen(user.session, !user.deaf)
-                            },
-                        )
-                    }
-                    if (showPrioritySpeaker) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    stringResource(
-                                        if (user.prioritySpeaker) {
-                                            R.string.revoke_priority_speaker
-                                        } else {
-                                            R.string.priority_speaker
-                                        }
-                                    )
-                                )
-                            },
-                            leadingIcon = { Icon(Icons.Filled.Campaign, contentDescription = null) },
-                            onClick = {
-                                adminSubOpen = false
-                                menuOpen = false
-                                onSetPrioritySpeaker(user.session, !user.prioritySpeaker)
-                            },
-                        )
-                    }
-                }
-            }
-            if (!user.isLocalUser && !isListener) {
-                if (inOtherChannel || showMoveMenu || showAdminMenu || showStopListening) {
-                    HorizontalDivider()
-                }
-                DropdownMenuItem(
-                    text = { Text(stringResource(if (user.localBlock) R.string.unblock_user else R.string.block_user)) },
-                    leadingIcon = { Icon(Icons.Filled.MicOff, contentDescription = null) },
-                    onClick = {
-                        menuOpen = false
-                        onSetLocalBlock(user.session, !user.localBlock)
-                    },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            stringResource(
-                                if (user.localIgnore) {
-                                    R.string.unignore_messages
-                                } else {
-                                    R.string.ignore_messages
-                                }
-                            )
-                        )
-                    },
-                    leadingIcon = { Icon(Icons.Filled.CommentsDisabled, contentDescription = null) },
-                    onClick = {
-                        menuOpen = false
-                        onSetLocalIgnore(user.session, !user.localIgnore)
-                    },
-                )
-            }
-            if (showSendMessage) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.send_message)) },
-                    leadingIcon = {
-                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
-                    },
-                    onClick = {
-                        menuOpen = false
-                        sendDialog = true
-                    },
-                )
-            }
-            if (inOtherChannel || showMoveMenu || showAdminMenu || showStopListening
-                || (!user.isLocalUser && !isListener) || showSendMessage
-            ) {
-                HorizontalDivider()
-            }
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.user_information)) },
-                leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
-                onClick = {
-                    menuOpen = false
-                    onUserInformation(user.session, user.name)
-                },
-            )
-            if (showRegister) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.register_user)) },
-                    leadingIcon = { Icon(Icons.Filled.HowToReg, contentDescription = null) },
-                    onClick = {
-                        menuOpen = false
-                        registerDialog = true
-                    },
-                )
-            }
-        }
+            onDismiss = { menuOpen = false },
+            localChannelId = localChannelId,
+            moveDests = moveDests,
+            moveSubOpen = moveSubOpen,
+            onMoveSubOpenChange = { moveSubOpen = it },
+            adminSubOpen = adminSubOpen,
+            onAdminSubOpenChange = { adminSubOpen = it },
+            onJoinUserChannel = onJoinUserChannel,
+            onMoveUser = onMoveUser,
+            onOpenMoveDialog = { moveDialog = true },
+            onOpenKickDialog = { kickDialog = true },
+            onOpenBanDialog = { banDialog = true },
+            onOpenRegisterDialog = { registerDialog = true },
+            onOpenSendDialog = { sendDialog = true },
+            onSetLocalBlock = onSetLocalBlock,
+            onSetLocalIgnore = onSetLocalIgnore,
+            onSetRemoteMute = onSetRemoteMute,
+            onSetRemoteDeafen = onSetRemoteDeafen,
+            onSetPrioritySpeaker = onSetPrioritySpeaker,
+            onSetChannelListening = onSetChannelListening,
+            onUserInformation = onUserInformation,
+            canAdministerChannel = canAdministerChannel,
+            canMuteUser = canMuteUser,
+            canPrioritySpeaker = canPrioritySpeaker,
+            canMoveInChannel = canMoveInChannel,
+            canKickUser = canKickUser,
+            canBanUser = canBanUser,
+            canRegisterUser = canRegisterUser,
+            canTextMessage = canTextMessage,
+        )
 
         if (moveDialog) {
             MoveUserChannelDialog(
@@ -517,35 +339,6 @@ internal fun UserRow(
                 onDismiss = { sendDialog = false },
             )
         }
-    }
-}
-
-@Composable
-private fun NestedDropdownMenu(
-    label: String,
-    icon: ImageVector,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Box {
-        DropdownMenuItem(
-            text = { Text(label) },
-            leadingIcon = { Icon(icon, contentDescription = null) },
-            trailingIcon = {
-                Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null,
-                )
-            },
-            onClick = { onExpandedChange(true) },
-        )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { onExpandedChange(false) },
-            offset = DpOffset(168.dp, 0.dp),
-            content = content,
-        )
     }
 }
 

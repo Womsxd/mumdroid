@@ -62,80 +62,14 @@ class ConnectionActivity : BaseActivity() {
 
         ConnectionScreen(
             state = state,
+            commands = vm.sessionCommands,
             onBack = { finish() },
             onDisconnect = {
                 vm.disconnect()
                 finish()
             },
-            onToggleMute = { vm.toggleSelfMute() },
-            onToggleDeafen = { vm.toggleSelfDeafen() },
-            onJoinChannel = { channelId -> vm.joinChannel(channelId) },
-            onMoveUser = { session, channelId -> vm.moveUser(session, channelId) },
-            onJoinChannelWithPassword = { channelId, token -> vm.joinChannel(channelId, token) },
-            onClearChannelPasswordPrompt = { vm.clearChannelPasswordPrompt() },
-            onUpdatePinnedCertificate = { vm.updatePinnedCertificate() },
-            onTrustCertificateOnce = { vm.trustCertificateOnce() },
-            onRejectCertificate = { vm.rejectCertificate() },
-            onReplaceAccessTokens = { tokens -> vm.replaceAccessTokens(tokens) },
-            canEditRegisteredUsers = { vm.canEditRegisteredUsers() },
-            onRequestUserList = { vm.requestUserList() },
-            onRenameRegisteredUser = { userId, name -> vm.renameRegisteredUser(userId, name) },
-            onUnregisterUser = { userId -> vm.unregisterUser(userId) },
-            onRefreshUserList = { vm.requestUserList(clear = false) },
-            onRequestBanList = { vm.requestBanList() },
-            onReplaceBanList = { bans -> vm.replaceBanList(bans) },
-            onRefreshBanList = { vm.requestBanList(clear = false) },
-            onSetLocalBlock = { session, blocked -> vm.setLocalBlock(session, blocked) },
-            onSetLocalIgnore = { session, ignored -> vm.setLocalIgnore(session, ignored) },
-            onSetRemoteMute = { session, muted -> vm.setRemoteMute(session, muted) },
-            onSetRemoteDeafen = { session, deafened -> vm.setRemoteDeafen(session, deafened) },
-            onSetPrioritySpeaker = { session, enabled -> vm.setPrioritySpeaker(session, enabled) },
-            onKickUser = { session, reason -> vm.kickUser(session, reason) },
-            onBanUser = { session, reason, banCert, banIp, duration ->
-                vm.banUser(session, reason, banCert, banIp, duration)
-            },
-            onRegisterUser = { session -> vm.registerUser(session) },
-            canAdministerChannel = { channelId -> vm.canAdministerChannel(channelId) },
-            canMuteUser = { user -> vm.canMuteUser(user) },
-            canPrioritySpeaker = { user -> vm.canPrioritySpeaker(user) },
-            canMoveInChannel = { channelId -> vm.canMoveInChannel(channelId) },
-            onQueryChannelPermissions = { channelId -> vm.ensureChannelPermissions(channelId) },
-            canKickUser = { vm.canKickUser() },
-            canBanUser = { vm.canBanUser() },
-            canRegisterUser = { user -> vm.canRegisterUser(user) },
-            supportsSelectiveBan = { vm.supportsSelectiveBan() },
-            onSendChat = { channelId, text -> vm.sendChat(channelId, text) },
-            onSendPrivateChat = { session, text -> vm.sendPrivateChat(session, text) },
-            canTextMessage = { channelId -> vm.canTextMessage(channelId) },
-            canListen = { channelId -> vm.canListen(channelId) },
-            supportsChannelListen = { vm.supportsChannelListen() },
-            onSetChannelListening = { channelId, listen ->
-                vm.setChannelListening(channelId, listen)
-            },
-            canWriteChannel = { channelId -> vm.canWriteChannel(channelId) },
-            canAddChannel = { channelId -> vm.canAddChannel(channelId) },
-            canMakePermanentChannel = { channelId -> vm.canMakePermanentChannel(channelId) },
-            canLinkChannel = { channelId -> vm.canLinkChannel(channelId) },
-            onLinkChannel = { channelId -> vm.linkChannel(channelId) },
-            onUnlinkChannel = { channelId -> vm.unlinkChannel(channelId) },
-            onUnlinkAllChannels = { vm.unlinkAllChannels() },
-            onCreateChannel = { parentId, name, description, position, temporary, maxUsers, password ->
-                vm.createChannel(parentId, name, description, position, temporary, maxUsers, password)
-            },
-            onUpdateChannel = { channelId, name, description, position, maxUsers, password ->
-                vm.updateChannel(channelId, name, description, position, maxUsers, password)
-            },
-            onRemoveChannel = { channelId -> vm.removeChannel(channelId) },
-            onRequestChannelDescription = { channelId -> vm.requestChannelDescription(channelId) },
-            onRequestChannelAcl = { channelId -> vm.requestChannelAcl(channelId) },
             showUserCount = appSettings.showUserCount,
-            onTalkStart = { vm.startTalking() },
-            onTalkStop = { vm.stopTalking() },
             voiceMode = appSettings.voiceMode,
-            outputTarget = state.outputTarget,
-            onSelectOutputTarget = { target -> vm.setOutputTarget(target) },
-            onRequestUserStats = { session, statsOnly -> vm.requestUserStats(session, statsOnly) },
-            onClearUserStats = { vm.clearUserStats() },
         )
 
         val removal = state.serverRemoval

@@ -51,6 +51,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Last user-certificate generation failure message (null when none). */
     val userCertificateError: StateFlow<String?> get() = userCerts.error
 
+    /** Live session intents, separate from settings and the server list. */
+    val sessionCommands: SessionCommands get() = session
+
     private val _settings = MutableStateFlow(AppSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
