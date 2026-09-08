@@ -940,19 +940,19 @@ class ProtocolTest {
     fun playTunneled_protobufDispatchesAudio() {
         val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738)
         udp.protobufMode = true
-        var session = -1
+        var capturedSession = -1
         var frame = -1L
-        var payload: ByteArray? = null
+        var capturedPayload: ByteArray? = null
         udp.setListener(object : dev.woms.mumdroid.core.net.UdpVoiceManager.Listener {
             override fun onAudioPacket(
-                sessionId: Int,
+                session: Int,
                 frameNumber: Long,
-                opus: ByteArray,
+                payload: ByteArray,
                 isLastFrame: Boolean,
             ) {
-                session = sessionId
+                capturedSession = session
                 frame = frameNumber
-                payload = opus
+                capturedPayload = payload
             }
             override fun onUdpPing(rttMillis: Long) {}
             override fun onUdpConnected() {}
@@ -970,26 +970,26 @@ class ProtocolTest {
         body[0] = 0
         System.arraycopy(proto, 0, body, 1, proto.size)
         udp.playTunneled(body)
-        assertEquals(42, session)
+        assertEquals(42, capturedSession)
         assertEquals(10L, frame)
-        assertArrayEquals(opusPayload, payload)
+        assertArrayEquals(opusPayload, capturedPayload)
         udp.close()
     }
 
     @Test
     fun playTunneled_legacyDispatchesAudio() {
         val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738)
-        var session = -1
-        var payload: ByteArray? = null
+        var capturedSession = -1
+        var capturedPayload: ByteArray? = null
         udp.setListener(object : dev.woms.mumdroid.core.net.UdpVoiceManager.Listener {
             override fun onAudioPacket(
-                sessionId: Int,
+                session: Int,
                 frameNumber: Long,
-                opus: ByteArray,
+                payload: ByteArray,
                 isLastFrame: Boolean,
             ) {
-                session = sessionId
-                payload = opus
+                capturedSession = session
+                capturedPayload = payload
             }
             override fun onUdpPing(rttMillis: Long) {}
             override fun onUdpConnected() {}
@@ -1003,8 +1003,8 @@ class ProtocolTest {
         dev.woms.mumdroid.core.net.UdpPacketCodec.writeVarInt(opusPayload.size.toLong(), out)
         out.write(opusPayload)
         udp.playTunneled(out.toByteArray())
-        assertEquals(7, session)
-        assertArrayEquals(opusPayload, payload)
+        assertEquals(7, capturedSession)
+        assertArrayEquals(opusPayload, capturedPayload)
         udp.close()
     }
 }

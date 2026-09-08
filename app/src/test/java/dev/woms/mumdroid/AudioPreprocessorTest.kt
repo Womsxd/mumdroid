@@ -8,7 +8,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.PI
-import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -212,7 +211,7 @@ class AudioPreprocessorTest {
                 }
                 val result = pre.run(frame)
                 // Must not crash and must return a boolean VAD decision.
-                assertTrue("result must be Boolean", result is Boolean)
+                assertTrue("VAD decision should be reported", result)
                 // The frame is still valid PCM (clamped shorts), no NaN/OOB.
                 for (s in frame) {
                     assertTrue(s >= Short.MIN_VALUE && s <= Short.MAX_VALUE)
