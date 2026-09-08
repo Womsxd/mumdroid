@@ -29,6 +29,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,14 +92,20 @@ enum class SettingsPage(
 internal fun SettingsCategoryRow(
     title: String,
     subtitle: String,
-    icon: ImageVector,
     onClick: () -> Unit,
+    icon: ImageVector? = null,
+    iconPainter: Painter? = null,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
 ) {
     ListItem(
         headlineContent = { Text(title, style = MaterialTheme.typography.bodyLarge) },
         supportingContent = { Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         leadingContent = {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            if (iconPainter != null) {
+                Icon(iconPainter, contentDescription = null, tint = iconTint)
+            } else if (icon != null) {
+                Icon(icon, contentDescription = null, tint = iconTint)
+            }
         },
         trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null) },
         modifier = Modifier.clickable(onClick = onClick),

@@ -329,6 +329,10 @@
     <string name="about">关于</string>
     <string name="about_version">版本 %1$s (%2$s) · Build %3$d\n%4$s · %5$s</string>
     <string name="about_description">开源 Mumble 语音客户端</string>
+    <string name="about_github">GitHub</string>
+    <string name="about_github_sub">在 GitHub 查看源码</string>
+    <string name="about_cnb">CNB</string>
+    <string name="about_cnb_sub">在 CNB 查看源码</string>
     <string name="open_source_licenses">开源许可</string>
     <string name="open_source_licenses_sub">查看本应用使用的开源组件</string>
     <string name="open_source_license_notice">本应用使用了以下开源项目，我们感谢它们的作者与贡献者。</string>

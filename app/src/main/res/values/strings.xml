@@ -329,6 +329,10 @@
     <string name="about">About</string>
     <string name="about_version">Version %1$s (%2$s) · Build %3$d\n%4$s · %5$s</string>
     <string name="about_description">An open source Mumble voice client</string>
+    <string name="about_github">GitHub</string>
+    <string name="about_github_sub">View the source code on GitHub</string>
+    <string name="about_cnb">CNB</string>
+    <string name="about_cnb_sub">View the source code on CNB</string>
     <string name="open_source_licenses">Open Source Licenses</string>
     <string name="open_source_licenses_sub">View the open source components used by this app</string>
     <string name="open_source_license_notice">This app makes use of the following open source projects. We thank their authors and contributors.</string>

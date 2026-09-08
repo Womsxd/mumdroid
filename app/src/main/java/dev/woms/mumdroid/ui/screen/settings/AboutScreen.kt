@@ -1,6 +1,9 @@
 ﻿package dev.woms.mumdroid.ui.screen.settings
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,17 +26,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.BuildConfig
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.ui.screen.OpenSourceLicensesScreen
-import java.util.Locale
-import androidx.compose.ui.platform.LocalConfiguration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 // ---- About ----
 
@@ -75,6 +81,17 @@ private fun isSimplifiedChinese(): Boolean {
             && currentLocale.country == Locale.SIMPLIFIED_CHINESE.country
 }
 
+
+private object SourceCodeUrls {
+    const val GITHUB = "https://github.com/Womsxd/mumdroid"
+    const val CNB = "https://cnb.cool/womsxd/mumdroid"
+}
+
+private fun openUrl(context: android.content.Context, url: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    context.startActivity(intent)
+}
+
 private enum class AboutPage { ABOUT, LICENSES }
 
 /** About page: shows app info and an entry to the open source licenses. */
@@ -96,6 +113,8 @@ private fun AboutScreen(
             )
         },
     ) { padding ->
+        val context = LocalContext.current
+        val brandIconColor = if (isSystemInDarkTheme()) Color.White else Color.Black
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
@@ -128,6 +147,24 @@ private fun AboutScreen(
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
+            }
+            item {
+                SettingsCategoryRow(
+                    title = stringResource(R.string.about_github),
+                    subtitle = stringResource(R.string.about_github_sub),
+                    iconPainter = painterResource(R.drawable.ic_github),
+                    iconTint = brandIconColor,
+                    onClick = { openUrl(context, SourceCodeUrls.GITHUB) },
+                )
+            }
+            item {
+                SettingsCategoryRow(
+                    title = stringResource(R.string.about_cnb),
+                    subtitle = stringResource(R.string.about_cnb_sub),
+                    iconPainter = painterResource(R.drawable.ic_cnb),
+                    iconTint = brandIconColor,
+                    onClick = { openUrl(context, SourceCodeUrls.CNB) },
+                )
             }
             item {
                 SettingsCategoryRow(
