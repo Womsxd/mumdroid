@@ -1,4 +1,4 @@
-﻿package dev.woms.mumdroid.core.audio
+package dev.woms.mumdroid.core.audio
 
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
