@@ -245,4 +245,16 @@ class ChanACLTest {
         assertTrue(ChanACL.canViewUserInfo(0, ChanACL.ENTER, isSelf = false))
         assertFalse(ChanACL.canViewUserInfo(0, ChanACL.SPEAK, isSelf = false))
     }
+
+    @Test
+    fun fromWire_matchesOfficialUnsignedIntCast() {
+        assertEquals(ChanACL.WRITE.toLong(), ChanACL.fromWire(ChanACL.WRITE.toLong()))
+        assertEquals(0L, ChanACL.fromWire(1L shl 32))
+        assertEquals(1L, ChanACL.fromWire((1L shl 32) or 1L))
+        assertFalse(ChanACL.has(ChanACL.fromWire(1L shl 32), 1 shl 31))
+        val bit31 = Integer.MIN_VALUE
+        assertEquals(0x80000000L, ChanACL.fromProtoUInt32(bit31))
+        assertTrue(ChanACL.has(ChanACL.fromProtoUInt32(bit31), bit31))
+        assertEquals(bit31, ChanACL.toProtoUInt32(0x80000000L))
+    }
 }

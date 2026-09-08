@@ -2,6 +2,7 @@ package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.core.model.AccessTokens
 import dev.woms.mumdroid.core.model.AclUserNames
+import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.ChanAclWrite
 import dev.woms.mumdroid.core.model.Channel
@@ -200,14 +201,14 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
     fun promptForChannelPassword(
         denied: dev.woms.mumdroid.core.proto.PermissionDenied,
         channel: Channel?,
-        enterPermission: Int,
+        enterPermission: Long,
         onDenied: (String) -> Unit,
         passwordDeniedMessage: (String) -> String,
     ): Boolean {
         if (denied.type != dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.Permission) {
             return false
         }
-        if ((denied.permission and enterPermission) == 0) return false
+        if ((ChanACL.fromProtoUInt32(denied.permission) and enterPermission) == 0L) return false
         if (channel == null || !channel.isEnterRestricted) return false
         val retry = passwordJoinChannelId == channel.id
         passwordJoinChannelId = null

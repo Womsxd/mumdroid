@@ -24,8 +24,10 @@ object ChannelPasswordAcl {
         if (!acl.group.startsWith(ChanACL.Group.ACCESS_TOKEN.toString())) return false
         if (!acl.applyHere || acl.inherited) return false
         if (acl.deny != 0) return false
-        if (acl.grant and ChanACL.ENTER == 0) return false
-        return acl.grant == PASSWORD_PERMS || acl.grant == PASSWORD_PERMS_LEGACY
+        val grant = ChanACL.fromProtoUInt32(acl.grant)
+        if (grant and ChanACL.ENTER.toLong() == 0L) return false
+        return grant == ChanACL.fromProtoUInt32(PASSWORD_PERMS) ||
+            grant == ChanACL.fromProtoUInt32(PASSWORD_PERMS_LEGACY)
     }
 
     fun isPasswordDenyAll(acl: ACL.ChanACL): Boolean {
@@ -33,7 +35,9 @@ object ChannelPasswordAcl {
         if (acl.group != ChanACL.Group.ALL) return false
         if (!acl.applyHere || acl.inherited) return false
         if (acl.grant != 0) return false
-        return acl.deny == PASSWORD_PERMS || acl.deny == PASSWORD_PERMS_LEGACY
+        val deny = ChanACL.fromProtoUInt32(acl.deny)
+        return deny == ChanACL.fromProtoUInt32(PASSWORD_PERMS) ||
+            deny == ChanACL.fromProtoUInt32(PASSWORD_PERMS_LEGACY)
     }
 
     fun extractPassword(msg: ACL): String {

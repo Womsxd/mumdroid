@@ -34,7 +34,7 @@ internal class SessionRoster(private val scope: CoroutineScope) {
     val localBlockSet = ConcurrentHashMap.newKeySet<Int>()
     val localIgnoreSet = ConcurrentHashMap.newKeySet<Int>()
     val listeningBySession = ConcurrentHashMap<Int, MutableSet<Int>>()
-    val channelPermissions = ConcurrentHashMap<Int, Int>()
+    val channelPermissions = ConcurrentHashMap<Int, Long>()
 
     var localSession: Int = 0
 
@@ -199,7 +199,7 @@ internal class SessionRoster(private val scope: CoroutineScope) {
         return removed
     }
 
-    fun applyPermissionQuery(channelId: Int, permissions: Int, flush: Boolean) {
+    fun applyPermissionQuery(channelId: Int, permissions: Long, flush: Boolean) {
         if (flush) channelPermissions.clear()
         channelPermissions[channelId] = permissions
         _permissionEpoch.value++
@@ -255,7 +255,7 @@ internal class SessionRoster(private val scope: CoroutineScope) {
         publishLocalListening()
     }
 
-    fun permissions(channelId: Int): Int = channelPermissions[channelId] ?: 0
+    fun permissions(channelId: Int): Long = channelPermissions[channelId] ?: 0L
 
     fun hasPermissions(channelId: Int): Boolean = channelPermissions.containsKey(channelId)
 
@@ -333,7 +333,7 @@ internal class SessionRoster(private val scope: CoroutineScope) {
             isSelf = user.isLocalUser,
         )
 
-    fun rootPermissions(): Int = permissions(ChanACL.ChannelId.ROOT)
+    fun rootPermissions(): Long = permissions(ChanACL.ChannelId.ROOT)
 
     fun clear() {
         channelMap.clear()

@@ -101,7 +101,7 @@ internal class MumbleServiceEvents(private val svc: MumbleService) : MumbleListe
 
     override fun onBanList(bans: List<BanEntry>, query: Boolean) = svc.admin.handleBanList(svc.client, bans)
 
-    override fun onPermissionQuery(channelId: Int, permissions: Int, flush: Boolean) {
+    override fun onPermissionQuery(channelId: Int, permissions: Long, flush: Boolean) {
         svc.roster.applyPermissionQuery(channelId, permissions, flush)
     }
 
@@ -222,7 +222,7 @@ internal class MumbleServiceEvents(private val svc: MumbleService) : MumbleListe
         val handled = svc.admin.promptForChannelPassword(
             denied,
             svc.roster.channelMap[denied.channelId],
-            ChanACL.ENTER,
+            ChanACL.ENTER.toLong(),
             onDenied = { svc.notices.system(it) },
             passwordDeniedMessage = { name ->
                 svc.getString(R.string.permission_denied_channel_password, name)

@@ -590,7 +590,8 @@ class MumbleClient(
                 val sync = ServerSync.parseFrom(body)
                 localSession = sync.session
                 if (sync.permissions != 0L) {
-                    listener.onPermissionQuery(0, sync.permissions.toInt(), false)
+                    // Official `static_cast<unsigned int>(msg.permissions())`.
+                    listener.onPermissionQuery(0, ChanACL.fromWire(sync.permissions), false)
                 }
                 listener.onConnected(localSession, sync.welcomeText, sync.maxBandwidth)
             }
@@ -697,7 +698,11 @@ class MumbleClient(
             MessageType.PERMISSION_QUERY -> {
                 // Server reports a user's permissions in a channel.
                 val pq = PermissionQuery.parseFrom(body)
-                listener.onPermissionQuery(pq.channelId, pq.permissions, pq.flush)
+                listener.onPermissionQuery(
+                    pq.channelId,
+                    ChanACL.fromProtoUInt32(pq.permissions),
+                    pq.flush,
+                )
             }
             MessageType.USER_STATS -> {
                 listener.onUserStats(UserStats.parseFrom(body))

@@ -58,6 +58,13 @@ object ChanACL {
     const val SUPERUSER_EFFECTIVE = ALL and SPEAK.inv() and WHISPER.inv()
 
     /**
+     * Official `ChanACL::Permissions` / `unsigned int` width. `ServerSync.permissions`
+     * is proto `uint64` only because of a historical oversight; the desktop
+     * client does `static_cast<unsigned int>(msg.permissions())`.
+     */
+    const val UINT32_MASK = 0xFFFFFFFFL
+
+    /**
      * Official `User::iId` sentinels: `-1` unregistered, `0` SuperUser.
      * An ACL with [ANY] applies to a [Group] name instead of a user.
      */
@@ -118,10 +125,25 @@ object ChanACL {
         const val USER_LISTENER_LIMIT = 13
     }
 
-    fun has(permissions: Int, bit: Int): Boolean =
-        permissions and bit != 0
+    /**
+     * Desktop `msgServerSync`: keep the low 32 bits of the `uint64` field
+     * (official `unsigned int` cast). Bits 32+ are dropped.
+     */
+    fun fromWire(bits: Long): Long = bits and UINT32_MASK
 
-    fun canMuteDeafen(permissions: Int): Boolean =
+    /**
+     * Widens a proto `uint32` permission field. Java protobuf exposes uint32
+     * as signed [Int]; bit 31 would otherwise look negative.
+     */
+    fun fromProtoUInt32(bits: Int): Long = bits.toLong() and UINT32_MASK
+
+    /** Narrows to proto `uint32` / official `unsigned int`. */
+    fun toProtoUInt32(bits: Long): Int = (bits and UINT32_MASK).toInt()
+
+    fun has(permissions: Long, bit: Int): Boolean =
+        permissions and fromProtoUInt32(bit) != 0L
+
+    fun canMuteDeafen(permissions: Long): Boolean =
         has(permissions, MUTE_DEAFEN)
 
     /**
@@ -129,14 +151,14 @@ object ChanACL {
      * `pPermissions & (Write | MuteDeafen)`. Write implies MuteDeafen in
      * Murmur's effective permissions, so either bit is enough.
      */
-    fun canMuteDeafenOrWrite(permissions: Int): Boolean =
+    fun canMuteDeafenOrWrite(permissions: Long): Boolean =
         has(permissions, WRITE or MUTE_DEAFEN)
 
     /**
      * Desktop `qaUserPrioritySpeaker->setEnabled`:
      * `pPermissions & (Write | MuteDeafen)`. Unlike Mute, this applies to self.
      */
-    fun canPrioritySpeaker(permissions: Int): Boolean =
+    fun canPrioritySpeaker(permissions: Long): Boolean =
         canMuteDeafenOrWrite(permissions)
 
     /**
@@ -144,61 +166,61 @@ object ChanACL {
      * source (and typically the destination). Write implies Move in
      * effective permissions, so either bit is enough to show the action.
      */
-    fun canMove(permissions: Int): Boolean =
+    fun canMove(permissions: Long): Boolean =
         has(permissions, WRITE or MOVE)
 
     /**
      * Desktop `qaUserTextMessage` / `qaChannelSendMessage`:
      * `pPermissions & (Write | TextMessage)`.
      */
-    fun canTextMessage(permissions: Int): Boolean =
+    fun canTextMessage(permissions: Long): Boolean =
         has(permissions, WRITE or TEXT_MESSAGE)
 
     /**
      * Desktop channel Listen: Write implies Listen in effective permissions.
      * Murmur still requires the Listen bit on the target channel.
      */
-    fun canListen(permissions: Int): Boolean =
+    fun canListen(permissions: Long): Boolean =
         has(permissions, WRITE or LISTEN)
 
     /** Desktop `qaChannelAdd`: Write, MakeChannel, or MakeTempChannel. */
-    fun canAddChannel(permissions: Int): Boolean =
+    fun canAddChannel(permissions: Long): Boolean =
         has(permissions, WRITE or MAKE_CHANNEL or MAKE_TEMP_CHANNEL)
 
     /**
      * Permanent channels need Write or MakeChannel on the parent. Without
      * those, desktop forces the Temporary checkbox.
      */
-    fun canMakePermanentChannel(permissions: Int): Boolean =
+    fun canMakePermanentChannel(permissions: Long): Boolean =
         has(permissions, WRITE or MAKE_CHANNEL)
 
     /** Desktop `qaChannelRemove` / `qaChannelACL` properties: Write. */
-    fun canWrite(permissions: Int): Boolean =
+    fun canWrite(permissions: Long): Boolean =
         has(permissions, WRITE)
 
     /**
      * Desktop `qaChannelLink` / `qaChannelUnlink`: Write implies LinkChannel
      * in effective permissions.
      */
-    fun canLinkChannel(permissions: Int): Boolean =
+    fun canLinkChannel(permissions: Long): Boolean =
         has(permissions, WRITE or LINK_CHANNEL)
 
     /** Write implies Traverse in Murmur effective permissions. */
-    fun canTraverse(permissions: Int): Boolean =
+    fun canTraverse(permissions: Long): Boolean =
         has(permissions, WRITE or TRAVERSE)
 
     /** Write implies Enter in Murmur effective permissions. */
-    fun canEnter(permissions: Int): Boolean =
+    fun canEnter(permissions: Long): Boolean =
         has(permissions, WRITE or ENTER)
 
     /** Desktop `qaChannelJoin`: Write | Enter. */
-    fun canJoinChannel(permissions: Int): Boolean = canEnter(permissions)
+    fun canJoinChannel(permissions: Long): Boolean = canEnter(permissions)
 
     /**
      * Desktop `qaChannelACL`: Write on this channel, or Write on root
      * (`Global::pPermissions`).
      */
-    fun canEditAcl(channelPermissions: Int, rootPermissions: Int): Boolean =
+    fun canEditAcl(channelPermissions: Long, rootPermissions: Long): Boolean =
         canWrite(channelPermissions) || canWrite(rootPermissions)
 
     /**
@@ -206,8 +228,8 @@ object ChanACL {
      * root Write|Register, channel Write|Enter, or the target is self.
      */
     fun canViewUserInfo(
-        rootPermissions: Int,
-        channelPermissions: Int,
+        rootPermissions: Long,
+        channelPermissions: Long,
         isSelf: Boolean,
     ): Boolean =
         isSelf ||
@@ -217,15 +239,15 @@ object ChanACL {
     /**
      * Speak is **not** implied by Write (SuperUser is `All & ~(Speak|Whisper)`).
      */
-    fun canSpeak(permissions: Int): Boolean =
+    fun canSpeak(permissions: Long): Boolean =
         has(permissions, SPEAK)
 
     /** Whisper is not implied by Write. */
-    fun canWhisper(permissions: Int): Boolean =
+    fun canWhisper(permissions: Long): Boolean =
         has(permissions, WHISPER)
 
     /** Root-only: Write implies ResetUserContent in Murmur effective permissions. */
-    fun canResetUserContent(permissions: Int): Boolean =
+    fun canResetUserContent(permissions: Long): Boolean =
         has(permissions, WRITE or RESET_USER_CONTENT)
 
     /**
@@ -234,26 +256,26 @@ object ChanACL {
      * an admin can lift their own channel suppress.
      */
     fun canOfferMute(
-        permissions: Int,
+        permissions: Long,
         isSelf: Boolean,
         muted: Boolean,
         suppressed: Boolean,
     ): Boolean = canMuteDeafenOrWrite(permissions) && (!isSelf || muted || suppressed)
 
     /** Desktop: `pPermissions & (Kick | Ban | Write)`. */
-    fun canKick(permissions: Int): Boolean =
+    fun canKick(permissions: Long): Boolean =
         has(permissions, KICK or BAN or WRITE)
 
     /** Desktop: `pPermissions & (Ban | Write)`. */
-    fun canBan(permissions: Int): Boolean =
+    fun canBan(permissions: Long): Boolean =
         has(permissions, BAN or WRITE)
 
     /** Desktop: `pPermissions & (SelfRegister | Write)`. */
-    fun canSelfRegister(permissions: Int): Boolean =
+    fun canSelfRegister(permissions: Long): Boolean =
         has(permissions, SELF_REGISTER or WRITE)
 
     /** Desktop: `pPermissions & (Register | Write)`. */
-    fun canRegisterOthers(permissions: Int): Boolean =
+    fun canRegisterOthers(permissions: Long): Boolean =
         has(permissions, REGISTER or WRITE)
 
     /**
@@ -261,7 +283,7 @@ object ChanACL {
      * matching root ACL (`SelfRegister` for self, `Register` for others).
      */
     fun canOfferRegister(
-        permissions: Int,
+        permissions: Long,
         isSelf: Boolean,
         isRegistered: Boolean,
         hasCertificate: Boolean,

@@ -162,7 +162,7 @@ interface MumbleListener {
     fun onVoiceTarget(id: Int) {}
 
     /** Server reported a user's permissions in a channel. */
-    fun onPermissionQuery(channelId: Int, permissions: Int, flush: Boolean) {}
+    fun onPermissionQuery(channelId: Int, permissions: Long, flush: Boolean) {}
 
     /** Server reported connection quality / stats for a user (`UserStats`). */
     fun onUserStats(stats: dev.woms.mumdroid.core.proto.UserStats) {}

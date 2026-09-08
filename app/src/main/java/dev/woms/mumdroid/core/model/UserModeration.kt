@@ -144,7 +144,7 @@ object UserModeration {
      * `Move | Write`.
      */
     fun canResetUserContent(
-        rootPermissions: Int,
+        rootPermissions: Long,
         versionV2: Long,
         legacyVersion: Int = 0,
     ): Boolean {

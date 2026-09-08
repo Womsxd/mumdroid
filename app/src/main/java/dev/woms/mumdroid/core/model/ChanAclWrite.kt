@@ -16,8 +16,8 @@ data class ChanAclRule(
     val group: String = "",
     val applyHere: Boolean = true,
     val applySubs: Boolean = true,
-    val grant: Int = ChanACL.NONE,
-    val deny: Int = ChanACL.NONE,
+    val grant: Long = ChanACL.NONE.toLong(),
+    val deny: Long = ChanACL.NONE.toLong(),
 )
 
 /** One `ACL.ChanGroup` as the desktop editor stores it. */
@@ -146,8 +146,8 @@ object ChanAclWrite {
             group = if (acl.hasUserId()) "" else acl.group,
             applyHere = acl.applyHere,
             applySubs = acl.applySubs,
-            grant = acl.grant,
-            deny = acl.deny,
+            grant = ChanACL.fromProtoUInt32(acl.grant),
+            deny = ChanACL.fromProtoUInt32(acl.deny),
         )
 
     private fun groupFromProto(group: ACL.ChanGroup): ChanAclGroup =
@@ -166,8 +166,8 @@ object ChanAclWrite {
             .setApplyHere(acl.applyHere)
             .setApplySubs(acl.applySubs)
             .setInherited(false)
-            .setGrant(acl.grant)
-            .setDeny(acl.deny)
+            .setGrant(ChanACL.toProtoUInt32(acl.grant))
+            .setDeny(ChanACL.toProtoUInt32(acl.deny))
         if (acl.userId >= ChanACL.UserId.SUPERUSER) {
             builder.setUserId(acl.userId)
         } else {
