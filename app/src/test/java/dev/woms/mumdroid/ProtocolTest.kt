@@ -404,6 +404,52 @@ class ProtocolTest {
     }
 
     @Test
+    fun ocb2_officialEmptyAndLongTestVectors() {
+        // draft-krovetz-ocb-00 / official `TestCrypt::testvectors`.
+        val rawkey = byteArrayOf(
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+            0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        )
+        val crypt = CryptOCB2()
+        assertTrue(crypt.setKey(rawkey))
+        assertTrue(crypt.setNonce(rawkey))
+
+        val blankTag = ByteArray(16)
+        assertEquals(0, crypt.encrypt(ByteArray(0), ByteArray(0), blankTag))
+        assertArrayEquals(
+            byteArrayOf(
+                0xBF.toByte(), 0x31, 0x08, 0x13, 0x07, 0x73, 0xAD.toByte(), 0x5E,
+                0xC7.toByte(), 0x0E, 0xC6.toByte(), 0x9E.toByte(), 0x78, 0x75, 0xA7.toByte(), 0xB0.toByte(),
+            ),
+            blankTag,
+        )
+        assertEquals(0, crypt.decrypt(ByteArray(0), ByteArray(0), blankTag))
+
+        val source = ByteArray(40) { it.toByte() }
+        val encrypted = ByteArray(40)
+        val longTag = ByteArray(16)
+        assertEquals(40, crypt.encrypt(encrypted, source, longTag))
+        assertArrayEquals(
+            byteArrayOf(
+                0x9D.toByte(), 0xB0.toByte(), 0xCD.toByte(), 0xF8.toByte(),
+                0x80.toByte(), 0xF7.toByte(), 0x3E, 0x3E,
+                0x10, 0xD4.toByte(), 0xEB.toByte(), 0x32, 0x17, 0x76, 0x66, 0x88.toByte(),
+            ),
+            longTag,
+        )
+        assertArrayEquals(
+            byteArrayOf(
+                0xF7.toByte(), 0x5D, 0x6B, 0xC8.toByte(), 0xB4.toByte(), 0xDC.toByte(), 0x8D.toByte(), 0x66,
+                0xB8.toByte(), 0x36, 0xA2.toByte(), 0xB0.toByte(), 0x8B.toByte(), 0x32, 0xA6.toByte(), 0x36,
+                0x9F.toByte(), 0x1C, 0xD3.toByte(), 0xC5.toByte(), 0x22, 0x8D.toByte(), 0x79, 0xFD.toByte(),
+                0x6C, 0x26, 0x7F, 0x5F, 0x6A, 0xA7.toByte(), 0xB2.toByte(), 0x31,
+                0xC7.toByte(), 0xDF.toByte(), 0xB9.toByte(), 0xD5.toByte(), 0x99.toByte(), 0x51, 0xAE.toByte(), 0x9C.toByte(),
+            ),
+            encrypted,
+        )
+    }
+
+    @Test
     fun ocb2AcceptsThreeByteWireTag() {
         val crypt = CryptOCB2()
         crypt.setKey(crypt.generateKey())

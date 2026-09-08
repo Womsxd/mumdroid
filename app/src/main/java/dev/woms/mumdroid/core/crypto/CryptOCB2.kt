@@ -138,7 +138,9 @@ class CryptOCB2 {
     ): Int {
         if (!isReady) return 0
         if (tag.isNotEmpty() && tag.size != BLOCK_SIZE) return 0
-        if (inputLength <= 0) return 0
+        // Official `ocb_encrypt` treats len=0 as valid (blank tag
+        // BF310813… in `TestCrypt::testvectors`). Only negative lengths fail.
+        if (inputLength < 0) return 0
         if (!validSlice(input, inputOffset, inputLength)) return 0
         if (!validSlice(output, outputOffset, inputLength)) return 0
 
