@@ -26,12 +26,10 @@ import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.audio.MicLevelMeter
 import dev.woms.mumdroid.core.audio.VoiceBandwidth
 import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
-import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AgcMode
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.MicSource
 import dev.woms.mumdroid.core.model.VoiceMode
-import dev.woms.mumdroid.core.model.VoicePlaybackMode
 
 // ---- Audio & Voice (merged) ----
 
@@ -300,6 +298,11 @@ internal fun AudioSettingsScreen(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         SectionHeader(stringResource(R.string.sec_input_codec))
+
+        OpusImplementationDropdown(
+            implementation = settings.opusImplementation,
+            onImplementationChange = { onChanged(settings.copy(opusImplementation = it)) },
+        )
 
         InputVolumeSlider(
             volume = settings.inputVolume,

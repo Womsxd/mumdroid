@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
+import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AgcMode
@@ -322,4 +323,47 @@ internal fun AudioPerPacketDropdown(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun OpusImplementationDropdown(
+    implementation: OpusImplementation,
+    onImplementationChange: (OpusImplementation) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = implementation.displayName(),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(stringResource(R.string.opus_implementation)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).padding(vertical = 4.dp),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            OpusImplementation.entries.forEach { impl ->
+                DropdownMenuItem(
+                    text = { Text(impl.displayName()) },
+                    onClick = {
+                        onImplementationChange(impl)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+    Text(
+        stringResource(R.string.opus_implementation_sub),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 4.dp),
+    )
+}
+
+@Composable
+internal fun OpusImplementation.displayName(): String = when (this) {
+    OpusImplementation.CONCENTUS -> stringResource(R.string.opus_implementation_concentus)
+    OpusImplementation.LIBOPUS -> stringResource(R.string.opus_implementation_libopus)
+}
+
 

@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.audio.VoiceBandwidth
 import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.AecMode
@@ -46,6 +47,7 @@ class SettingsStore(private val context: Context) {
         private val KEY_INPUT_VOLUME = intPreferencesKey("input_volume")
         private val KEY_INPUT_BITRATE = intPreferencesKey("input_bitrate")
         private val KEY_FRAMES_PER_PACKET = intPreferencesKey("frames_per_packet")
+        private val KEY_OPUS_IMPLEMENTATION = stringPreferencesKey("opus_implementation")
         private val KEY_LOW_LATENCY = booleanPreferencesKey("low_latency")
         private val KEY_VAD_METHOD = stringPreferencesKey("vad_method")
         private val KEY_VAD_SPEECH_THRESHOLD = intPreferencesKey("vad_speech_threshold")
@@ -117,6 +119,10 @@ class SettingsStore(private val context: Context) {
             inputVolume = prefs[KEY_INPUT_VOLUME] ?: 100,
             transmitQuality = VoiceBandwidth.clampQualityKbps(prefs[KEY_INPUT_BITRATE] ?: 40),
             framesPerPacket = prefs[KEY_FRAMES_PER_PACKET] ?: 2,
+            opusImplementation = parseEnum(
+                prefs[KEY_OPUS_IMPLEMENTATION],
+                OpusImplementation.LIBOPUS,
+            ),
             lowLatency = prefs[KEY_LOW_LATENCY] ?: false,
             vadMethod = parseVadMethod(prefs[KEY_VAD_METHOD]),
             vadSpeechThreshold = prefs[KEY_VAD_SPEECH_THRESHOLD] ?: 98,
@@ -185,6 +191,7 @@ class SettingsStore(private val context: Context) {
             prefs[KEY_INPUT_VOLUME] = settings.inputVolume
             prefs[KEY_INPUT_BITRATE] = VoiceBandwidth.clampQualityKbps(settings.transmitQuality)
             prefs[KEY_FRAMES_PER_PACKET] = settings.framesPerPacket
+            prefs[KEY_OPUS_IMPLEMENTATION] = settings.opusImplementation.name
             prefs[KEY_LOW_LATENCY] = settings.lowLatency
             prefs[KEY_VAD_METHOD] = settings.vadMethod.name
             prefs[KEY_VAD_SPEECH_THRESHOLD] = settings.vadSpeechThreshold

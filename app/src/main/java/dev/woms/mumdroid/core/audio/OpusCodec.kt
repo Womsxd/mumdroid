@@ -1,24 +1,24 @@
 package dev.woms.mumdroid.core.audio
 
 import android.util.Log
-import dev.woms.mumdroid.core.audio.OpusCodec.Companion.DECODER_TTL_MS
 import dev.woms.mumdroid.core.audio.OpusCodec.Companion.tenMsFrames
-import io.github.jaredmdobson.concentus.OpusApplication
-import io.github.jaredmdobson.concentus.OpusDecoder
-import io.github.jaredmdobson.concentus.OpusEncoder
-import io.github.jaredmdobson.concentus.OpusException
 
 /**
- * A thin wrapper around the Concentus Opus codec (a pure-Java port of libopus)
- * provided by the `io.github.jaredmdobson:concentus` Maven artifact. No native
- * libraries are required, which keeps the APK self-contained and buildable in
- * any Android CI environment.
+ * Opus encode/decode used by the audio input and output pipelines.
+ *
+ * Two backends are available:
+ *  - [OpusImplementation.LIBOPUS]: native xiph/opus (git submodule v1.6.1)
+ *    via JNI, compiled with the floating-point path. This is the default.
+ *    Falls back to Concentus if `libopus.so` cannot be loaded.
+ *  - [OpusImplementation.CONCENTUS]: the pure-Java Concentus port
+ *    (`io.github.jaredmdobson:concentus`). Used on the JVM in unit tests and
+ *    as a fallback.
  *
  * Mumble transmits a single mono channel of 48 kHz audio encoded with Opus.
- * This class exposes encode/decode operations used by the audio input and
- * output pipelines.
  */
-class OpusCodec {
+class OpusCodec(
+    implementation: OpusImplementation = OpusImplementation.LIBOPUS,
+) {
 
     companion object {
         private const val TAG = "OpusCodec"
@@ -97,23 +97,29 @@ class OpusCodec {
             return (frameMs * 48.0 * frames).toInt().coerceIn(120, 2880)
         }
 
-        /** Decoders idle for this long are reaped to bound memory. */
-        private const val DECODER_TTL_MS = 30_000L
-        private const val MAX_DECODERS = 32
+        internal fun createBackend(implementation: OpusImplementation): OpusBackend {
+            if (implementation == OpusImplementation.LIBOPUS) {
+                if (LibOpusNative.isAvailable) {
+                    return try {
+                        LibOpusBackend()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "LibOpus init failed; falling back to Concentus", e)
+                        ConcentusOpusBackend()
+                    }
+                }
+                Log.w(TAG, "LibOpus native library unavailable; falling back to Concentus")
+            }
+            return ConcentusOpusBackend()
+        }
     }
 
-    private var encoder: OpusEncoder
-    // Shared decoder kept for backwards-compat single-stream callers (tests).
-    private val decoder: OpusDecoder
-    private val outBuffer = ByteArray(MAX_PACKET)
-    private val pcmBuffer = ShortArray(MAX_PACKET)
+    @Volatile
+    private var backend: OpusBackend = createBackend(implementation)
 
-    // Per-session decoders — Opus state is per-speaker. A single shared decoder
-    // mixes CELT states of different speakers and produces persistent garbled
-    // noise once two streams interleave, which matches "starts fine, then
-    // always noisy".
-    private val decoders = java.util.concurrent.ConcurrentHashMap<Int, OpusDecoder>()
-    private val decoderLastUse = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+    /** The implementation last requested by the user (before fallback). */
+    @Volatile
+    var implementation: OpusImplementation = implementation
+        private set
 
     /** The current encode frame size in samples (default 20 ms = 960). */
     private var frameSize: Int = FRAME_SIZE_10MS * 2
@@ -122,25 +128,27 @@ class OpusCodec {
      *  also requires bitrate ≥ 64 kbit/s, matching official AudioInput. */
     private var allowLowDelay = false
 
-    private var currentApplication = OpusApplication.OPUS_APPLICATION_VOIP
-
     /** The currently applied encoding bitrate in bits-per-second (0 = default). */
     private var currentBitrate = 0
 
     private val encodeLock = Any()
 
     init {
-        try {
-            currentApplication = desiredApplication()
-            encoder = OpusEncoder(SAMPLE_RATE, CHANNELS, currentApplication)
-            // OPUS_SET_VBR(0) — direct call to Concentus' public setter:
-            // compile-time locked and R8-safe (the former reflective lookup
-            // silently failed in release and only worked by CBR-default
-            // coincidence).
-            encoder.setUseVBR(false)
-            decoder = OpusDecoder(SAMPLE_RATE, CHANNELS)
-        } catch (e: OpusException) {
-            throw IllegalStateException("Failed to initialise Opus codec", e)
+        backend.ensureEncoder(desiredApplication(), currentBitrate)
+    }
+
+    /**
+     * Switches the encode/decode backend. Encoder settings (bitrate, frame
+     * size, low-latency) are re-applied; per-session decoder state is dropped.
+     */
+    fun setImplementation(implementation: OpusImplementation) {
+        synchronized(encodeLock) {
+            if (this.implementation == implementation) return
+            val old = backend
+            backend = createBackend(implementation)
+            this.implementation = implementation
+            backend.ensureEncoder(desiredApplication(), currentBitrate)
+            old.close()
         }
     }
 
@@ -161,18 +169,17 @@ class OpusCodec {
 
     /**
      * Enables or disables the low-latency Opus application. When enabled the
-     * encoder is re-created with [OpusApplication.OPUS_APPLICATION_RESTRICTED_LOWDELAY]
-     * (mirroring the desktop client's handling of the "Low latency mode"
-     * checkbox for high bitrates), otherwise the standard speech/audio
-     * application is used.
+     * encoder is re-created with restricted-low-delay (mirroring the desktop
+     * client's "Low latency mode" checkbox for high bitrates), otherwise the
+     * standard speech/audio application is used.
      */
     fun setLowLatency(enabled: Boolean) {
         synchronized(encodeLock) {
             if (allowLowDelay == enabled) return
             allowLowDelay = enabled
             try {
-                reinitEncoder()
-            } catch (e: OpusException) {
+                backend.ensureEncoder(desiredApplication(), currentBitrate)
+            } catch (e: Exception) {
                 Log.w(TAG, "Failed to re-initialise Opus encoder for low latency", e)
             }
         }
@@ -183,21 +190,10 @@ class OpusCodec {
      * low-delay ≥ 64 kbit/s → RESTRICTED_LOWDELAY;
      * otherwise ≥ 32 kbit/s → AUDIO; else VOIP.
      */
-    private fun desiredApplication(): OpusApplication = when {
-        allowLowDelay && currentBitrate >= 64_000 ->
-            OpusApplication.OPUS_APPLICATION_RESTRICTED_LOWDELAY
-        currentBitrate >= 32_000 || currentBitrate == 0 ->
-            OpusApplication.OPUS_APPLICATION_AUDIO
-        else -> OpusApplication.OPUS_APPLICATION_VOIP
-    }
-
-    private fun reinitEncoder() {
-        val app = desiredApplication()
-        val newEncoder = OpusEncoder(SAMPLE_RATE, CHANNELS, app)
-        if (currentBitrate > 0) newEncoder.setBitrate(currentBitrate)
-        newEncoder.setUseVBR(false)
-        encoder = newEncoder
-        currentApplication = app
+    private fun desiredApplication(): OpusApplicationMode = when {
+        allowLowDelay && currentBitrate >= 64_000 -> OpusApplicationMode.LOW_DELAY
+        currentBitrate >= 32_000 || currentBitrate == 0 -> OpusApplicationMode.AUDIO
+        else -> OpusApplicationMode.VOIP
     }
 
     /**
@@ -206,15 +202,7 @@ class OpusCodec {
      */
     fun resetEncoder() {
         synchronized(encodeLock) {
-            try {
-                encoder.resetState()
-            } catch (_: Exception) {
-                try {
-                    reinitEncoder()
-                } catch (e: OpusException) {
-                    Log.w(TAG, "Failed to reset Opus encoder", e)
-                }
-            }
+            backend.resetEncoder()
         }
     }
 
@@ -223,10 +211,8 @@ class OpusCodec {
         synchronized(encodeLock) {
             currentBitrate = bps
             try {
-                if (desiredApplication() != currentApplication) reinitEncoder()
-                encoder.setBitrate(bps)
-                encoder.setUseVBR(false)
-            } catch (e: OpusException) {
+                backend.ensureEncoder(desiredApplication(), bps)
+            } catch (e: Exception) {
                 Log.w(TAG, "Failed to set bitrate", e)
             }
         }
@@ -243,15 +229,7 @@ class OpusCodec {
             // side hears electrical / garbled speech.
             val samples = snapSupportedFrameSize(pcm.size)
             if (samples <= 0) return null
-            return try {
-                val len = encoder.encode(
-                    pcm, 0, samples, outBuffer, 0, outBuffer.size,
-                )
-                if (len <= 0) null else outBuffer.copyOf(len)
-            } catch (e: OpusException) {
-                Log.w(TAG, "Opus encode failed", e)
-                null
-            }
+            return backend.encode(pcm, samples)
         }
     }
 
@@ -272,98 +250,23 @@ class OpusCodec {
      * @param isTerminator whether this is the last frame of the utterance;
      *                     the decoder is reset afterwards to avoid state bleed.
      */
-    fun decodeForSession(session: Int, packet: ByteArray, isTerminator: Boolean = false): ShortArray? {
-        val dec = getOrCreateDecoder(session) ?: return null
-        // Allocate per-call buffer to avoid sharing pcmBuffer across threads
-        // (UDP thread vs. TCP-tunnel thread can decode concurrently).
-        val out = ShortArray(MAX_PACKET)
-        return try {
-            val len = synchronized(dec) {
-                dec.decode(packet, 0, packet.size, out, 0, out.size, false)
-            }
-            if (isTerminator) {
-                synchronized(dec) { try { dec.resetState() } catch (_: Exception) {} }
-            }
-            if (len <= 0) null else out.copyOf(len)
-        } catch (e: OpusException) {
-            Log.w(TAG, "Opus decode failed session=$session", e)
-            null
-        } catch (e: Exception) {
-            Log.w(TAG, "Opus decode failed session=$session", e)
-            null
-        }
-    }
+    fun decodeForSession(session: Int, packet: ByteArray, isTerminator: Boolean = false): ShortArray? =
+        backend.decode(session, packet, isTerminator)
 
     /**
      * Packet-loss concealment: synthesizes replacement PCM for a lost frame
-     * of [frameSize] samples. Concentus supports `data == null` for PLC
-     * (see OpusDecoder javadoc: "This may be NULL if that previous packet was
-     * lost in transit").
+     * of [frameSize] samples. Both Concentus and libopus accept a null packet
+     * for PLC.
      */
-    fun decodePlc(session: Int, frameSize: Int): ShortArray? {
-        val dec = getOrCreateDecoder(session) ?: return null
-        val out = ShortArray(frameSize.coerceAtMost(MAX_PACKET))
-        return try {
-            val len = synchronized(dec) {
-                // null data triggers PLC; len=0 signals PLC in Concentus
-                try {
-                    dec.decode(null, 0, 0, out, 0, out.size, false)
-                } catch (_: Exception) {
-                    // Fallback: some builds reject null — just generate silence
-                    -1
-                }
-            }
-            if (len <= 0) null else out.copyOf(len)
-        } catch (e: Exception) {
-            null
-        }
-    }
+    fun decodePlc(session: Int, frameSize: Int): ShortArray? =
+        backend.decodePlc(session, frameSize)
 
     /** Resets (or drops) the decoder for [session], e.g. on terminator. */
     fun resetDecoder(session: Int) {
-        decoders[session]?.let { dec ->
-            synchronized(dec) { try { dec.resetState() } catch (_: Exception) {} }
-        }
-    }
-
-    /** Evicts decoders idle longer than [DECODER_TTL_MS] or when over capacity. */
-    private fun reapIdleDecoders() {
-        if (decoders.size <= MAX_DECODERS) {
-            val now = System.currentTimeMillis()
-            val it = decoderLastUse.entries.iterator()
-            while (it.hasNext()) {
-                val e = it.next()
-                if (now - e.value > DECODER_TTL_MS) {
-                    decoders.remove(e.key)
-                    it.remove()
-                }
-            }
-        } else {
-            // Over capacity: drop oldest half
-            val sorted = decoderLastUse.entries.sortedBy { it.value }
-            for (i in 0 until sorted.size / 2) {
-                decoders.remove(sorted[i].key)
-                decoderLastUse.remove(sorted[i].key)
-            }
-        }
-    }
-
-    private fun getOrCreateDecoder(session: Int): OpusDecoder? {
-        decoderLastUse[session] = System.currentTimeMillis()
-        // Periodic reap (cheap, ~once per 100 decodes)
-        if ((decoderLastUse.size and 0x7F) == 0) reapIdleDecoders()
-        return try {
-            decoders.computeIfAbsent(session) { OpusDecoder(SAMPLE_RATE, CHANNELS) }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to create Opus decoder for session $session", e)
-            decoderLastUse.remove(session)
-            null
-        }
+        backend.resetDecoder(session)
     }
 
     fun close() {
-        // Concentus has no explicit close; clear per-session map.
-        decoders.clear()
-        decoderLastUse.clear()
+        backend.close()
     }
 }

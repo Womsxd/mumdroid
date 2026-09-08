@@ -41,7 +41,7 @@
 | --- | --- |
 | Transmission | Continuous, voice activity (VAD), push-to-talk |
 | VAD | Amplitude or signal-to-noise, dual threshold (0–100) with voice hold |
-| Codec | Opus 48 kHz mono, 8–192 kbit/s, 1/2/4/6 frames per packet, restricted low delay |
+| Codec | Opus 48 kHz mono (native libopus by default, or Concentus Java), 8–192 kbit/s, 1/2/4/6 frames per packet, restricted low delay |
 | Noise suppression | Off / System / Speex / RNNoise / Speex + RNNoise, 0–60 dB |
 | Gain | Microphone volume, System or Speex AGC with adjustable max gain |
 | Echo cancellation | Off / System / Speex (software, speaker reference) |
@@ -121,7 +121,7 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 
 - Frames are 10 ms (480 samples); 1, 2, 4 or 6 frames are bundled per packet; 16-bit mono PCM at 48 kHz throughout; a per-session decoder map supports up to 32 simultaneous speakers with idle reaping.
 - The jitter buffer works on the official `frameNumber` time axis, reorders packets, drops late ones, prerolls incoming talk spurts and conceals gaps at playback time.
-- The pure-Java [Concentus](https://github.com/lostromb/concentus) Opus codec is used via a Maven dependency; RNNoise and speexdsp are built natively from vendored submodules via CMake and exposed through thin JNI bindings — no prebuilt binaries, everything builds from source.
+- The default Opus codec is native [libopus](https://github.com/xiph/opus) (vendored at v1.6.1). The pure-Java [Concentus](https://github.com/lostromb/concentus) Maven artifact is an optional fallback. RNNoise and speexdsp are built natively from vendored submodules via CMake and exposed through thin JNI bindings — no prebuilt binaries, everything builds from source.
 - Output routing tracks device insertion/removal, starts/stops Bluetooth SCO, and applies the selected communication or media usage. The earpiece uses the proximity sensor for screen blanking while connected.
 
 ---
@@ -145,9 +145,9 @@ Settings live in DataStore and are grouped into five screens (plus About).
 
 **Audio** — noise suppression engine and level, microphone source
 (microphone or voice communication), AGC backend and max gain, echo
-cancellation backend, microphone volume, transmit quality, audio per packet,
-low latency mode, incoming volume, playback path, default output order, half
-duplex.
+cancellation backend, microphone volume, Opus implementation (libopus or
+Concentus), transmit quality, audio per packet, low latency mode, incoming
+volume, playback path, default output order, half duplex.
 
 **Network** — voice transport (UDP or forced TCP), QoS tagging (DSCP EF on the
 voice socket), automatic reconnect, certificate pinning, server-list auto ping
@@ -173,7 +173,7 @@ Simplified Chinese), channel user counts.
 │   ├── schemas/                 Exported Room schemas (v1 … v5)
 │   └── src/
 │       ├── main/
-│       │   ├── cpp/             CMake + JNI bindings for speexdsp and RNNoise
+│       │   ├── cpp/             CMake + JNI bindings for speexdsp, RNNoise and libopus
 │       │   ├── proto/           Mumble.proto, MumbleUDP.proto
 │       │   ├── java/…/          Kotlin sources (see Architecture)
 │       │   └── res/             values/ (English), values-zh/ (中文)
@@ -243,7 +243,7 @@ The JVM test suite covers the pieces that are easy to get subtly wrong: the UDP/
 
 | Symptom | What to check |
 | --- | --- |
-| Build fails in CMake about a missing `rnnoise` / `speexdsp` directory | Run `git submodule update --init --recursive` |
+| Build fails in CMake about a missing `rnnoise` / `speexdsp` / `opus` directory | Run `git submodule update --init --recursive` |
 | First build fails downloading RNNoise weights | CMake fetches and verifies the model tarball — allow network access at configure time |
 | Server connects but nobody can hear you | Microphone permission, mute/deafen state, transmission mode, and whether UDP fell back to TCP |
 | Voice is choppy | Raise "audio per packet", lower transmit quality, or switch to a stronger Wi-Fi/cellular signal |
@@ -259,6 +259,7 @@ The JVM test suite covers the pieces that are easy to get subtly wrong: the UDP/
 | --- | --- | --- |
 | [Mumble](https://www.mumble.info/) | BSD-3-Clause | Protocol and client behaviour reference |
 | [Concentus](https://github.com/lostromb/concentus) | BSD-3-Clause | Pure-Java Opus encoder/decoder |
+| [libopus](https://github.com/xiph/opus) | BSD-3-Clause | Native Opus encoder/decoder (vendored submodule v1.6.1) |
 | [RNNoise](https://github.com/xiph/rnnoise) | BSD-3-Clause | Neural noise suppression (vendored submodule) |
 | [speexdsp](https://github.com/xiph/speexdsp) | BSD-3-Clause | Pre-processor, AGC and echo cancellation (vendored submodule) |
 | [Bouncy Castle](https://www.bouncycastle.org/) | MIT | Client certificate generation |
@@ -278,12 +279,13 @@ The full, localised attribution list is also shown in-app under **Settings → A
 - RNNoise: <https://github.com/xiph/rnnoise>
 - speexdsp: <https://github.com/xiph/speexdsp>
 - Concentus: <https://github.com/lostromb/concentus>
+- libopus: <https://github.com/xiph/opus>
 
 ---
 
 ## Special Thanks
 
-- Mumla (development reference and partial inspiration): <https://github.com/mumla/mumla>
+- Mumla (development reference and partial inspiration): <https://gitlab.com/quite/mumla>
 
 ---
 

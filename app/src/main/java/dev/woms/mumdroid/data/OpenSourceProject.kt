@@ -57,6 +57,13 @@ object OpenSourceProjects {
             descriptionRes = dev.woms.mumdroid.R.string.oss_opus_desc,
         ),
         OpenSourceProject(
+            name = "Opus (libopus)",
+            copyright = "Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla, Amazon",
+            license = "BSD 3-Clause",
+            url = "https://github.com/xiph/opus",
+            descriptionRes = dev.woms.mumdroid.R.string.oss_libopus_desc,
+        ),
+        OpenSourceProject(
             name = "RNNoise",
             copyright = "Copyright (c) 2007-2017, 2024 Jean-Marc Valin, Amazon, Mozilla, Xiph.Org Foundation and contributors",
             license = "BSD 3-Clause",

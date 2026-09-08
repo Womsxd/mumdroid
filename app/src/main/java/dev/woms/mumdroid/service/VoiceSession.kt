@@ -178,6 +178,7 @@ internal class VoiceSession(
         val changedQuality = next.transmitQuality != previous.transmitQuality ||
             next.framesPerPacket != previous.framesPerPacket ||
             next.lowLatency != previous.lowLatency
+        val changedOpus = next.opusImplementation != previous.opusImplementation
         val changedCaptureSession = next.aecEnabled != previous.aecEnabled ||
             next.aecMode != previous.aecMode ||
             next.micSource != previous.micSource
@@ -216,7 +217,11 @@ internal class VoiceSession(
         if (changedRoute && audioOutput != null) {
             applyOutputRoute()
         }
-        if (changedQuality || udp != null) {
+        if (changedOpus) {
+            udp?.setOpusImplementation(next.opusImplementation)
+            audioOutput?.setOpusImplementation(next.opusImplementation)
+        }
+        if (changedQuality || changedOpus || udp != null) {
             configureUdpCodec(udp)
         }
         udp?.qualityOfService = next.qualityOfService
@@ -419,7 +424,11 @@ internal class VoiceSession(
         clientNonce: ByteArray,
         serverNonce: ByteArray,
     ) {
-        val udp = this.udp ?: UdpVoiceManager(host, port).also {
+        val udp = this.udp ?: UdpVoiceManager(
+            host,
+            port,
+            callbacks.settings().opusImplementation,
+        ).also {
             it.protobufMode = protobufMode
             this.udp = it
         }
@@ -587,7 +596,10 @@ internal class VoiceSession(
         val settings = callbacks.settings()
         val media = target != null && settings.usesMediaPlayback(target)
         routedMedia = media
-        return AudioOutput(mediaUsage = media).apply {
+        return AudioOutput(
+            mediaUsage = media,
+            opusImplementation = settings.opusImplementation,
+        ).apply {
             volume = settings.outputVolume
             echoReferenceTap = { pcm -> audioInput?.pushFarEndFrame(pcm) }
             speakerIdleTap = { session -> callbacks.setUserTalking(session, false) }

@@ -1,6 +1,7 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.audio.OpusCodec
+import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.audio.VoiceBandwidth
 import dev.woms.mumdroid.core.model.AppSettings
 import org.junit.Assert.assertEquals
@@ -60,6 +61,11 @@ class CompressionSettingsTest {
         assertFalse(AppSettings().lowLatency)
     }
 
+    @Test
+    fun opusImplementation_defaultsToLibOpus() {
+        assertEquals(OpusImplementation.LIBOPUS, AppSettings().opusImplementation)
+    }
+
     /** The settings round-trip through a copy. */
     @Test
     fun compressionSettings_roundTripThroughCopy() {
@@ -67,10 +73,12 @@ class CompressionSettingsTest {
             transmitQuality = 64,
             framesPerPacket = 4,
             lowLatency = true,
+            opusImplementation = OpusImplementation.CONCENTUS,
         )
         assertEquals(64, s.transmitQuality)
         assertEquals(4, s.framesPerPacket)
         assertTrue(s.lowLatency)
+        assertEquals(OpusImplementation.CONCENTUS, s.opusImplementation)
     }
 
     /**
@@ -144,10 +152,21 @@ class CompressionSettingsTest {
 
     @Test
     fun encoder_defaultQualityUsesAudioApplication() {
-        val codec = OpusCodec()
+        val codec = OpusCodec(OpusImplementation.CONCENTUS)
         codec.setBitrate(40_000)
         val encoded = codec.encode(ShortArray(960) { 80 })
         assertTrue(encoded != null && encoded.isNotEmpty())
+        codec.close()
+    }
+
+    @Test
+    fun encoder_libOpusFallsBackToConcentusOnJvm() {
+        val codec = OpusCodec(OpusImplementation.LIBOPUS)
+        codec.setBitrate(40_000)
+        val encoded = codec.encode(ShortArray(960) { 80 })
+        assertTrue(encoded != null && encoded.isNotEmpty())
+        val decoded = codec.decode(encoded!!)
+        assertTrue(decoded != null && decoded.isNotEmpty())
         codec.close()
     }
 }

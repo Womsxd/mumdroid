@@ -41,7 +41,7 @@
 | --- | --- |
 | 发送方式 | 持续发送、语音活动检测（VAD）、按键说话（PTT） |
 | VAD | 幅度或信噪比，双阈值（0–100）带语音保持 |
-| 编码 | Opus 48 kHz 单声道，8–192 kbit/s，每包 1/2/4/6 帧，受限低延迟 |
+| 编码 | Opus 48 kHz 单声道（默认原生 libopus，可选 Concentus Java），8–192 kbit/s，每包 1/2/4/6 帧，受限低延迟 |
 | 降噪 | 关闭 / 系统 / Speex / RNNoise / Speex + RNNoise，0–60 dB |
 | 增益 | 麦克风音量，系统或 Speex AGC（可调最大增益） |
 | 回声消除 | 关闭 / 系统 / Speex（软件，扬声器参考） |
@@ -121,7 +121,7 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 
 - 帧为 10 ms（480 采样）；每包打包 1、2、4 或 6 帧；全程 16 位单声道 48 kHz PCM；按会话的解码器映射支持最多 32 路并发说话人并带空闲回收。
 - 抖动缓冲基于官方 `frameNumber` 时间轴，重排序包、丢弃迟到包、预滚说话突增并在播放时隐藏空隙。
-- 纯 Java 的 [Concentus](https://github.com/lostromb/concentus) Opus 编解码器通过 Maven 依赖引入；RNNoise 与 speexdsp 由内置 submodule 通过 CMake 原生编译，经轻量 JNI 绑定暴露——无预编译二进制，全部从源码构建。
+- Opus 编解码器默认使用原生 [libopus](https://github.com/xiph/opus)（以 submodule 接入 v1.6.1）；纯 Java 的 [Concentus](https://github.com/lostromb/concentus) Maven 依赖作为可选项。RNNoise 与 speexdsp 由内置 submodule 通过 CMake 原生编译，经轻量 JNI 绑定暴露——无预编译二进制，全部从源码构建。
 - 输出路由跟踪设备插拔、启动/停止蓝牙 SCO，并应用所选通话或媒体用途。听筒模式下连接时使用距离感应器熄屏。
 
 ---
@@ -144,8 +144,8 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 设置保存在 DataStore 中，分为五个页面（外加"关于"）。
 
 **音频** —— 噪声抑制引擎与强度、音频源（麦克风或语音通话）、AGC 后端与最大增益、
-回声消除后端、麦克风音量、发送质量、每包音频时长、低延迟模式、入声音量、播放通路、
-默认输出顺序、半双工。
+回声消除后端、麦克风音量、Opus 实现（默认 libopus，可选 Concentus）、发送质量、每包音频时长、
+低延迟模式、入声音量、播放通路、默认输出顺序、半双工。
 
 **网络** —— 语音传输方式（UDP 或强制 TCP）、QoS 标记（语音 socket 打 DSCP EF 标记）、
 自动重连、证书固定、服务器列表自动 ping 及间隔。
@@ -170,7 +170,7 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 │   ├── schemas/                 导出的 Room 架构（v1 … v5）
 │   └── src/
 │       ├── main/
-│       │   ├── cpp/             speexdsp 与 RNNoise 的 CMake 构建与 JNI 绑定
+│       │   ├── cpp/             speexdsp、RNNoise 与 libopus 的 CMake 构建与 JNI 绑定
 │       │   ├── proto/           Mumble.proto、MumbleUDP.proto
 │       │   ├── java/…/          Kotlin 源码（见架构设计）
 │       │   └── res/             values/（英文）、values-zh/（中文）
@@ -240,7 +240,7 @@ JVM 测试套件覆盖容易出错的细节：UDP/TCP 编解码、`PacketDataStr
 
 | 现象 | 排查方向 |
 | --- | --- |
-| CMake 报缺少 `rnnoise` / `speexdsp` 目录 | 运行 `git submodule update --init --recursive` |
+| CMake 报缺少 `rnnoise` / `speexdsp` / `opus` 目录 | 运行 `git submodule update --init --recursive` |
 | 首次构建下载 RNNoise 权重失败 | CMake 会下载并校验模型压缩包——配置阶段允许联网 |
 | 服务器已连接但没人听到您说话 | 检查麦克风权限、静音/聋哑状态、发送方式，以及 UDP 是否回退到 TCP |
 | 语音断续 | 提高"每包音频帧数"、降低传输码率，或换更强的 Wi-Fi/蜂窝信号 |
@@ -256,6 +256,7 @@ JVM 测试套件覆盖容易出错的细节：UDP/TCP 编解码、`PacketDataStr
 | --- | --- | --- |
 | [Mumble](https://www.mumble.info/) | BSD-3-Clause | 协议与客户端行为参考 |
 | [Concentus](https://github.com/lostromb/concentus) | BSD-3-Clause | 纯 Java Opus 编解码器 |
+| [libopus](https://github.com/xiph/opus) | BSD-3-Clause | 原生 Opus 编解码器（内置 submodule v1.6.1） |
 | [RNNoise](https://github.com/xiph/rnnoise) | BSD-3-Clause | 神经网络降噪（内置 submodule） |
 | [speexdsp](https://github.com/xiph/speexdsp) | BSD-3-Clause | 预处理、AGC 与回声消除（内置 submodule） |
 | [Bouncy Castle](https://www.bouncycastle.org/) | MIT | 客户端证书生成 |
@@ -275,12 +276,13 @@ JVM 测试套件覆盖容易出错的细节：UDP/TCP 编解码、`PacketDataStr
 - RNNoise：<https://github.com/xiph/rnnoise>
 - speexdsp：<https://github.com/xiph/speexdsp>
 - Concentus：<https://github.com/lostromb/concentus>
+- libopus：<https://github.com/xiph/opus>
 
 ---
 
 ## 特别鸣谢
 
-- Mumla（开发参考与部分灵感来源）：<https://github.com/mumla/mumla>
+- Mumla（开发参考与部分灵感来源）：<https://gitlab.com/quite/mumla>
 
 ---
 

@@ -1,5 +1,6 @@
 ﻿package dev.woms.mumdroid.core.model
 
+import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
 
 /**
@@ -39,6 +40,8 @@ import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
  * @property framesPerPacket the number of 10 ms Opus frames bundled into one
  *   packet, mirroring the desktop Mumble "Audio per packet" selector
  *   (1=10 ms, 2=20 ms, 4=40 ms, 6=60 ms).
+ * @property opusImplementation which Opus encoder/decoder to use. Defaults to
+ *   native libopus; the pure-Java Concentus port is an optional fallback.
  * @property lowLatency when true and the transmit quality is high enough, the
  *   Opus encoder is switched to the restricted-low-delay application to shave
  *   end-to-end latency, mirroring the desktop "Low latency mode" checkbox.
@@ -108,6 +111,7 @@ data class AppSettings(
     val inputVolume: Int = 100,
     val transmitQuality: Int = 40,
     val framesPerPacket: Int = 2,
+    val opusImplementation: OpusImplementation = OpusImplementation.LIBOPUS,
     val lowLatency: Boolean = false,
     val vadMethod: VadMethod = VadMethod.AMPLITUDE,
     val vadSpeechThreshold: Int = 98,

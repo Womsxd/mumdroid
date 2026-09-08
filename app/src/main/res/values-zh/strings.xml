@@ -375,6 +375,10 @@
     <string name="transmit_quality">传输质量：%1$d kb/s</string>
     <string name="transmit_bandwidth">%1$.1f kbit/s（音频 %2$.1f，位置 %3$.1f，开销 %4$.1f）</string>
     <string name="audio_per_packet">每包音频</string>
+    <string name="opus_implementation">Opus 编解码器</string>
+    <string name="opus_implementation_sub">默认使用原生 libopus，也可改用纯 Java 的 Concentus；同时用于编码与解码</string>
+    <string name="opus_implementation_concentus">Concentus（Java）</string>
+    <string name="opus_implementation_libopus">LibOpus</string>
     <string name="low_latency_mode">低延迟模式</string>
     <string name="low_latency_sub">质量较高时优先考虑低延迟</string>
     <string name="incoming_volume">传入音量：%1$d%%</string>
@@ -498,6 +502,7 @@
     <string name="oss_kotlin_desc">主要开发语言，与 Compose 配合构建应用界面。</string>
     <string name="oss_coroutines_desc">用于网络与音频处理等异步任务。</string>
     <string name="oss_opus_desc">纯 Java 实现的 Opus 音频编解码器，用于语音编解码。</string>
+    <string name="oss_libopus_desc">参考实现 Opus 编解码器（libopus），从源码编译，可作为可选的原生编码器/解码器。</string>
     <string name="oss_rnnoise_desc">基于递归神经网络的实时噪声抑制（RNNoise），用于语音降噪。</string>
     <string name="oss_speexdsp_desc">SpeexDSP 音频预处理（噪声抑制），与桌面版 Mumble 客户端使用相同的处理后端。</string>
     <string name="oss_mumble_desc">本项目参照 Mumble 开源语音聊天客户端实现其协议与交互。</string>

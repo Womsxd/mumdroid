@@ -375,6 +375,10 @@
     <string name="transmit_quality">Transmit quality: %1$d kb/s</string>
     <string name="transmit_bandwidth">%1$.1f kbit/s (Audio %2$.1f, Position %3$.1f, Overhead %4$.1f)</string>
     <string name="audio_per_packet">Audio per packet</string>
+    <string name="opus_implementation">Opus codec</string>
+    <string name="opus_implementation_sub">Native libopus by default, or pure Java Concentus; used for both encode and decode</string>
+    <string name="opus_implementation_concentus">Concentus (Java)</string>
+    <string name="opus_implementation_libopus">LibOpus</string>
     <string name="low_latency_mode">Low latency mode</string>
     <string name="low_latency_sub">Prioritise low latency when quality is high</string>
     <string name="incoming_volume">Incoming volume: %1$d%%</string>
@@ -498,6 +502,7 @@
     <string name="oss_kotlin_desc">The primary development language, used together with Compose to build the app UI.</string>
     <string name="oss_coroutines_desc">Used for asynchronous tasks such as networking and audio processing.</string>
     <string name="oss_opus_desc">A pure Java implementation of the Opus audio codec used for voice encoding and decoding.</string>
+    <string name="oss_libopus_desc">The reference Opus codec (libopus) built from source and used as an optional native encoder/decoder.</string>
     <string name="oss_rnnoise_desc">Real-time noise suppression based on recurrent neural networks (RNNoise) used for voice denoising.</string>
     <string name="oss_speexdsp_desc">SpeexDSP audio pre-processing (noise suppression), the same backend used by the desktop Mumble client.</string>
     <string name="oss_mumble_desc">This project follows the open source Mumble voice chat client to implement its protocol and interaction.</string>

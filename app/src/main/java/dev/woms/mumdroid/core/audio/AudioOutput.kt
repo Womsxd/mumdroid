@@ -18,6 +18,7 @@ import kotlin.math.roundToInt
  */
 class AudioOutput(
     private val mediaUsage: Boolean = false,
+    opusImplementation: OpusImplementation = OpusImplementation.LIBOPUS,
 ) {
 
     companion object {
@@ -34,7 +35,7 @@ class AudioOutput(
         private const val STOP_JOIN_MS = 500L
     }
 
-    private val opus = OpusCodec()
+    private val opus = OpusCodec(opusImplementation)
     private val jitter = VoiceJitterBuffer(
         maxQueuedFrames = 16,
         clock = { SystemClock.elapsedRealtime() },
@@ -188,6 +189,11 @@ class AudioOutput(
     fun writePacket(session: Int, frameNumber: Long, payload: ByteArray, isLast: Boolean = false) {
         if (!running.get()) return
         jitter.pushEncoded(session, frameNumber, payload, isLast)
+    }
+
+    /** Switches the Opus decode backend; per-session decoder state is dropped. */
+    fun setOpusImplementation(implementation: OpusImplementation) {
+        opus.setImplementation(implementation)
     }
 
     /** Compatibility: treat untagged PCM as session 0. */

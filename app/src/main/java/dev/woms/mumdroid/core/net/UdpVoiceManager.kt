@@ -3,6 +3,7 @@ package dev.woms.mumdroid.core.net
 import android.os.SystemClock
 import android.util.Log
 import dev.woms.mumdroid.core.audio.OpusCodec
+import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.audio.VoiceFrameCounter
 import dev.woms.mumdroid.core.crypto.CryptOCB2
 import dev.woms.mumdroid.core.crypto.CryptState
@@ -42,6 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class UdpVoiceManager(
     private val host: String,
     private val port: Int,
+    opusImplementation: OpusImplementation = OpusImplementation.LIBOPUS,
 ) {
     companion object {
         private const val TAG = "UdpVoiceManager"
@@ -127,7 +129,7 @@ class UdpVoiceManager(
     private val crypt = CryptState()
     private val sendLock = Any()
     private val encryptPacket = ByteArray(MAX_PACKET)
-    private val opus = OpusCodec()
+    private val opus = OpusCodec(opusImplementation)
     private var socket: DatagramSocket? = null
     private val running = AtomicBoolean(false)
     private var receiveThread: Thread? = null
@@ -302,6 +304,12 @@ class UdpVoiceManager(
 
     /** Encodes a PCM frame into an Opus payload. */
     fun encodeOpus(pcm: ShortArray): ByteArray? = opus.encode(pcm)
+
+    /** Switches the Opus encode/decode backend and re-applies bitrate settings. */
+    fun setOpusImplementation(implementation: OpusImplementation) {
+        opus.setImplementation(implementation)
+        applyBitrate()
+    }
 
     /** Official `OPUS_RESET_STATE` at the start of a talk spurt. */
     fun resetEncoder() = opus.resetEncoder()
