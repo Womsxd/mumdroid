@@ -9,7 +9,6 @@ import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelPasswordAcl
 import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
-import dev.woms.mumdroid.core.model.TimedUserBan
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.UserConnectionInfo
 import dev.woms.mumdroid.core.net.BanEntry

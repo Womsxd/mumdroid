@@ -1,6 +1,5 @@
 package dev.woms.mumdroid.core.model
 
-import dev.woms.mumdroid.core.net.ServerPingCodec
 import java.util.Locale
 import kotlin.math.sqrt
 
@@ -58,8 +57,8 @@ data class ServerConnectionInfo(
 
     companion object {
         fun formatProtocol(versionV2: Long, legacy: Int): String =
-            ServerPingCodec.formatVersionV2(versionV2)
-                ?: ServerPingCodec.formatLegacyVersion(legacy)
+            MumbleVersion.formatVersionV2(versionV2)
+                ?: MumbleVersion.formatLegacyVersion(legacy)
                 ?: ""
 
         /** Maps Android `SSLSession.protocol` (`TLSv1.3`) to the desktop `TLS 1.3` label. */

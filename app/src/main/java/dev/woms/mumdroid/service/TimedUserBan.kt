@@ -1,11 +1,16 @@
-package dev.woms.mumdroid.core.model
+package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.core.net.BanEntry
 
 /**
- * `UserRemove` has no duration field; Murmur always stores `iDuration = 0`.
- * Timed context-menu bans are applied afterwards by patching the BanList
- * entry the server just appended.
+ * Client-side timed ban after a context-menu kick. Not protocol:
+ * `UserRemove` has no duration, and Murmur always stores `iDuration = 0`.
+ * This patches the BanList entry the server just appended, then the
+ * service sends the updated list via the normal BanList replace.
+ *
+ * Ban-list editor changes to [BanEntry.start] / [BanEntry.duration] stay
+ * on the wire codec (`MumbleClient.sendBanList` / parse). Do not fold this
+ * matcher into a future protocol library.
  *
  * Identification signals, most precise first:
  *
@@ -26,7 +31,7 @@ import dev.woms.mumdroid.core.net.BanEntry
  * both banned with no IP captured) produce identical entries — murmur itself
  * cannot tell them apart (`BanList` carries no session id).
  */
-object TimedUserBan {
+internal object TimedUserBan {
     fun applyDuration(
         bans: List<BanEntry>,
         name: String,

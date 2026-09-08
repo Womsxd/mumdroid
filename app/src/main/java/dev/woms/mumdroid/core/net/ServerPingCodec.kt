@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.net
 
+import dev.woms.mumdroid.core.model.MumbleVersion
 import dev.woms.mumdroid.core.model.ServerPingInfo
 import dev.woms.mumdroid.core.udpproto.Ping
 import java.nio.ByteBuffer
@@ -103,30 +104,6 @@ object ServerPingCodec {
         return null
     }
 
-    /**
-     * Legacy packed version (`major<<16 | minor<<8 | patch`, 16.8.8).
-     * Mirrors `Version::fromLegacyVersion` + `Version::toString`.
-     */
-    fun formatLegacyVersion(packed: Int): String? {
-        if (packed == 0) return null
-        val major = (packed ushr 16) and 0xffff
-        val minor = (packed ushr 8) and 0xff
-        val patch = packed and 0xff
-        return "$major.$minor.$patch"
-    }
-
-    /**
-     * v2 version (`major<<48 | minor<<32 | patch<<16`).
-     * Mirrors `Version::toString` for `full_t`.
-     */
-    fun formatVersionV2(version: Long): String? {
-        if (version == 0L) return null
-        val major = (version ushr 48) and 0xffff
-        val minor = (version ushr 32) and 0xffff
-        val patch = (version ushr 16) and 0xffff
-        return "$major.$minor.$patch"
-    }
-
     private fun decodeLegacy(data: ByteArray): Decoded {
         val be = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN)
         val version = be.int
@@ -139,7 +116,7 @@ object ServerPingCodec {
             timestamp = timestamp,
             users = users,
             maxUsers = maxUsers,
-            version = formatLegacyVersion(version),
+            version = MumbleVersion.formatLegacyVersion(version),
             bandwidth = bandwidth,
             // 16.8.8 packed value: patch > 255 was saturated server-side.
             versionIsV2 = false,
@@ -157,7 +134,7 @@ object ServerPingCodec {
             timestamp = ping.timestamp,
             users = if (hasExt) ping.userCount else null,
             maxUsers = if (hasExt) ping.maxUserCount else null,
-            version = formatVersionV2(ping.serverVersionV2),
+            version = MumbleVersion.formatVersionV2(ping.serverVersionV2),
             bandwidth = if (hasExt && ping.maxBandwidthPerUser != 0) ping.maxBandwidthPerUser else null,
             // Protobuf replies carry the exact v2 version (16.16.16).
             versionIsV2 = ping.serverVersionV2 != 0L,

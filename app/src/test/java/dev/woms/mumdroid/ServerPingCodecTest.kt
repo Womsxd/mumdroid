@@ -1,6 +1,7 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.MumbleVersion
 import dev.woms.mumdroid.core.model.ServerPingInfo
 import dev.woms.mumdroid.core.net.ProtoUdpCodec
 import dev.woms.mumdroid.core.net.ServerPingCodec
@@ -110,10 +111,10 @@ class ServerPingCodecTest {
 
     @Test
     fun formatVersions() {
-        assertEquals("1.3.5", ServerPingCodec.formatLegacyVersion(0x010305))
-        assertEquals("1.5.0", ServerPingCodec.formatVersionV2(0x0001000500000000L))
-        assertNull(ServerPingCodec.formatLegacyVersion(0))
-        assertNull(ServerPingCodec.formatVersionV2(0L))
+        assertEquals("1.3.5", MumbleVersion.formatLegacyVersion(0x010305))
+        assertEquals("1.5.0", MumbleVersion.formatVersionV2(0x0001000500000000L))
+        assertNull(MumbleVersion.formatLegacyVersion(0))
+        assertNull(MumbleVersion.formatVersionV2(0L))
     }
 
     @Test
