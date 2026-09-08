@@ -219,7 +219,7 @@ class UdpVoiceManager(
      * re-delivered setups cannot inherit state from a previous session.
      */
     fun setupCryptography(key: ByteArray, clientNonce: ByteArray, serverNonce: ByteArray) {
-        crypt.setKey(key, clientNonce, serverNonce)
+        if (!crypt.setKey(key, clientNonce, serverNonce)) return
         if (cryptoReadyMs == 0L) cryptoReadyMs = clock()
     }
 

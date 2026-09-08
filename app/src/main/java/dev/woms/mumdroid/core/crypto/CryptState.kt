@@ -70,8 +70,14 @@ class CryptState {
         if (serverNonce.size != CryptOCB2.NONCE_SIZE) return false
         synchronized(encryptLock) {
             synchronized(decryptLock) {
-                encCrypt.setKey(key)
-                decCrypt.setKey(key)
+                // CryptOCB2.setKey is false when AES/ECB init fails. Swallowing
+                // that would leave isReady true while encrypt() writes 0 bytes.
+                if (!encCrypt.setKey(key) || !decCrypt.setKey(key)) {
+                    encCrypt.clearKeys()
+                    decCrypt.clearKeys()
+                    isReady = false
+                    return false
+                }
                 // A full key delivery starts a fresh crypto context (official
                 // `CryptState::setKey` memsets the replay history): a stale
                 // history from a previous session or key rotation could
@@ -83,8 +89,12 @@ class CryptState {
                 lostPackets = 0
                 encryptNonce = clientNonce.copyOf()
                 decryptNonce = serverNonce.copyOf()
-                encCrypt.setNonce(encryptNonce)
-                decCrypt.setNonce(decryptNonce)
+                if (!encCrypt.setNonce(encryptNonce) || !decCrypt.setNonce(decryptNonce)) {
+                    encCrypt.clearKeys()
+                    decCrypt.clearKeys()
+                    isReady = false
+                    return false
+                }
                 isReady = true
             }
         }
