@@ -14,19 +14,19 @@ import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.woms.mumdroid.core.i18n.LocaleManager
-import dev.woms.mumdroid.core.model.AppTheme
+import dev.woms.mumdroid.core.model.DarkTheme
 import dev.woms.mumdroid.ui.EarpieceProximityEffect
 import dev.woms.mumdroid.ui.MainViewModel
 import dev.woms.mumdroid.ui.theme.MumdroidTheme
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
-/** Resolves the user-selected theme (system / light / dark). */
+/** Resolves whether the app should render in dark mode. */
 @Composable
-internal fun AppTheme.darkMode(): Boolean = when (this) {
-    AppTheme.LIGHT -> false
-    AppTheme.DARK -> true
-    AppTheme.SYSTEM -> isSystemInDarkTheme()
+internal fun DarkTheme.effectiveDark(): Boolean = when (this) {
+    DarkTheme.ON -> true
+    DarkTheme.OFF -> false
+    DarkTheme.SYSTEM -> isSystemInDarkTheme()
 }
 
 /**
@@ -78,7 +78,7 @@ abstract class BaseActivity : ComponentActivity() {
                 )
             }
 
-            MumdroidTheme(darkTheme = appSettings.theme.darkMode()) {
+            MumdroidTheme(darkTheme = appSettings.darkTheme.effectiveDark()) {
                 Content(vm = vm)
             }
         }

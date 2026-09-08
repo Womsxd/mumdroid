@@ -59,7 +59,11 @@ import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
  *   mirroring the desktop "Volume of incoming speech".
  * @property halfDuplex when true, incoming audio is muted while the local user
  *   is transmitting, mirroring mumla's `half_duplex`.
- * @property theme the UI colour theme (system / light / dark).
+ * @property themeColor the accent/theme colour scheme preference: currently only
+ *   follows the system's dynamic palette (Material You); stored so that
+ *   additional colour schemes can be selected later.
+ * @property darkTheme the UI dark-theme preference: follows the system,
+ *   or forces dark / light mode on or off.
  * @property showUserCount whether to display the number of users per channel in
  *   the channel list, mirroring mumla's `show_user_count`.
  * @property stayAwake keeps the screen on while connected, mirroring mumla's
@@ -124,7 +128,8 @@ data class AppSettings(
     val outputDeviceOrder: List<VoiceOutputTarget> = VoiceOutputTarget.DEFAULT_ORDER,
     val outputVolume: Int = 100,
     val halfDuplex: Boolean = false,
-    val theme: AppTheme = AppTheme.SYSTEM,
+    val themeColor: ThemeColor = ThemeColor.SYSTEM,
+    val darkTheme: DarkTheme = DarkTheme.SYSTEM,
     val showUserCount: Boolean = false,
     val stayAwake: Boolean = false,
     val earpieceProximityFade: Boolean = true,
@@ -250,11 +255,27 @@ enum class AppLanguage {
     CHINESE,
 }
 
-/** The UI colour theme preference, mirroring mumla's `theme` option. */
-enum class AppTheme {
+/**
+ * The theme/colour-scheme preference. Currently only [SYSTEM] is offered: it
+ * follows the platform dynamic palette (Material You on Android 12+). Extra
+ * accent schemes can be appended here without touching persistence.
+ */
+enum class ThemeColor {
+    /** Follow the device / system dynamic palette. */
     SYSTEM,
-    LIGHT,
-    DARK,
+}
+
+/**
+ * The dark-theme preference. [SYSTEM] follows the device setting, while
+ * [ON] / [OFF] force the app dark or light regardless of the device.
+ */
+enum class DarkTheme {
+    /** Follow the device / system dark-mode setting. */
+    SYSTEM,
+    /** Force dark mode. */
+    ON,
+    /** Force light mode. */
+    OFF,
 }
 
 /**

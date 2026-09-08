@@ -16,8 +16,9 @@ import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AgcMode
 import dev.woms.mumdroid.core.model.AppLanguage
 import dev.woms.mumdroid.core.model.AppSettings
-import dev.woms.mumdroid.core.model.AppTheme
+import dev.woms.mumdroid.core.model.DarkTheme
 import dev.woms.mumdroid.core.model.MicSource
+import dev.woms.mumdroid.core.model.ThemeColor
 import dev.woms.mumdroid.core.model.VadMethod
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
@@ -61,7 +62,8 @@ class SettingsStore(private val context: Context) {
         private val KEY_SPEAKER_OUTPUT = booleanPreferencesKey("speaker_output")
         private val KEY_OUTPUT_VOLUME = intPreferencesKey("output_volume")
         private val KEY_HALF_DUPLEX = booleanPreferencesKey("half_duplex")
-        private val KEY_THEME = stringPreferencesKey("theme")
+        private val KEY_THEME_COLOR = stringPreferencesKey("theme_color")
+        private val KEY_DARK_THEME = stringPreferencesKey("dark_theme")
         private val KEY_SHOW_USER_COUNT = booleanPreferencesKey("show_user_count")
         private val KEY_STAY_AWAKE = booleanPreferencesKey("stay_awake")
         private val KEY_EARPIECE_PROXIMITY_FADE = booleanPreferencesKey("earpiece_proximity_fade")
@@ -141,7 +143,8 @@ class SettingsStore(private val context: Context) {
             ),
             outputVolume = prefs[KEY_OUTPUT_VOLUME] ?: 100,
             halfDuplex = prefs[KEY_HALF_DUPLEX] ?: false,
-            theme = parseTheme(prefs[KEY_THEME]),
+            themeColor = parseThemeColor(prefs[KEY_THEME_COLOR]),
+            darkTheme = parseDarkTheme(prefs[KEY_DARK_THEME]),
             showUserCount = prefs[KEY_SHOW_USER_COUNT] ?: false,
             stayAwake = prefs[KEY_STAY_AWAKE] ?: false,
             earpieceProximityFade = prefs[KEY_EARPIECE_PROXIMITY_FADE] ?: true,
@@ -204,7 +207,8 @@ class SettingsStore(private val context: Context) {
             prefs[KEY_OUTPUT_DEVICE_ORDER] = saved.outputDeviceOrder.joinToString(",") { it.name }
             prefs[KEY_OUTPUT_VOLUME] = saved.outputVolume
             prefs[KEY_HALF_DUPLEX] = saved.halfDuplex
-            prefs[KEY_THEME] = saved.theme.name
+            prefs[KEY_THEME_COLOR] = saved.themeColor.name
+            prefs[KEY_DARK_THEME] = saved.darkTheme.name
             prefs[KEY_SHOW_USER_COUNT] = saved.showUserCount
             prefs[KEY_STAY_AWAKE] = saved.stayAwake
             prefs[KEY_EARPIECE_PROXIMITY_FADE] = saved.earpieceProximityFade
@@ -229,9 +233,13 @@ class SettingsStore(private val context: Context) {
     private inline fun <reified T : Enum<T>> parseEnum(name: String?, default: T): T =
         name?.let { value -> enumValues<T>().firstOrNull { it.name == value } } ?: default
 
-    private fun parseTheme(name: String?): AppTheme =
-        runCatching { AppTheme.valueOf(name ?: "") }
-            .getOrDefault(AppTheme.SYSTEM)
+    private fun parseThemeColor(name: String?): ThemeColor =
+        runCatching { ThemeColor.valueOf(name ?: "") }
+            .getOrDefault(ThemeColor.SYSTEM)
+
+    private fun parseDarkTheme(name: String?): DarkTheme =
+        runCatching { DarkTheme.valueOf(name ?: "") }
+            .getOrDefault(DarkTheme.SYSTEM)
 
     private fun parseVoiceMode(name: String?): VoiceMode =
         runCatching { VoiceMode.valueOf(name ?: "") }

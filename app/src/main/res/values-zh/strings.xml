@@ -420,10 +420,12 @@
     <string name="half_duplex_sub">说话时静音传入语音</string>
 
     <!-- Appearance settings -->
-    <string name="theme">主题</string>
-    <string name="theme_system">跟随系统</string>
-    <string name="theme_light">浅色</string>
-    <string name="theme_dark">深色</string>
+    <string name="theme_color">主题色</string>
+    <string name="theme_color_system">跟随系统</string>
+    <string name="dark_theme">深色主题</string>
+    <string name="dark_theme_system">跟随系统</string>
+    <string name="dark_theme_on">开启</string>
+    <string name="dark_theme_off">关闭</string>
     <string name="show_user_count">显示用户数</string>
     <string name="show_user_count_sub">显示每个频道的用户数量</string>
     <string name="language">语言</string>

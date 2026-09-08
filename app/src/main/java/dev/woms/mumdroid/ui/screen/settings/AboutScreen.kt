@@ -3,7 +3,6 @@
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.BuildConfig
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.ui.screen.OpenSourceLicensesScreen
+import dev.woms.mumdroid.ui.theme.LocalIsDarkTheme
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -114,7 +114,7 @@ private fun AboutScreen(
         },
     ) { padding ->
         val context = LocalContext.current
-        val brandIconColor = if (isSystemInDarkTheme()) Color.White else Color.Black
+        val brandIconColor = if (LocalIsDarkTheme.current) Color.White else Color.Black
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {

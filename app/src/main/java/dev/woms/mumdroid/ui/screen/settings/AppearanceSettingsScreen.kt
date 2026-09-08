@@ -26,7 +26,8 @@ import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.AppLanguage
 import dev.woms.mumdroid.core.model.AppSettings
-import dev.woms.mumdroid.core.model.AppTheme
+import dev.woms.mumdroid.core.model.DarkTheme
+import dev.woms.mumdroid.core.model.ThemeColor
 
 // ---- Appearance ----
 
@@ -34,9 +35,14 @@ import dev.woms.mumdroid.core.model.AppTheme
 internal fun AppearanceSettingsScreen(settings: AppSettings, onChanged: (AppSettings) -> Unit, modifier: Modifier) {
     Column(modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         SectionHeader(stringResource(R.string.sec_theme))
-        ThemeDropdown(
-            theme = settings.theme,
-            onThemeChange = { onChanged(settings.copy(theme = it)) },
+        // Theme colour currently only follows the system's dynamic palette.
+        ThemeColorDropdown(
+            themeColor = settings.themeColor,
+            onThemeColorChange = { onChanged(settings.copy(themeColor = it)) },
+        )
+        DarkThemeDropdown(
+            darkTheme = settings.darkTheme,
+            onDarkThemeChange = { onChanged(settings.copy(darkTheme = it)) },
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         SectionHeader(stringResource(R.string.sec_language))
@@ -57,23 +63,23 @@ internal fun AppearanceSettingsScreen(settings: AppSettings, onChanged: (AppSett
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ThemeDropdown(theme: AppTheme, onThemeChange: (AppTheme) -> Unit) {
+private fun ThemeColorDropdown(themeColor: ThemeColor, onThemeColorChange: (ThemeColor) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
-            value = theme.displayName(),
+            value = themeColor.displayName(),
             onValueChange = {},
             readOnly = true,
-            label = { Text(stringResource(R.string.theme)) },
+            label = { Text(stringResource(R.string.theme_color)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).padding(vertical = 4.dp),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            AppTheme.entries.forEach { t ->
+            ThemeColor.entries.forEach { t ->
                 DropdownMenuItem(
                     text = { Text(t.displayName()) },
                     onClick = {
-                        onThemeChange(t)
+                        onThemeColorChange(t)
                         expanded = false
                     },
                 )
@@ -83,10 +89,42 @@ private fun ThemeDropdown(theme: AppTheme, onThemeChange: (AppTheme) -> Unit) {
 }
 
 @Composable
-private fun AppTheme.displayName(): String = when (this) {
-    AppTheme.SYSTEM -> stringResource(R.string.theme_system)
-    AppTheme.LIGHT -> stringResource(R.string.theme_light)
-    AppTheme.DARK -> stringResource(R.string.theme_dark)
+private fun ThemeColor.displayName(): String = when (this) {
+    ThemeColor.SYSTEM -> stringResource(R.string.theme_color_system)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DarkThemeDropdown(darkTheme: DarkTheme, onDarkThemeChange: (DarkTheme) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = darkTheme.displayName(),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(stringResource(R.string.dark_theme)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).padding(vertical = 4.dp),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DarkTheme.entries.forEach { t ->
+                DropdownMenuItem(
+                    text = { Text(t.displayName()) },
+                    onClick = {
+                        onDarkThemeChange(t)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DarkTheme.displayName(): String = when (this) {
+    DarkTheme.SYSTEM -> stringResource(R.string.dark_theme_system)
+    DarkTheme.ON -> stringResource(R.string.dark_theme_on)
+    DarkTheme.OFF -> stringResource(R.string.dark_theme_off)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -125,4 +163,3 @@ private fun AppLanguage.displayName(): String = when (this) {
     AppLanguage.ENGLISH -> stringResource(R.string.language_english)
     AppLanguage.CHINESE -> stringResource(R.string.language_chinese)
 }
-

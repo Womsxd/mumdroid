@@ -420,10 +420,12 @@
     <string name="half_duplex_sub">Mute incoming speech while you are talking</string>
 
     <!-- Appearance settings -->
-    <string name="theme">Theme</string>
-    <string name="theme_system">System</string>
-    <string name="theme_light">Light</string>
-    <string name="theme_dark">Dark</string>
+    <string name="theme_color">Theme color</string>
+    <string name="theme_color_system">Follow system</string>
+    <string name="dark_theme">Dark theme</string>
+    <string name="dark_theme_system">Follow system</string>
+    <string name="dark_theme_on">On</string>
+    <string name="dark_theme_off">Off</string>
     <string name="show_user_count">Show user count</string>
     <string name="show_user_count_sub">Display the number of users per channel</string>
     <string name="language">Language</string>
