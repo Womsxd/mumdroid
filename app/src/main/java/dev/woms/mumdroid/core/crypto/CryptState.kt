@@ -110,16 +110,6 @@ class CryptState {
         if (!isReady) null else encryptNonce.copyOf()
     }
 
-    /** Replaces the encryption IV (mirrors `CryptStateOCB2::setEncryptIV`). */
-    fun setEncryptIV(iv: ByteArray): Boolean {
-        if (iv.size != CryptOCB2.NONCE_SIZE) return false
-        synchronized(encryptLock) {
-            encryptNonce = iv.copyOf()
-            encCrypt.setNonce(encryptNonce)
-        }
-        return true
-    }
-
     /**
      * Increments [resyncPackets]. Official `msgCryptSetup` does
      * `m_statsLocal.resync++` immediately before [setDecryptIV]; this method

@@ -318,20 +318,6 @@ class UdpVoiceManager(
     fun talkHeaderByte(): Byte = UdpPacketCodec.talkHeaderByte()
 
     /**
-     * Encrypts a complete legacy voice packet (header byte + payload) for the
-     * UDP voice channel. The resulting datagram is
-     * `[4-byte OCB2 overhead][enc(header|payload)]`, matching the official
-     * `CryptStateOCB2::encrypt`.
-     */
-    fun encryptVoicePacket(header: Byte, payload: ByteArray): ByteArray? {
-        if (!crypt.isReady) return null
-        val plain = ByteArray(1 + payload.size)
-        plain[0] = header
-        System.arraycopy(payload, 0, plain, 1, payload.size)
-        return crypt.encrypt(plain)
-    }
-
-    /**
      * Decrypts a complete legacy/protobuf voice datagram
      * (`[4-byte OCB2 overhead][ciphertext]`) and returns the plaintext
      * `[header|payload]`, or null on failure. Mirrors the official client's
@@ -366,20 +352,10 @@ class UdpVoiceManager(
         return plain
     }
 
-    /** Visible for tests: next unused outgoing 10 ms frame index. */
-    internal fun peekOutSequence(): Long = frameCounter.value
-
     private fun outgoingFrameCount(sampleCount: Int? = null): Int {
         val samples = sampleCount ?: (OpusCodec.FRAME_SIZE_10MS * framesPerPacket.coerceIn(1, 6))
         return OpusCodec.encodedTenMsFrames(samples).coerceAtLeast(1)
     }
-
-    /** Decodes an Opus payload to PCM (legacy single-stream compat). */
-    fun decodePcm(payload: ByteArray): ShortArray? = opus.decode(payload)
-
-    /** Session-aware decode (preferred for multi-speaker). */
-    fun decodePcm(session: Int, payload: ByteArray, isTerminator: Boolean = false): ShortArray? =
-        opus.decodeForSession(session, payload, isTerminator)
 
     fun setLocalSession(session: Int) {
         localSession = session
