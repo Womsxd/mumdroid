@@ -48,10 +48,11 @@ internal object TimedUserBan {
         val address = pendingAddress?.takeIf { it.isNotEmpty() }
 
         // Strategy 1: the entry the server just appended = a reply entry that
-        // is not part of the pre-ban snapshot. Comparing field-wise because
-        // BanEntry's ByteArray address makes data-class equality reference-
-        // based and useless here. Concurrent admins can append further entries
-        // between the snapshot and the reply, so the diff alone is NOT enough:
+        // is not part of the pre-ban snapshot. BanEntry.equals compares address
+        // bytes by content, but snapshot matching still goes through [sameAs]
+        // so certificate hashes are case-insensitive. Concurrent admins can
+        // append further entries between the snapshot and the reply, so the
+        // diff alone is NOT enough:
         // the new candidates are filtered by the banned user's identity
         // (name/hash) too. A single candidate is exact; several candidates are
         // only distinguishable when the server-side entries differ, which is
@@ -98,7 +99,7 @@ internal object TimedUserBan {
     private fun addressMatches(banAddress: ByteArray, pendingAddress: ByteArray?): Boolean =
         pendingAddress == null || banAddress.contentEquals(pendingAddress)
 
-    /** Content-based equality; data-class equals would compare ByteArray refs. */
+    /** Content-based equality with case-insensitive certificate hash. */
     private fun BanEntry.sameAs(other: BanEntry): Boolean =
         duration == other.duration &&
             mask == other.mask &&

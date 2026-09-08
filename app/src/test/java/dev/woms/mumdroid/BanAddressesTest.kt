@@ -6,6 +6,7 @@ import dev.woms.mumdroid.core.model.BanTimes
 import dev.woms.mumdroid.core.net.BanEntry
 import dev.woms.mumdroid.service.TimedUserBan
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
@@ -161,5 +162,34 @@ class BanTimesTest {
         assertEquals(true, BanTimes.isEffectivelyExpired(now, 5, now))
         assertEquals(true, BanTimes.isEffectivelyExpired(now.minusSeconds(3_600), 3_600, now))
         assertEquals(false, BanTimes.isEffectivelyExpired(now.minusSeconds(3_600), 3_606, now))
+    }
+}
+
+class BanEntryEqualsTest {
+
+    @Test
+    fun addressBytes_comparedByContentNotReference() {
+        val a = BanEntry(
+            address = byteArrayOf(1, 2, 3, 4),
+            mask = 128,
+            name = "bob",
+            hash = "abc",
+            reason = "spam",
+            start = "2026-01-01T00:00:00Z",
+            duration = 0,
+        )
+        val b = BanEntry(
+            address = byteArrayOf(1, 2, 3, 4),
+            mask = 128,
+            name = "bob",
+            hash = "abc",
+            reason = "spam",
+            start = "2026-01-01T00:00:00Z",
+            duration = 0,
+        )
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+        assertEquals(1, setOf(a, b).size)
+        assertNotEquals(a, a.copy(address = byteArrayOf(1, 2, 3, 5)))
     }
 }

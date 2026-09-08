@@ -12,7 +12,30 @@ data class BanEntry(
     val reason: String = "",
     val start: String = "",
     val duration: Int = 0,
-)
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is BanEntry) return false
+        return mask == other.mask &&
+            duration == other.duration &&
+            name == other.name &&
+            hash == other.hash &&
+            reason == other.reason &&
+            start == other.start &&
+            address.contentEquals(other.address)
+    }
+
+    override fun hashCode(): Int {
+        var result = address.contentHashCode()
+        result = 31 * result + mask
+        result = 31 * result + name.hashCode()
+        result = 31 * result + hash.hashCode()
+        result = 31 * result + reason.hashCode()
+        result = 31 * result + start.hashCode()
+        result = 31 * result + duration
+        return result
+    }
+}
 
 /** A registered (database) user reported by the server. */
 data class RegisteredUser(
