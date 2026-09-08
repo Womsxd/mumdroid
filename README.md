@@ -70,7 +70,7 @@
 - Modern **Material 3** UI built with **Jetpack Compose**.
 - **Bilingual**: English and Simplified Chinese, in-app language switcher.
 - Light / dark / system themes, earpiece-proximity handling, keep-screen-awake while connected.
-- Per-ABI APK splits (`armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64`).
+- Per-ABI APK splits (`armeabi-v7a`, `arm64-v8a`, `x86_64`); 32-bit `x86` is not supported.
 
 ---
 
@@ -192,7 +192,7 @@ servers, certificates and access tokens, and DataStore for settings.
 | Item | Requirement |
 | --- | --- |
 | Android | 8.0 (API 26) or newer |
-| ABIs | `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` |
+| ABIs | `armeabi-v7a`, `arm64-v8a`, `x86_64` |
 | Permissions | Internet, record audio, modify audio settings, foreground service (microphone), notifications, wake lock |
 | Server | Any Mumble server (Murmur) speaking Opus — 1.5.0+ gets protobuf UDP framing, older servers use legacy framing |
 
@@ -217,7 +217,7 @@ The debug APK lands at `app/build/outputs/apk/debug/app-debug.apk`.
 Other useful tasks:
 
 ```bash
-./gradlew :app:assembleRelease   # R8-optimised, per-ABI APKs
+./gradlew :app:assembleRelease   # R8-optimised, per-ABI APKs (ARM + x86_64)
 ./gradlew :app:test              # JVM unit tests
 ./gradlew :app:lint              # static analysis
 ```

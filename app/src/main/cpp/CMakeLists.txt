@@ -132,9 +132,9 @@ endif()
 # JNI wrapper. Cache FORCE so opus's option() sees the values; DRED/OSCE
 # pull in extra DNN weights we do not need for Mumble voice.
 #
-# Floating-point build: every ABI we ship has an FPU and either NEON (ARM)
-# or SSE2 (x86). FLOAT_APPROX is safe on IEEE-754 Android; PRESUME_* skips
-# runtime CPU detection on the hot path.
+# Floating-point build: every ABI we ship has an FPU — NEON on ARM, SSE on
+# x86_64 (32-bit x86 is not packaged). FLOAT_APPROX is safe on IEEE-754
+# Android; PRESUME_* skips runtime CPU detection on the hot path.
 set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "build shared library." FORCE)
 set(OPUS_BUILD_TESTING OFF CACHE BOOL "build tests." FORCE)
 set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "build programs." FORCE)
@@ -156,11 +156,9 @@ if(ANDROID)
         set(OPUS_MAY_HAVE_NEON_INTR ON CACHE BOOL "Does runtime check for neon intrinsics" FORCE)
         set(OPUS_PRESUME_NEON_INTR ON CACHE BOOL "Assume target CPU has NEON intrinsics" FORCE)
     endif()
-    if(ANDROID_ABI STREQUAL "x86" OR ANDROID_ABI STREQUAL "x86_64")
+    if(ANDROID_ABI STREQUAL "x86_64")
         set(OPUS_X86_PRESUME_SSE ON CACHE BOOL "assume target CPU has SSE1 support" FORCE)
         set(OPUS_X86_PRESUME_SSE2 ON CACHE BOOL "assume target CPU has SSE2 support" FORCE)
-    endif()
-    if(ANDROID_ABI STREQUAL "x86_64")
         set(OPUS_X86_PRESUME_SSE4_1 ON CACHE BOOL "assume target CPU has SSE4.1 support" FORCE)
     endif()
 endif()

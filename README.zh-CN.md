@@ -70,7 +70,7 @@
 - 基于 Jetpack Compose 的现代 **Material 3** 界面。
 - **中英双语**，应用内语言切换。
 - 浅色 / 深色 / 跟随系统主题，听筒距离感应，连接时保持屏幕常亮。
-- 按 ABI 拆分 APK（`armeabi-v7a`、`arm64-v8a`、`x86`、`x86_64`）。
+- 按 ABI 拆分 APK（`armeabi-v7a`、`arm64-v8a`、`x86_64`），不支持 32 位 `x86`。
 
 ---
 
@@ -189,7 +189,7 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 | 项目 | 要求 |
 | --- | --- |
 | Android | 8.0（API 26）或更高 |
-| ABI | `armeabi-v7a`、`arm64-v8a`、`x86`、`x86_64` |
+| ABI | `armeabi-v7a`、`arm64-v8a`、`x86_64` |
 | 权限 | 网络、录音、修改音频设置、前台服务（麦克风）、通知、唤醒锁 |
 | 服务器 | 任何支持 Opus 的 Mumble 服务器（Murmur）——1.5.0+ 使用 protobuf UDP 组帧，旧版使用 legacy 组帧 |
 
@@ -214,7 +214,7 @@ Debug APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。
 其他常用任务：
 
 ```bash
-./gradlew :app:assembleRelease   # R8 优化，按 ABI 拆分 APK
+./gradlew :app:assembleRelease   # R8 优化，按 ABI 拆分 APK（ARM + x86_64）
 ./gradlew :app:test              # JVM 单元测试
 ./gradlew :app:lint              # 静态分析
 ```
