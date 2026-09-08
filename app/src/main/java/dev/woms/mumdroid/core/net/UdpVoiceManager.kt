@@ -236,7 +236,7 @@ class UdpVoiceManager(
     }
 
     /** The current encryption IV, or null when crypto is not ready. */
-    fun encryptIV(): ByteArray? = if (crypt.isReady) crypt.getEncryptIV() else null
+    fun encryptIV(): ByteArray? = crypt.getEncryptIV()
 
     /** @return the legacy OCB2 packet statistics (good/late/lost/resync)
      *          accumulated by the decrypt path, so they can be reported in the

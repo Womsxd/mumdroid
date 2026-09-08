@@ -46,7 +46,12 @@ class CryptOCB2 {
     private var keySet = false
     private var nonceSet = false
 
-    /** Whether the key and nonce have been set. */
+    /**
+     * Whether the key and nonce have been set on this instance.
+     * Only read/written under [CryptState]'s matching direction lock, so
+     * this is not the cross-thread publication flag — that is
+     * [CryptState.isReady]. Volatile would be redundant here.
+     */
     var isReady: Boolean = false
         private set
 

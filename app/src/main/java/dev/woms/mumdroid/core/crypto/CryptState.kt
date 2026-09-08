@@ -52,6 +52,14 @@ class CryptState {
     var resyncPackets: Int = 0
         private set
 
+    /**
+     * Published readiness. [setKey]/[reset] write it on the control thread;
+     * TCP ping / capture / UDP receive read it unlocked (`isCryptoReady`,
+     * send-path guards). The direction locks do not cover those reads, so
+     * this must be volatile or ARM can keep a stale `false` after CryptSetup
+     * (or a stale `true` after teardown) for a long time.
+     */
+    @Volatile
     var isReady: Boolean = false
         private set
 
@@ -83,8 +91,14 @@ class CryptState {
         return true
     }
 
-    /** The current encryption IV (client nonce), for CryptSetup resync replies. */
-    fun getEncryptIV(): ByteArray = synchronized(encryptLock) { encryptNonce.copyOf() }
+    /**
+     * Current encryption IV (client nonce) for CryptSetup resync replies.
+     * Snapshot is taken under [encryptLock] so a concurrent [reset] cannot
+     * hand out a wiped IV after [isReady] has already gone false.
+     */
+    fun getEncryptIV(): ByteArray? = synchronized(encryptLock) {
+        if (!isReady) null else encryptNonce.copyOf()
+    }
 
     /** Replaces the encryption IV (mirrors `CryptStateOCB2::setEncryptIV`). */
     fun setEncryptIV(iv: ByteArray): Boolean {
