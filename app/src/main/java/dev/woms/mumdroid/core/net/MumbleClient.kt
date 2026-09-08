@@ -10,6 +10,7 @@ import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.ChanAclWrite
 import dev.woms.mumdroid.core.model.ChannelModeration
 import dev.woms.mumdroid.core.model.UserModeration
+import dev.woms.mumdroid.core.net.MumbleClient.Companion.CERTIFICATE_PROMPT_TIMEOUT_SECONDS
 import dev.woms.mumdroid.core.proto.ACL
 import dev.woms.mumdroid.core.proto.Authenticate
 import dev.woms.mumdroid.core.proto.BanList
@@ -102,6 +103,13 @@ class MumbleClient(
         /** Official TCP frame cap (`Connection.cpp`: `iPacketLength > 0x7fffff`).
          *  USER_STATE with a large avatar texture or comment can exceed 1 MB. */
         private const val MAX_TCP_MESSAGE_BYTES = 0x7fffff
+
+        /**
+         * How long the handshake thread waits for a pinning-mismatch decision.
+         * [CertificateGate.abort] already unblocks [close]; this is the
+         * fallback when the UI never answers.
+         */
+        private const val CERTIFICATE_PROMPT_TIMEOUT_SECONDS = 90L
 
         // Our reported client version.
         //
@@ -410,7 +418,9 @@ class MumbleClient(
     /**
      * One-shot gate pausing the handshake thread while the user reviews a
      * certificate problem. [abort] releases a pending wait so [close] can
-     * never leave the connect thread blocked forever.
+     * never leave the connect thread blocked forever. [await] also times
+     * out after [CERTIFICATE_PROMPT_TIMEOUT_SECONDS] and treats that as
+     * [CertificateDecision.REJECT].
      */
     private inner class CertificateGate {
         private val latch = CountDownLatch(1)
@@ -425,9 +435,14 @@ class MumbleClient(
             synchronized(this) { open = true }
         }
 
-        /** Blocks until [resolve] or [abort], then returns the decision. */
+        /**
+         * Blocks until [resolve], [abort], or the prompt timeout, then
+         * returns the decision. A timeout is [CertificateDecision.REJECT].
+         */
         fun await(): CertificateDecision {
-            latch.await()
+            if (!latch.await(CERTIFICATE_PROMPT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                abort()
+            }
             return decision
         }
 
