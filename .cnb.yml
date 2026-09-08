@@ -34,6 +34,11 @@ $:
 
 master:
   "crontab: 0 6 * * *":
-    - <<: [*task-ci-base, *check-repo, *github-sync]
+    - <<: *task-ci-base
+      stages:
+        - *check-repo
+        - *github-sync
   web_trigger_sync:
-    - <<: [*task-ci-base, *github-sync]
+    - <<: *task-ci-base
+      stages:
+        - *github-sync
