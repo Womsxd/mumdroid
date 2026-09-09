@@ -1,6 +1,7 @@
 package dev.woms.mumdroid.core.net
 
 import android.util.Log
+import dev.woms.mumdroid.core.model.CertificateDecision
 import java.security.SecureRandom
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate

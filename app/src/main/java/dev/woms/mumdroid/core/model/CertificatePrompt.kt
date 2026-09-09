@@ -18,3 +18,18 @@ data class CertificatePrompt(
     val host: String,
     val port: Int,
 )
+
+/**
+ * The user's decision when the TLS handshake hit a certificate problem while
+ * certificate pinning was enabled.
+ */
+enum class CertificateDecision {
+    /** Re-pin the presented certificate and continue (replaces the stored pin). */
+    UPDATE_PIN,
+
+    /** Accept the certificate for this session only; the stored pin is kept. */
+    TRUST_ONCE,
+
+    /** Abort the connection. */
+    REJECT,
+}

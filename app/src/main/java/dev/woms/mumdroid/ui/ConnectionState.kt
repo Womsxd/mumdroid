@@ -1,14 +1,14 @@
 package dev.woms.mumdroid.ui
 
+import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.CertificatePrompt
 import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
+import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.model.ServerConnectionInfo
 import dev.woms.mumdroid.core.model.ServerRemoval
 import dev.woms.mumdroid.core.model.UserConnectionInfo
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
-import dev.woms.mumdroid.core.net.BanEntry
-import dev.woms.mumdroid.core.net.RegisteredUser
 
 /** Low-frequency session snapshot for the UI.
  *

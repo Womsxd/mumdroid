@@ -42,8 +42,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.BanAddresses
+import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.BanTimes
-import dev.woms.mumdroid.core.net.BanEntry
 
 /**
  * Desktop `BanEditor` as a screen: list, add, edit, remove. Changes are

@@ -1,6 +1,6 @@
 package dev.woms.mumdroid
 
-import dev.woms.mumdroid.core.net.CertificateDecision
+import dev.woms.mumdroid.core.model.CertificateDecision
 import dev.woms.mumdroid.core.net.CertificateGate
 import org.junit.Assert.assertEquals
 import org.junit.Test

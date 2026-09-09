@@ -5,12 +5,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.woms.mumdroid.core.model.AclUserNames
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.MumbleServer
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.UserCertificate
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
-import dev.woms.mumdroid.core.net.BanEntry
 import dev.woms.mumdroid.data.CertificateStore
 import dev.woms.mumdroid.data.ServerStore
 import dev.woms.mumdroid.data.SettingsStore

@@ -2,11 +2,11 @@ package dev.woms.mumdroid.ui
 
 import dev.woms.mumdroid.core.model.AclUserNames
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.MumbleServer
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
-import dev.woms.mumdroid.core.net.BanEntry
 
 /**
  * Live-session intents (connect, roster, chat, ACL). Distinct from

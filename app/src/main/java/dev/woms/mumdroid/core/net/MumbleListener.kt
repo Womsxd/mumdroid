@@ -1,64 +1,10 @@
 package dev.woms.mumdroid.core.net
 
+import dev.woms.mumdroid.core.model.BanEntry
+import dev.woms.mumdroid.core.model.CertificateDecision
 import dev.woms.mumdroid.core.model.Channel
+import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.proto.UserState
-
-/** A single entry in a server ban list. */
-data class BanEntry(
-    val address: ByteArray = byteArrayOf(),
-    val mask: Int = 0,
-    val name: String = "",
-    val hash: String = "",
-    val reason: String = "",
-    val start: String = "",
-    val duration: Int = 0,
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is BanEntry) return false
-        return mask == other.mask &&
-            duration == other.duration &&
-            name == other.name &&
-            hash == other.hash &&
-            reason == other.reason &&
-            start == other.start &&
-            address.contentEquals(other.address)
-    }
-
-    override fun hashCode(): Int {
-        var result = address.contentHashCode()
-        result = 31 * result + mask
-        result = 31 * result + name.hashCode()
-        result = 31 * result + hash.hashCode()
-        result = 31 * result + reason.hashCode()
-        result = 31 * result + start.hashCode()
-        result = 31 * result + duration
-        return result
-    }
-}
-
-/** A registered (database) user reported by the server. */
-data class RegisteredUser(
-    val userId: Int = 0,
-    val name: String = "",
-    val lastSeen: String = "",
-    val lastChannel: Int = 0,
-)
-
-/**
- * The user's decision when the TLS handshake hit a certificate problem while
- * certificate pinning was enabled.
- */
-enum class CertificateDecision {
-    /** Re-pin the presented certificate and continue (replaces the stored pin). */
-    UPDATE_PIN,
-
-    /** Accept the certificate for this session only; the stored pin is kept. */
-    TRUST_ONCE,
-
-    /** Abort the connection. */
-    REJECT,
-}
 
 /**
  * Callbacks delivered by [MumbleClient] as the connection progresses and

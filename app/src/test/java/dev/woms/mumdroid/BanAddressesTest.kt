@@ -1,9 +1,9 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.model.BanAddresses
+import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.BanIpKind
 import dev.woms.mumdroid.core.model.BanTimes
-import dev.woms.mumdroid.core.net.BanEntry
 import dev.woms.mumdroid.service.TimedUserBan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals

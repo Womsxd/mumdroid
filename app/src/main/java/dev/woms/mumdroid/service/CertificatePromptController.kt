@@ -1,7 +1,7 @@
 package dev.woms.mumdroid.service
 
+import dev.woms.mumdroid.core.model.CertificateDecision
 import dev.woms.mumdroid.core.model.CertificatePrompt
-import dev.woms.mumdroid.core.net.CertificateDecision
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 

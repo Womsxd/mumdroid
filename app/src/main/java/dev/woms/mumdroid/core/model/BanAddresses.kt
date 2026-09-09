@@ -12,6 +12,40 @@ import java.time.temporal.ChronoUnit
 
 enum class BanIpKind { V4, V6 }
 
+/** A single entry in a server ban list. */
+data class BanEntry(
+    val address: ByteArray = byteArrayOf(),
+    val mask: Int = 0,
+    val name: String = "",
+    val hash: String = "",
+    val reason: String = "",
+    val start: String = "",
+    val duration: Int = 0,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is BanEntry) return false
+        return mask == other.mask &&
+            duration == other.duration &&
+            name == other.name &&
+            hash == other.hash &&
+            reason == other.reason &&
+            start == other.start &&
+            address.contentEquals(other.address)
+    }
+
+    override fun hashCode(): Int {
+        var result = address.contentHashCode()
+        result = 31 * result + mask
+        result = 31 * result + name.hashCode()
+        result = 31 * result + hash.hashCode()
+        result = 31 * result + reason.hashCode()
+        result = 31 * result + start.hashCode()
+        result = 31 * result + duration
+        return result
+    }
+}
+
 /**
  * Ban-list address encoding matching desktop `HostAddress` / `BanEditor`:
  * IPv4 is stored as IPv4-mapped IPv6 (`::ffff:a.b.c.d`) with mask += 96.

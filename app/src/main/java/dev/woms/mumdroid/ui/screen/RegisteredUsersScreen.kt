@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelTree
-import dev.woms.mumdroid.core.net.RegisteredUser
+import dev.woms.mumdroid.core.model.RegisteredUser
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 

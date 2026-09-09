@@ -1,6 +1,6 @@
 package dev.woms.mumdroid.service
 
-import dev.woms.mumdroid.core.net.BanEntry
+import dev.woms.mumdroid.core.model.BanEntry
 
 /**
  * Client-side timed ban after a context-menu kick. Not protocol:

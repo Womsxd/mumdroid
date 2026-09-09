@@ -11,6 +11,8 @@ import android.os.IBinder
 import androidx.core.content.ContextCompat
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.BanEntry
+import dev.woms.mumdroid.core.model.CertificateDecision
 import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ServerConnectionInfo
@@ -18,8 +20,6 @@ import dev.woms.mumdroid.core.model.ServerRemoval
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.UserModeration
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
-import dev.woms.mumdroid.core.net.BanEntry
-import dev.woms.mumdroid.core.net.CertificateDecision
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.data.CertificateStore
 import dev.woms.mumdroid.data.ChannelAccessTokenStore
