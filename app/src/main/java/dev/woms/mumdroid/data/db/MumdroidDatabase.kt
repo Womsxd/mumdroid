@@ -17,8 +17,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CertificateEntity::class,
         ChannelAccessTokenEntity::class,
         ServerAccessTokenEntity::class,
+        UserCertificateEntity::class,
+        UserCertificateConfigEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class MumdroidDatabase : RoomDatabase() {
@@ -27,6 +29,7 @@ abstract class MumdroidDatabase : RoomDatabase() {
     abstract fun certificateDao(): CertificateDao
     abstract fun channelAccessTokenDao(): ChannelAccessTokenDao
     abstract fun serverAccessTokenDao(): ServerAccessTokenDao
+    abstract fun userCertificateDao(): UserCertificateDao
 
     companion object {
         @Volatile
@@ -171,14 +174,58 @@ abstract class MumdroidDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * User (client) certificate metadata and the keystore password move out
+         * of SharedPreferences into Room. The legacy JSON list is copied in at
+         * runtime by [dev.woms.mumdroid.data.UserCertificateStore] once the new
+         * tables exist.
+         */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_certificates (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        subject TEXT NOT NULL,
+                        fingerprint TEXT NOT NULL,
+                        serial TEXT NOT NULL,
+                        not_before INTEGER NOT NULL,
+                        not_after INTEGER NOT NULL,
+                        pem TEXT NOT NULL,
+                        created_at INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_user_certificates_fingerprint " +
+                        "ON user_certificates(fingerprint)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_certificate_config (
+                        id INTEGER NOT NULL,
+                        selected_fingerprint TEXT,
+                        keystore_password TEXT NOT NULL,
+                        PRIMARY KEY(id)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun getInstance(context: Context): MumdroidDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     MumdroidDatabase::class.java,
                     "mumdroid.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
-                    .build()
+                ).addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                ).build()
                     .also { INSTANCE = it }
             }
     }

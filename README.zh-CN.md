@@ -167,7 +167,7 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 ```
 .
 ├── app/
-│   ├── schemas/                 导出的 Room 架构（v1 … v5）
+│   ├── schemas/                 导出的 Room 架构（v1 … v6）
 │   └── src/
 │       ├── main/
 │       │   ├── cpp/             speexdsp、RNNoise 与 libopus 的 CMake 构建与 JNI 绑定
@@ -179,8 +179,9 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 └── settings.gradle.kts
 ```
 
-持久化方面，服务器、证书与访问令牌使用 Room（数据库版本 5，保留 1→2→3→4→5 迁移），
-设置使用 DataStore。
+持久化方面，服务器、证书、用户客户端证书与访问令牌使用 Room（数据库版本 6，保留
+1→2→3→4→5→6 迁移），设置使用 DataStore。用户证书元数据与 keystore 口令已迁入 Room，
+旧的 SharedPreferences 存储会一次性迁移后清除。
 
 ---
 

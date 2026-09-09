@@ -37,8 +37,10 @@ internal class UserCertificateController(
     }
 
     init {
-        _userCertificate.value = store.load()
-        _userCertificates.value = store.loadAll()
+        scope.launch {
+            _userCertificate.value = store.load()
+            _userCertificates.value = store.loadAll()
+        }
     }
 
     fun generate(username: String) {

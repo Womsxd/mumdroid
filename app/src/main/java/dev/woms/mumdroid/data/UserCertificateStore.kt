@@ -3,23 +3,15 @@ package dev.woms.mumdroid.data
 import android.content.Context
 import android.util.Base64
 import android.util.Log
+import androidx.room.withTransaction
 import dev.woms.mumdroid.core.model.UserCertificate
 import dev.woms.mumdroid.core.model.isPresent
-import java.io.ByteArrayInputStream
-import java.io.EOFException
-import java.io.File
-import java.io.IOException
-import java.io.OutputStream
-import java.math.BigInteger
-import java.security.KeyPairGenerator
-import java.security.KeyStore
-import java.security.SecureRandom
-import java.security.UnrecoverableKeyException
-import java.security.cert.X509Certificate
-import java.util.Date
-import java.util.Locale
-import javax.crypto.BadPaddingException
-import javax.crypto.IllegalBlockSizeException
+import dev.woms.mumdroid.data.db.MumdroidDatabase
+import dev.woms.mumdroid.data.db.UserCertificateConfigEntity
+import dev.woms.mumdroid.data.db.toEntity
+import dev.woms.mumdroid.data.db.toModel
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x509.BasicConstraints
 import org.bouncycastle.asn1.x509.ExtendedKeyUsage
@@ -31,6 +23,20 @@ import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
+import java.io.File
+import java.io.OutputStream
+import java.math.BigInteger
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.PrivateKey
+import java.security.SecureRandom
+import java.security.UnrecoverableKeyException
+import java.security.cert.X509Certificate
+import java.util.Date
+import java.util.Locale
+import javax.crypto.BadPaddingException
+import javax.crypto.IllegalBlockSizeException
 
 /**
  * Manages the app's user (client) certificates.
@@ -44,6 +50,10 @@ import org.json.JSONObject
  * One of the stored certificates is marked as the **active** one and is
  * presented to the server during the TLS handshake, mirroring the desktop
  * Mumble client's certificate management.
+ *
+ * Metadata and the active selection live in Room ([MumdroidDatabase]); only the
+ * PKCS#12 key material stays on disk. The previous SharedPreferences JSON array
+ * is migrated in once, lazily, and then cleared.
  */
 /**
  * Thrown when a PKCS#12 file cannot be opened with the supplied password,
@@ -62,12 +72,20 @@ class UserCertificateStore(private val context: Context) {
 
     companion object {
         private const val TAG = "UserCertificateStore"
-        private const val PREFS = "user_cert_prefs"
-        private const val PREFS_PASSWORD = "password"
-        private const val PREFS_LIST = "certificates"
-        private const val PREFS_SELECTED = "selected_fingerprint"
         private const val CERT_FILE_PREFIX = "user_cert_"
         private const val VALIDITY_YEARS = 20L
+        private const val KEY_ALIAS = "mumdroid_user_cert"
+
+        // Legacy SharedPreferences removed after the one-time migration to Room.
+        private const val LEGACY_PREFS = "user_cert_prefs"
+        private const val LEGACY_PASSWORD = "password"
+        private const val LEGACY_LIST = "certificates"
+        private const val LEGACY_SELECTED = "selected_fingerprint"
+
+        /** Guards [ensureLegacyMigrated] across all store instances. */
+        @Volatile
+        private var legacyMigrated = false
+        private val legacyMigrationLock = Mutex()
 
         private fun subjectFor(username: String): String {
             var cn = username.trim().ifEmpty { "mumdroid-user" }
@@ -84,51 +102,45 @@ class UserCertificateStore(private val context: Context) {
             CERT_FILE_PREFIX + fingerprint.replace(":", "") + ".p12"
     }
 
-    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val db = MumdroidDatabase.getInstance(context)
+    private val dao = db.userCertificateDao()
 
     /** Decodes the PKCS#12 keystore stored for the given fingerprint. */
     private fun storeFileFor(fingerprint: String): File =
         File(context.filesDir, certFileName(fingerprint))
 
     /** Returns all stored user certificates. */
-    fun loadAll(): List<UserCertificate> {
-        val raw = prefs.getString(PREFS_LIST, null) ?: return emptyList()
-        return try {
-            val arr = JSONArray(raw)
-            buildList {
-                for (i in 0 until arr.length()) {
-                    add(parseCert(arr.getJSONObject(i)))
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not parse stored certificate list", e)
-            emptyList()
-        }
+    suspend fun loadAll(): List<UserCertificate> {
+        ensureLegacyMigrated()
+        return dao.getAll().map { it.toModel() }
     }
 
     /**
      * Returns the currently selected (active) user certificate, or
      * [UserCertificate.NONE] if none is stored/selected.
      */
-    fun load(): UserCertificate {
-        val selected = prefs.getString(PREFS_SELECTED, null)
-        return loadAll().firstOrNull { it.fingerprint == selected } ?: UserCertificate.NONE
+    suspend fun load(): UserCertificate {
+        ensureLegacyMigrated()
+        val selected = dao.getConfig()?.selectedFingerprint ?: return UserCertificate.NONE
+        return dao.findByFingerprint(selected)?.toModel() ?: UserCertificate.NONE
     }
 
     /** The SHA-256 fingerprint of the currently selected certificate, if any. */
-    fun fingerprint(): String? = load().fingerprint.ifBlank { null }
+    suspend fun fingerprint(): String? = load().fingerprint.ifBlank { null }
 
     /**
-     * Returns the [X509Certificate] and [java.security.PrivateKey] of the
-     * currently selected certificate for TLS client authentication, or null if
-     * no certificate has been generated/imported.
+     * Returns the [X509Certificate] and [PrivateKey] of the currently selected
+     * certificate for TLS client authentication, or null if no certificate has
+     * been generated/imported.
      */
-    fun keyStoreMaterial(): Pair<X509Certificate, java.security.PrivateKey>? {
+    suspend fun keyStoreMaterial(): Pair<X509Certificate, PrivateKey>? {
         val cert = load()
         if (!cert.isPresent()) return null
         return try {
-            val ks = loadKeyStore(cert.fingerprint, password()) ?: return null
-            val entry = ks.getEntry(KEY_ALIAS, KeyStore.PasswordProtection(password())) as? KeyStore.PrivateKeyEntry ?: return null
+            val password = keystorePassword()
+            val ks = loadKeyStore(cert.fingerprint, password) ?: return null
+            val entry = ks.getEntry(KEY_ALIAS, KeyStore.PasswordProtection(password))
+                as? KeyStore.PrivateKeyEntry ?: return null
             val x509 = entry.certificate as? X509Certificate ?: return null
             x509 to entry.privateKey
         } catch (e: Exception) {
@@ -141,7 +153,8 @@ class UserCertificateStore(private val context: Context) {
      * Generates a new self-signed user certificate (and private key), adds it to
      * the store and marks it as the active certificate.
      */
-    fun generate(username: String) {
+    suspend fun generate(username: String) {
+        ensureLegacyMigrated()
         try {
             val notBefore = Date()
             val notAfter = Date(System.currentTimeMillis() + VALIDITY_YEARS * 365L * 24 * 3600 * 1000)
@@ -187,10 +200,11 @@ class UserCertificateStore(private val context: Context) {
             val fingerprint = certMeta.fingerprint
 
             // Persist the private key + certificate as a new PKCS#12 file.
+            val password = keystorePassword()
             val ks = KeyStore.getInstance("PKCS12")
             ks.load(null, null)
-            ks.setKeyEntry(KEY_ALIAS, keyPair.private, password().clone(), arrayOf(cert))
-            saveKeyStore(fingerprint, ks, password())
+            ks.setKeyEntry(KEY_ALIAS, keyPair.private, password.clone(), arrayOf(cert))
+            saveKeyStore(fingerprint, ks, password)
 
             addAndSelect(certMeta)
             Log.i(TAG, "Generated user certificate with fingerprint $fingerprint")
@@ -213,7 +227,8 @@ class UserCertificateStore(private val context: Context) {
      * @throws IllegalArgumentException if the file contains no private-key
      *   entry / certificate, or the certificate is expired.
      */
-    fun import(p12Bytes: ByteArray, password: CharArray) {
+    suspend fun import(p12Bytes: ByteArray, password: CharArray) {
+        ensureLegacyMigrated()
         val ks = KeyStore.getInstance("PKCS12")
         try {
             ByteArrayInputStream(p12Bytes).use { input ->
@@ -259,15 +274,16 @@ class UserCertificateStore(private val context: Context) {
         val fingerprint = certMeta.fingerprint
 
         // Re-encrypt with our own random password and store in app-private storage.
+        val storePassword = keystorePassword()
         val newKs = KeyStore.getInstance("PKCS12")
         newKs.load(null, null)
         newKs.setKeyEntry(
             KEY_ALIAS,
             entry.privateKey,
-            password().clone(),
+            storePassword.clone(),
             entry.certificateChain,
         )
-        saveKeyStore(fingerprint, newKs, password())
+        saveKeyStore(fingerprint, newKs, storePassword)
 
         addAndSelect(certMeta)
         Log.i(TAG, "Imported user certificate with fingerprint $fingerprint")
@@ -282,10 +298,14 @@ class UserCertificateStore(private val context: Context) {
      *   closed by this method.
      * @param password the password with which the exported file will be protected.
      */
-    fun exportTo(fingerprint: String, out: OutputStream, password: CharArray) {
-        val ks = loadKeyStore(fingerprint, password()) ?: throw IllegalStateException("没有可导出的用户证书")
-        val chain = ks.getCertificateChain(KEY_ALIAS) ?: throw IllegalStateException("没有可导出的用户证书")
-        val key = ks.getKey(KEY_ALIAS, password())
+    suspend fun exportTo(fingerprint: String, out: OutputStream, password: CharArray) {
+        ensureLegacyMigrated()
+        val storePassword = keystorePassword()
+        val ks = loadKeyStore(fingerprint, storePassword)
+            ?: throw IllegalStateException("没有可导出的用户证书")
+        val chain = ks.getCertificateChain(KEY_ALIAS)
+            ?: throw IllegalStateException("没有可导出的用户证书")
+        val key = ks.getKey(KEY_ALIAS, storePassword)
             ?: throw IllegalStateException("没有可导出的用户证书")
 
         // Re-encrypt using the caller-provided export password.
@@ -298,10 +318,10 @@ class UserCertificateStore(private val context: Context) {
     /**
      * Marks the certificate with the given fingerprint as the active one.
      */
-    fun select(fingerprint: String) {
-        val exists = loadAll().any { it.fingerprint == fingerprint }
-        if (exists) {
-            prefs.edit().putString(PREFS_SELECTED, fingerprint).apply()
+    suspend fun select(fingerprint: String) {
+        ensureLegacyMigrated()
+        if (dao.findByFingerprint(fingerprint) != null) {
+            setSelected(fingerprint)
         }
     }
 
@@ -310,30 +330,88 @@ class UserCertificateStore(private val context: Context) {
      * If it was the active certificate, another stored certificate is selected,
      * or the selection is cleared if none remain.
      */
-    fun delete(fingerprint: String) {
-        val list = loadAll().toMutableList()
-        list.removeAll { it.fingerprint == fingerprint }
-        persistList(list)
-        storeFileFor(fingerprint).delete()
-
-        // Re-select an active certificate if the deleted one was active.
-        if (prefs.getString(PREFS_SELECTED, null) == fingerprint) {
-            val next = list.firstOrNull()
-            if (next != null) {
-                prefs.edit().putString(PREFS_SELECTED, next.fingerprint).apply()
-            } else {
-                prefs.edit().remove(PREFS_SELECTED).apply()
+    suspend fun delete(fingerprint: String) {
+        ensureLegacyMigrated()
+        db.withTransaction {
+            val wasSelected = dao.getConfig()?.selectedFingerprint == fingerprint
+            dao.deleteByFingerprint(fingerprint)
+            storeFileFor(fingerprint).delete()
+            if (wasSelected) {
+                val next = dao.getAll().firstOrNull()?.fingerprint
+                val config = dao.getConfig() ?: UserCertificateConfigEntity()
+                dao.upsertConfig(config.copy(selectedFingerprint = next))
             }
         }
     }
 
     /** Removes all user certificates. */
-    fun deleteAll() {
-        loadAll().forEach { storeFileFor(it.fingerprint).delete() }
-        prefs.edit().clear().apply()
+    suspend fun deleteAll() {
+        ensureLegacyMigrated()
+        db.withTransaction {
+            dao.getAll().forEach { storeFileFor(it.fingerprint).delete() }
+            dao.deleteAll()
+            dao.upsertConfig(UserCertificateConfigEntity())
+        }
     }
 
     // ---- internals ----
+
+    /**
+     * Copies the legacy SharedPreferences JSON certificate list, keystore
+     * password and selection into Room exactly once, then clears the prefs.
+     */
+    private suspend fun ensureLegacyMigrated() {
+        if (legacyMigrated) return
+        legacyMigrationLock.withLock {
+            if (legacyMigrated) return
+            migrateLegacyPrefs()
+            legacyMigrated = true
+        }
+    }
+
+    private suspend fun migrateLegacyPrefs() {
+        val prefs = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+        val rawList = prefs.getString(LEGACY_LIST, null)
+        val password = prefs.getString(LEGACY_PASSWORD, null)
+        val selected = prefs.getString(LEGACY_SELECTED, null)
+        if (rawList == null && password == null && selected == null) return
+
+        val certs = rawList?.let(::parseLegacyList) ?: emptyList()
+        db.withTransaction {
+            certs.forEach { dao.upsert(it.toEntity()) }
+            val config = dao.getConfig() ?: UserCertificateConfigEntity()
+            val selectedValid = selected?.takeIf { fp -> certs.any { it.fingerprint == fp } }
+            dao.upsertConfig(
+                config.copy(
+                    selectedFingerprint = selectedValid ?: config.selectedFingerprint,
+                    keystorePassword = password ?: config.keystorePassword,
+                ),
+            )
+        }
+        prefs.edit().clear().apply()
+        Log.i(TAG, "Migrated ${certs.size} user certificate(s) from SharedPreferences to Room")
+    }
+
+    private fun parseLegacyList(raw: String): List<UserCertificate> = try {
+        val arr = JSONArray(raw)
+        buildList {
+            for (i in 0 until arr.length()) {
+                add(parseLegacyCert(arr.getJSONObject(i)))
+            }
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "Could not parse legacy certificate list", e)
+        emptyList()
+    }
+
+    private fun parseLegacyCert(o: JSONObject): UserCertificate = UserCertificate(
+        subject = o.optString("subject", ""),
+        fingerprint = o.optString("fingerprint", ""),
+        serial = o.optString("serial", ""),
+        notBefore = o.optLong("not_before", 0),
+        notAfter = o.optLong("not_after", 0),
+        pem = o.optString("pem", ""),
+    )
 
     /**
      * Whether [e] (walking its cause chain) points to a wrong PKCS#12
@@ -378,13 +456,13 @@ class UserCertificateStore(private val context: Context) {
         )
     }
 
-    private fun password(): CharArray {
-        var p = prefs.getString(PREFS_PASSWORD, null)
-        if (p == null) {
-            p = generatePassword()
-            prefs.edit().putString(PREFS_PASSWORD, p).apply()
-        }
-        return p.toCharArray()
+    private suspend fun keystorePassword(): CharArray {
+        val config = dao.getConfig()
+        val existing = config?.keystorePassword
+        if (!existing.isNullOrEmpty()) return existing.toCharArray()
+        val generated = generatePassword()
+        dao.upsertConfig((config ?: UserCertificateConfigEntity()).copy(keystorePassword = generated))
+        return generated.toCharArray()
     }
 
     private fun generatePassword(): String {
@@ -410,38 +488,17 @@ class UserCertificateStore(private val context: Context) {
     }
 
     /** Adds a certificate metadata to the store and marks it active. */
-    private fun addAndSelect(cert: UserCertificate) {
-        val list = loadAll().toMutableList()
-        // Replace an existing entry with the same fingerprint if present.
-        list.removeAll { it.fingerprint == cert.fingerprint }
-        list.add(cert)
-        persistList(list)
-        prefs.edit().putString(PREFS_SELECTED, cert.fingerprint).apply()
+    private suspend fun addAndSelect(cert: UserCertificate) {
+        db.withTransaction {
+            dao.upsert(cert.toEntity())
+            setSelected(cert.fingerprint)
+        }
     }
 
-    private fun persistList(list: List<UserCertificate>) {
-        val arr = JSONArray()
-        list.forEach { arr.put(toJson(it)) }
-        prefs.edit().putString(PREFS_LIST, arr.toString()).apply()
+    private suspend fun setSelected(fingerprint: String?) {
+        val config = dao.getConfig() ?: UserCertificateConfigEntity()
+        dao.upsertConfig(config.copy(selectedFingerprint = fingerprint))
     }
-
-    private fun toJson(c: UserCertificate): JSONObject = JSONObject().apply {
-        put("subject", c.subject)
-        put("fingerprint", c.fingerprint)
-        put("serial", c.serial)
-        put("not_before", c.notBefore)
-        put("not_after", c.notAfter)
-        put("pem", c.pem)
-    }
-
-    private fun parseCert(o: JSONObject): UserCertificate = UserCertificate(
-        subject = o.optString("subject", ""),
-        fingerprint = o.optString("fingerprint", ""),
-        serial = o.optString("serial", ""),
-        notBefore = o.optLong("not_before", 0),
-        notAfter = o.optLong("not_after", 0),
-        pem = o.optString("pem", ""),
-    )
 
     private fun toPem(cert: X509Certificate): String {
         val b64 = Base64.encodeToString(cert.encoded, Base64.NO_WRAP)
@@ -459,6 +516,4 @@ class UserCertificateStore(private val context: Context) {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(cert.encoded)
         return digest.joinToString(":") { String.format(Locale.US, "%02X", it) }
     }
-
-    private val KEY_ALIAS = "mumdroid_user_cert"
 }

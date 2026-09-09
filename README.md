@@ -170,7 +170,7 @@ Simplified Chinese), channel user counts.
 ```
 .
 ├── app/
-│   ├── schemas/                 Exported Room schemas (v1 … v5)
+│   ├── schemas/                 Exported Room schemas (v1 … v6)
 │   └── src/
 │       ├── main/
 │       │   ├── cpp/             CMake + JNI bindings for speexdsp, RNNoise and libopus
@@ -182,8 +182,10 @@ Simplified Chinese), channel user counts.
 └── settings.gradle.kts
 ```
 
-Persistence uses Room (database version 5, migrations 1→2→3→4→5 preserved) for
-servers, certificates and access tokens, and DataStore for settings.
+Persistence uses Room (database version 6, migrations 1→2→3→4→5→6 preserved) for
+servers, certificates, user client certificates and access tokens, and DataStore
+for settings. User certificate metadata and the keystore password live in Room;
+the legacy SharedPreferences store is migrated once and cleared.
 
 ---
 
