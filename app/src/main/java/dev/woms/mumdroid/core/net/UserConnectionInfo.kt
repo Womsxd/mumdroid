@@ -1,5 +1,7 @@
-package dev.woms.mumdroid.core.model
+package dev.woms.mumdroid.core.net
 
+import dev.woms.mumdroid.core.model.ServerConnectionInfo
+import dev.woms.mumdroid.core.net.UserConnectionInfo.Companion.formatBandwidth
 import dev.woms.mumdroid.core.proto.UserStats
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory

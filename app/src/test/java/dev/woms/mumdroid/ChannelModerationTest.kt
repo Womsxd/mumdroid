@@ -1,7 +1,7 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.model.Channel
-import dev.woms.mumdroid.core.model.ChannelModeration
+import dev.woms.mumdroid.core.net.ChannelModeration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

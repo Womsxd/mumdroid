@@ -1,7 +1,7 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.core.model.UserStateMerge
+import dev.woms.mumdroid.core.net.UserStateMerge
 import dev.woms.mumdroid.core.proto.UserState
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

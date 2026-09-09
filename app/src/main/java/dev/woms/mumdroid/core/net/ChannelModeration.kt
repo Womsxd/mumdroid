@@ -1,5 +1,6 @@
-package dev.woms.mumdroid.core.model
+package dev.woms.mumdroid.core.net
 
+import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.proto.ChannelRemove
 import dev.woms.mumdroid.core.proto.ChannelState
 

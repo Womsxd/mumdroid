@@ -1,6 +1,7 @@
-package dev.woms.mumdroid.core.model
+package dev.woms.mumdroid.core.net
 
 import com.google.protobuf.ByteString
+import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.proto.UserRemove
 import dev.woms.mumdroid.core.proto.UserState
 

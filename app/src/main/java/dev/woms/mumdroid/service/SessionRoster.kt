@@ -5,7 +5,7 @@ import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelLinks
 import dev.woms.mumdroid.core.model.ChannelTree
 import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.core.model.UserStateMerge
+import dev.woms.mumdroid.core.net.UserStateMerge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

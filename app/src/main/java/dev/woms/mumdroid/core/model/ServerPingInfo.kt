@@ -69,4 +69,4 @@ data class ServerPingInfo(
 }
 
 /** Stable map key for ping results (`host:port`, host lowercased). */
-fun MumbleServer.pingKey(): String = "${host.trim().lowercase()}:${port}"
+fun MumbleServer.pingKey(): String = "${ServerAddress.normalizeHost(host)}:${port}"

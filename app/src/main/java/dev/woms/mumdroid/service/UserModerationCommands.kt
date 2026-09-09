@@ -1,7 +1,7 @@
 package dev.woms.mumdroid.service
 
-import dev.woms.mumdroid.core.model.UserModeration
 import dev.woms.mumdroid.core.net.MessageType
+import dev.woms.mumdroid.core.net.UserModeration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 

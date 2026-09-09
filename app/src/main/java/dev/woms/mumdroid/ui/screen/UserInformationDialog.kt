@@ -22,7 +22,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
-import dev.woms.mumdroid.core.model.UserConnectionInfo
+import dev.woms.mumdroid.core.net.UserConnectionInfo
 
 /**
  * Desktop `UserInformation` dialog: connection, ping, UDP packet stats.

@@ -1,7 +1,7 @@
 package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.core.model.UserModeration
+import dev.woms.mumdroid.core.net.UserModeration
 
 /**
  * Read-only permission and protocol-capability queries for the live session.

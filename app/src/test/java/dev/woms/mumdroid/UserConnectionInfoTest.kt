@@ -1,7 +1,7 @@
 package dev.woms.mumdroid
 
 import com.google.protobuf.ByteString
-import dev.woms.mumdroid.core.model.UserConnectionInfo
+import dev.woms.mumdroid.core.net.UserConnectionInfo
 import dev.woms.mumdroid.core.proto.UserStats
 import dev.woms.mumdroid.core.proto.Version
 import org.junit.Assert.assertEquals

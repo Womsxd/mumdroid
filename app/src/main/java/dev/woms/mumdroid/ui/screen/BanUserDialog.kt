@@ -30,7 +30,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.BanTimes
-import dev.woms.mumdroid.core.model.UserModeration
+import dev.woms.mumdroid.core.net.UserModeration
 import java.time.Instant
 
 /** Desktop `BanDialog`: reason, optional certificate/IP, plus timed duration. */

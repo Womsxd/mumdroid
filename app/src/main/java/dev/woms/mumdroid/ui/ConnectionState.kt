@@ -7,8 +7,8 @@ import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
 import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.model.ServerConnectionInfo
 import dev.woms.mumdroid.core.model.ServerRemoval
-import dev.woms.mumdroid.core.model.UserConnectionInfo
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
+import dev.woms.mumdroid.core.net.UserConnectionInfo
 
 /** Low-frequency session snapshot for the UI.
  *

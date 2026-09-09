@@ -2,7 +2,7 @@ package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.AccessTokens
-import dev.woms.mumdroid.core.model.ChannelModeration
+import dev.woms.mumdroid.core.net.ChannelModeration
 import dev.woms.mumdroid.core.net.MumbleClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch

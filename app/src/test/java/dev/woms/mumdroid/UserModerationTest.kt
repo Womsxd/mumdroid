@@ -1,7 +1,7 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.model.ChanACL
-import dev.woms.mumdroid.core.model.UserModeration
+import dev.woms.mumdroid.core.net.UserModeration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
