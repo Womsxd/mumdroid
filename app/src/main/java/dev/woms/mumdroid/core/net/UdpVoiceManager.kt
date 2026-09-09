@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Log
 import dev.woms.mumdroid.core.audio.OpusCodec
 import dev.woms.mumdroid.core.audio.OpusImplementation
+import dev.woms.mumdroid.core.crypto.UdpVoiceCrypto
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address

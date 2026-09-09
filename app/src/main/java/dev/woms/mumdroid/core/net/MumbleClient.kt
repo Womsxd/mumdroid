@@ -10,67 +10,46 @@ import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.ChanAclWrite
 import dev.woms.mumdroid.core.model.ChannelModeration
 import dev.woms.mumdroid.core.model.UserModeration
-import dev.woms.mumdroid.core.net.MumbleClient.Companion.CERTIFICATE_PROMPT_TIMEOUT_SECONDS
 import dev.woms.mumdroid.core.proto.ACL
 import dev.woms.mumdroid.core.proto.Authenticate
 import dev.woms.mumdroid.core.proto.BanList
-import dev.woms.mumdroid.core.proto.ChannelRemove
 import dev.woms.mumdroid.core.proto.ChannelState
-import dev.woms.mumdroid.core.proto.CodecVersion
-import dev.woms.mumdroid.core.proto.ContextAction
-import dev.woms.mumdroid.core.proto.ContextActionModify
 import dev.woms.mumdroid.core.proto.CryptSetup
-import dev.woms.mumdroid.core.proto.PermissionDenied
 import dev.woms.mumdroid.core.proto.PermissionQuery
 import dev.woms.mumdroid.core.proto.Ping
 import dev.woms.mumdroid.core.proto.QueryUsers
-import dev.woms.mumdroid.core.proto.Reject
 import dev.woms.mumdroid.core.proto.RequestBlob
-import dev.woms.mumdroid.core.proto.ServerConfig
-import dev.woms.mumdroid.core.proto.ServerSync
-import dev.woms.mumdroid.core.proto.SuggestConfig
 import dev.woms.mumdroid.core.proto.TextMessage
 import dev.woms.mumdroid.core.proto.UserList
-import dev.woms.mumdroid.core.proto.UserRemove
 import dev.woms.mumdroid.core.proto.UserState
 import dev.woms.mumdroid.core.proto.UserStats
 import dev.woms.mumdroid.core.proto.Version
-import dev.woms.mumdroid.core.proto.VoiceTarget
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.InetSocketAddress
-import java.security.SecureRandom
-import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
-import java.util.Locale
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.net.ssl.KeyManager
-import javax.net.ssl.KeyManagerFactory
-import javax.net.ssl.SSLContext
+import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SSLSocket
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
 
 /**
- * The Mumble protocol client. Owns the TCP/TLS control connection, performs the
- * protocol handshake and dispatches incoming messages to a [MumbleListener].
+ * The Mumble protocol client. Owns the TCP/TLS control connection: the
+ * connect / teardown lifecycle, message framing with the serialized write
+ * path, the TCP ping heartbeat, and the typed sender API (the official
+ * `ServerHandler` surface).
  *
- * TLS handling follows the `certificatePinning` option:
+ * Focused collaborators own the individual policies:
+ *  - [ClientTlsPolicy] — trust / certificate-pinning policy, the
+ *    certificate-mismatch gate, and fingerprint / TLS-session capture,
+ *  - [MumbleMessageRouter] — inbound message parsing and listener fan-out
+ *    (this class implements its [MumbleMessageRouter.Host] to receive the
+ *    stateful Version / ServerSync / Ping values).
  *
- *  - Pinning disabled: a trust-all trust manager is used, because Mumble
- *    servers commonly use self-signed certificates. The server certificate
- *    fingerprint is still captured and exposed so the UI can offer pinning /
- *    verification.
- *  - Pinning enabled: the presented certificate fingerprint must match the
- *    [pinnedFingerprint] captured on the first connection (the first
- *    connection itself is accepted silently and pinned by the caller). On a
- *    mismatch the handshake is paused and [MumbleListener.onCertificateError]
- *    asks the user to update the pin, trust the certificate once, or reject
- *    the connection.
+ * The client itself has no voice-channel crypt state: the OCB2 counters and
+ * UDP RTT statistics reported in the TCP Ping come from [statsProvider].
  */
 class MumbleClient(
     private val host: String,
@@ -83,17 +62,11 @@ class MumbleClient(
     initialAccessTokens: List<String> = emptyList(),
     private val certificatePinning: Boolean = true,
     private val pinnedFingerprint: String? = null,
-) {
+) : MumbleMessageRouter.Host {
     companion object {
         private const val TAG = "MumbleClient"
         private const val TIMEOUT_MS = 15000
 
-        /**
-         * Disconnect reason reported when the user (or a closed session)
-         * rejects the server certificate during the pinning check. The
-         * service maps it to a localized string.
-         */
-        const val CERTIFICATE_REJECTED = "Server certificate rejected"
         // Official desktop default (`iPingIntervalMsec`) is 5 seconds. A 15 s
         // interval plus a 15 s SO_TIMEOUT raced the keep-alive and dropped
         // otherwise-healthy connections.
@@ -103,13 +76,6 @@ class MumbleClient(
         /** Official TCP frame cap (`Connection.cpp`: `iPacketLength > 0x7fffff`).
          *  USER_STATE with a large avatar texture or comment can exceed 1 MB. */
         private const val MAX_TCP_MESSAGE_BYTES = 0x7fffff
-
-        /**
-         * How long the handshake thread waits for a pinning-mismatch decision.
-         * [CertificateGate.abort] already unblocks [close]; this is the
-         * fallback when the UI never answers.
-         */
-        private const val CERTIFICATE_PROMPT_TIMEOUT_SECONDS = 90L
 
         // Our reported client version.
         //
@@ -143,23 +109,30 @@ class MumbleClient(
     private val connected = AtomicBoolean(false)
     private val accessTokens = initialAccessTokens.toMutableList()
 
-    /**
-     * The fingerprint currently pinned for this server. Starts as the pinned
-     * fingerprint captured on a previous connection and is replaced when the
-     * user chooses to update the pin for the rest of the session.
-     */
-    @Volatile
-    private var activePinnedFingerprint: String? = pinnedFingerprint
+    private val tls = ClientTlsPolicy(
+        certificatePinning = certificatePinning,
+        pinnedFingerprint = pinnedFingerprint,
+        clientCert = clientCert,
+        clientKey = clientKey,
+        onCertificateError = { fingerprint, pinned, respond ->
+            listener.onCertificateError(fingerprint, pinned, respond)
+        },
+    )
 
-    /** Pauses the TLS handshake thread while the user reviews a certificate problem. */
-    private val certificateGate = CertificateGate()
+    private val router = MumbleMessageRouter(
+        listener = listener,
+        host = this,
+        onIgnored = { type, bodySize ->
+            Log.d(TAG, "Ignoring message type $type ($bodySize bytes)")
+        },
+    )
 
     private var pingExecutor: ScheduledExecutorService? = null
     /** Serializes TCP writes so UI-thread callers never touch the SSL socket. */
     private val writeExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "mumble-tcp-write").apply { isDaemon = true }
     }
-    private val inFlightTcpPings = java.util.concurrent.atomic.AtomicInteger(0)
+    private val inFlightTcpPings = AtomicInteger(0)
 
     /**
      * Supplies live voice/stats information (crypt packet counters and the
@@ -214,8 +187,8 @@ class MumbleClient(
         get() = localSession
 
     /** SHA-256 fingerprint of the server certificate, for pinning. */
-    var serverFingerprint: String? = null
-        private set
+    val serverFingerprint: String?
+        get() = tls.serverFingerprint
 
     /**
      * Local address of the TCP/TLS socket, used to bind the UDP voice socket
@@ -258,13 +231,13 @@ class MumbleClient(
     var serverOsVersion: String = ""
         private set
 
-    @Volatile
-    var tlsProtocol: String = ""
-        private set
+    /** TLS session info (see [ClientTlsPolicy]). */
+    val tlsProtocol: String
+        get() = tls.tlsProtocol
 
-    @Volatile
-    var tlsCipherSuite: String = ""
-        private set
+    /** TLS session info (see [ClientTlsPolicy]). */
+    val tlsCipherSuite: String
+        get() = tls.tlsCipherSuite
 
     /** Server-reported crypt counters (desktop `csCrypt->m_statsRemote`). */
     @Volatile
@@ -290,7 +263,7 @@ class MumbleClient(
         // handshake must not advertise the previous peer's TLS / version.
         clearSessionIdentity()
         try {
-            val ssl = createSslContext()
+            val ssl = tls.createSslContext()
             val factory = ssl.socketFactory
             val rawSocket = factory.createSocket() as SSLSocket
             rawSocket.connect(InetSocketAddress(host, port), TIMEOUT_MS)
@@ -305,7 +278,7 @@ class MumbleClient(
             // needs a completed session.
             rawSocket.startHandshake()
 
-            captureFingerprint(rawSocket)
+            tls.captureSession(rawSocket)
             socket = rawSocket
             localAddress = rawSocket.localAddress
             remoteAddress = rawSocket.inetAddress
@@ -339,196 +312,11 @@ class MumbleClient(
         var cause: Throwable? = e
         while (cause != null) {
             if (cause is CertificateRejected) {
-                return CERTIFICATE_REJECTED
+                return ClientTlsPolicy.CERTIFICATE_REJECTED
             }
             cause = cause.cause
         }
         return e.message ?: "Connection failed"
-    }
-
-    private fun createSslContext(): SSLContext {
-        val trustManager: X509TrustManager = if (certificatePinning) {
-            PinningTrustManager()
-        } else {
-            TrustAllManager
-        }
-        val keyManagers = clientCert?.let { cert ->
-            clientKey?.let { key ->
-                buildKeyManagers(cert, key)
-            }
-        }
-        val context = SSLContext.getInstance("TLS")
-        context.init(keyManagers, arrayOf<TrustManager>(trustManager), SecureRandom())
-        return context
-    }
-
-    /**
-     * Trust-all behaviour used when certificate pinning is disabled. Mumble
-     * servers commonly use self-signed certificates, so the fingerprint is
-     * captured instead ([captureFingerprint]) and verification is left to the
-     * user via the pinning option.
-     */
-    private object TrustAllManager : X509TrustManager {
-        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-    }
-
-    /**
-     * Trust manager implementing the `certificatePinning` option: the server
-     * certificate is trusted only when its SHA-256 fingerprint matches the
-     * pinned fingerprint ([activePinnedFingerprint]). The first connection
-     * (no pin yet) is accepted silently so the caller can pin the captured
-     * fingerprint. On a mismatch the handshake is paused and
-     * [MumbleListener.onCertificateError] asks the user to update the pin,
-     * trust the certificate once, or reject the connection.
-     */
-    private inner class PinningTrustManager : X509TrustManager {
-        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-
-        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-            val certs = chain?.takeIf { it.isNotEmpty() }
-                ?: throw CertificateException("Server did not present a certificate")
-            val fingerprint = sha256Fingerprint(certs[0])
-            serverFingerprint = fingerprint
-
-            val pinned = activePinnedFingerprint?.takeIf { it.isNotBlank() } ?: return
-            if (normalized(fingerprint) == normalized(pinned)) return
-
-            // Mismatch: pause the handshake and ask the user. The gate is
-            // marked open *before* the prompt so a fast user response can
-            // never be lost between asking and waiting.
-            certificateGate.open()
-            listener.onCertificateError(fingerprint, pinned, certificateGate::resolve)
-            when (certificateGate.await()) {
-                CertificateDecision.UPDATE_PIN -> {
-                    // The caller re-pins the new fingerprint for future
-                    // sessions; trust it for the rest of this session too.
-                    activePinnedFingerprint = fingerprint
-                }
-                CertificateDecision.TRUST_ONCE -> Unit
-                CertificateDecision.REJECT ->
-                    throw CertificateRejected(CERTIFICATE_REJECTED)
-            }
-        }
-
-        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-    }
-
-    /**
-     * One-shot gate pausing the handshake thread while the user reviews a
-     * certificate problem. [abort] releases a pending wait so [close] can
-     * never leave the connect thread blocked forever. [await] also times
-     * out after [CERTIFICATE_PROMPT_TIMEOUT_SECONDS] and treats that as
-     * [CertificateDecision.REJECT].
-     */
-    private inner class CertificateGate {
-        private val latch = CountDownLatch(1)
-        private var open = false
-
-        @Volatile
-        var decision: CertificateDecision = CertificateDecision.REJECT
-            private set
-
-        /** Marks the gate as pending; called before the prompt is raised. */
-        fun open() {
-            synchronized(this) { open = true }
-        }
-
-        /**
-         * Blocks until [resolve], [abort], or the prompt timeout, then
-         * returns the decision. A timeout is [CertificateDecision.REJECT].
-         */
-        fun await(): CertificateDecision {
-            if (!latch.await(CERTIFICATE_PROMPT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                abort()
-            }
-            return decision
-        }
-
-        /** Delivers the user's decision; ignored when no prompt is pending. */
-        fun resolve(d: CertificateDecision) {
-            synchronized(this) {
-                if (!open) return
-                decision = d
-                open = false
-            }
-            latch.countDown()
-        }
-
-        /** Releases a pending wait with [CertificateDecision.REJECT]. */
-        fun abort() {
-            synchronized(this) {
-                if (!open) return
-                decision = CertificateDecision.REJECT
-                open = false
-            }
-            latch.countDown()
-        }
-    }
-
-    /** Upper-case, colon-separated SHA-256 fingerprint of [cert]. */
-    private fun sha256Fingerprint(cert: X509Certificate): String {
-        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(cert.encoded)
-        return digest.joinToString(":") { String.format(Locale.US, "%02X", it) }
-    }
-
-    /** Normalises a fingerprint for comparison (case / separator insensitive). */
-    private fun normalized(fingerprint: String): String =
-        fingerprint.replace(":", "").uppercase()
-
-    /** Builds a [KeyManagerFactory] presenting the user's client certificate. */
-    private fun buildKeyManagers(cert: X509Certificate, key: java.security.PrivateKey): Array<KeyManager> {
-        val factory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-        val store = java.security.KeyStore.getInstance("PKCS12")
-        store.load(null, null)
-        store.setKeyEntry("client", key, null, arrayOf(cert))
-        factory.init(store, null)
-        return factory.keyManagers
-    }
-
-    private fun captureFingerprint(socket: SSLSocket) {
-        try {
-            val session = socket.session
-            val certs = session.peerCertificates
-            if (certs.isNotEmpty() && certs[0] is X509Certificate) {
-                serverFingerprint = sha256Fingerprint(certs[0] as X509Certificate)
-            }
-            captureTlsSession(socket)
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not capture certificate", e)
-        }
-    }
-
-    private fun captureTlsSession(socket: SSLSocket) {
-        try {
-            val session = socket.session
-            tlsProtocol = session.protocol.orEmpty()
-            tlsCipherSuite = session.cipherSuite.orEmpty()
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not read TLS session", e)
-        }
-    }
-
-    private fun sendVersion() {
-        val version = Version.newBuilder()
-            .setVersionV1(CLIENT_VERSION)
-            .setRelease(clientRelease())
-            .setOs(CLIENT_OS)
-            .setOsVersion(android.os.Build.VERSION.RELEASE ?: "unknown")
-            .setVersionV2(CLIENT_VERSION_V2)
-            .build()
-        sendMessage(MessageType.VERSION, version)
-    }
-
-    private fun sendAuthenticate() {
-        val auth = Authenticate.newBuilder()
-            .setUsername(username)
-            .setPassword(password)
-            .setOpus(true)
-            .setClientType(0)
-        accessTokens.forEach { auth.addTokens(it) }
-        sendMessage(MessageType.AUTHENTICATE, auth.build())
     }
 
     /** Sends a typed control message with the 6-byte big-endian header.
@@ -580,204 +368,10 @@ class MumbleClient(
                 }
                 val body = ByteArray(size)
                 input.readFully(body)
-                handleMessage(type, body)
+                router.dispatch(type, body)
             } catch (e: Exception) {
                 disconnect(e.message ?: "Read error")
                 return
-            }
-        }
-    }
-
-    private fun handleMessage(type: Int, body: ByteArray) {
-        when (type) {
-            MessageType.VERSION -> {
-                // The server's version decides the negotiated UDP framing
-                // (protobuf framing for servers >= 1.5.0).
-                val v = Version.parseFrom(body)
-                serverVersionV2 = v.versionV2
-                serverVersionLegacy = v.versionV1
-                serverRelease = if (v.hasRelease()) v.release else ""
-                serverOs = if (v.hasOs()) v.os else ""
-                serverOsVersion = if (v.hasOsVersion()) v.osVersion else ""
-                listener.onServerVersion(v.versionV2, v.versionV1)
-            }
-            MessageType.SERVER_SYNC -> {
-                val sync = ServerSync.parseFrom(body)
-                localSession = sync.session
-                if (sync.permissions != 0L) {
-                    // Official `static_cast<unsigned int>(msg.permissions())`.
-                    listener.onPermissionQuery(0, ChanACL.fromWire(sync.permissions), false)
-                }
-                listener.onConnected(localSession, sync.welcomeText, sync.maxBandwidth)
-            }
-            MessageType.REJECT -> {
-                val reject = Reject.parseFrom(body)
-                listener.onRejected(reject.reason, reject.type.number)
-            }
-            MessageType.CHANNEL_STATE -> {
-                val cs = ChannelState.parseFrom(body)
-                listener.onChannelStateProto(cs)
-            }
-            MessageType.CHANNEL_REMOVE -> {
-                val cr = ChannelRemove.parseFrom(body)
-                listener.onChannelRemoved(cr.channelId)
-            }
-            MessageType.USER_STATE -> {
-                val us = UserState.parseFrom(body)
-                listener.onUserState(us)
-            }
-            MessageType.USER_REMOVE -> {
-                val ur = UserRemove.parseFrom(body)
-                listener.onUserRemoved(
-                    session = ur.session,
-                    actor = ur.actor,
-                    hasActor = ur.hasActor(),
-                    reason = ur.reason,
-                    ban = ur.ban,
-                )
-            }
-            MessageType.TEXT_MESSAGE -> {
-                val tm = TextMessage.parseFrom(body)
-                // A message addressed to one or more explicit sessions (and not
-                // broadcast to a channel) is a private/direct message.
-                val isPrivate = tm.sessionList.isNotEmpty()
-                listener.onTextMessage(
-                    tm.actor.toString(),
-                    tm.message,
-                    tm.channelIdList.firstOrNull() ?: 0,
-                    isPrivate,
-                )
-            }
-            MessageType.PERMISSION_DENIED -> {
-                val pd = PermissionDenied.parseFrom(body)
-                listener.onPermissionDenied(pd)
-            }
-            MessageType.SERVER_CONFIG -> {
-                val sc = ServerConfig.parseFrom(body)
-                listener.onServerConfig(
-                    if (sc.hasWelcomeText()) sc.welcomeText else "",
-                    if (sc.hasMaxBandwidth()) sc.maxBandwidth else 0,
-                    if (sc.hasMaxUsers()) sc.maxUsers else 0,
-                )
-            }
-            MessageType.CRYPT_SETUP -> {
-                // UDP encryption key setup.
-                val cs = CryptSetup.parseFrom(body)
-                listener.onCryptSetup(cs.key.toByteArray(), cs.clientNonce.toByteArray(), cs.serverNonce.toByteArray())
-            }
-            MessageType.BAN_LIST -> {
-                // Server reports the current ban list (usually in response to a query).
-                val bl = BanList.parseFrom(body)
-                listener.onBanList(bl.bansList.map { b ->
-                    BanEntry(
-                        address = b.address.toByteArray(),
-                        mask = b.mask,
-                        name = b.name,
-                        hash = b.hash,
-                        reason = b.reason,
-                        start = b.start,
-                        duration = b.duration,
-                    )
-                }, bl.query)
-            }
-            MessageType.ACL -> {
-                listener.onAcl(ACL.parseFrom(body))
-            }
-            MessageType.QUERY_USERS -> {
-                // Server reply mapping user ids to names (and vice versa).
-                val q = QueryUsers.parseFrom(body)
-                listener.onQueryUsers(q.idsList, q.namesList)
-            }
-            MessageType.CONTEXT_ACTION_MODIFY -> {
-                // Server registers/removes a context-menu action.
-                val cam = ContextActionModify.parseFrom(body)
-                listener.onContextActionModify(cam.action, cam.text, cam.context, cam.operation.number)
-            }
-            MessageType.CONTEXT_ACTION -> {
-                // User invoked a context-menu action (session/channel scoped).
-                val ca = ContextAction.parseFrom(body)
-                listener.onContextAction(ca.session, ca.channelId, ca.action)
-            }
-            MessageType.USER_LIST -> {
-                // Registered user list (user id -> name/last-seen).
-                val ul = UserList.parseFrom(body)
-                listener.onUserList(ul.usersList.map { u ->
-                    RegisteredUser(u.userId, u.name, u.lastSeen, u.lastChannel)
-                })
-            }
-            MessageType.VOICE_TARGET -> {
-                // Server acknowledges a voice-target change (rarely used server->client).
-                val vt = VoiceTarget.parseFrom(body)
-                listener.onVoiceTarget(vt.id)
-            }
-            MessageType.PERMISSION_QUERY -> {
-                // Server reports a user's permissions in a channel.
-                val pq = PermissionQuery.parseFrom(body)
-                listener.onPermissionQuery(
-                    pq.channelId,
-                    ChanACL.fromProtoUInt32(pq.permissions),
-                    pq.flush,
-                )
-            }
-            MessageType.USER_STATS -> {
-                listener.onUserStats(UserStats.parseFrom(body))
-            }
-            MessageType.REQUEST_BLOB -> {
-                val rb = RequestBlob.parseFrom(body)
-                listener.onRequestBlob(rb.sessionTextureList, rb.sessionCommentList, rb.channelDescriptionList)
-            }
-            MessageType.SUGGEST_CONFIG -> {
-                // Server suggests client configuration.
-                val sc = SuggestConfig.parseFrom(body)
-                listener.onSuggestConfig(sc.positional, sc.pushToTalk)
-            }
-            MessageType.CODEC_VERSION -> {
-                val cv = CodecVersion.parseFrom(body)
-                listener.onCodecVersion(cv.opus)
-            }
-            MessageType.UDP_TUNNEL -> {
-                // Voice tunneled over the TCP control channel (force-TCP mode).
-                // The body is the plaintext voice packet in the negotiated
-                // framing (TCP is already TLS-encrypted); decoding is done by
-                // the owner of the voice channel state.
-                if (body.isNotEmpty()) {
-                    listener.onTunneledPacket(body)
-                }
-            }
-            MessageType.PING -> {
-                // The server *echoes* our periodic Ping (see murmur
-                // `Server::msgPing`). Official clients never send another Ping
-                // in response — doing so forms an infinite ping-pong that
-                // saturates the control channel and makes the reported TCP RTT
-                // grow without bound (`now - originalTimestamp`).
-                val ping = Ping.parseFrom(body)
-                inFlightTcpPings.set(0)
-                // Official `tTimestamp` is a QElapsedTimer (monotonic). Wall
-                // time would let NTP steps land inside the 60 s window and
-                // pollute tcpPingAvg / tcpPingVar.
-                val now = SystemClock.elapsedRealtime()
-                val ts = ping.timestamp
-                if (ts in 1 until now) {
-                    val rtt = now - ts
-                    if (rtt < 60_000) {
-                        tcpPingListener?.onTcpPingReply(rtt)
-                    }
-                }
-                // Surface the server-reported crypt statistics (its view of the
-                // UDP packets we sent). The official client uses exactly these
-                // counters to decide whether to fall back to TCP mode.
-                remoteCryptGood = ping.good
-                remoteCryptLate = ping.late
-                remoteCryptLost = ping.lost
-                remoteCryptResync = ping.resync
-                pingStatsListener?.invoke(ping.good, ping.lost)
-            }
-            MessageType.PLUGIN_DATA_TRANSMISSION -> {
-                // Proto is vendored, but plugin IPC is out of scope.
-                Log.d(TAG, "Ignoring PluginDataTransmission (${body.size} bytes)")
-            }
-            else -> {
-                Log.d(TAG, "Unhandled message type $type (${body.size} bytes)")
             }
         }
     }
@@ -810,8 +404,8 @@ class MumbleClient(
      * has no crypt state, so it cannot count OCB2 packets. They are consumed
      * by the server and surfaced in the PC admin's user info.
      */
-    private fun buildPingWithStats(timestamp: Long): dev.woms.mumdroid.core.proto.Ping {
-        val builder = dev.woms.mumdroid.core.proto.Ping.newBuilder()
+    private fun buildPingWithStats(timestamp: Long): Ping {
+        val builder = Ping.newBuilder()
             .setTimestamp(timestamp)
 
         // Live voice statistics (crypt counters + UDP/TCP RTT) from the service.
@@ -833,6 +427,73 @@ class MumbleClient(
         }
         return builder.build()
     }
+
+    // ---- MumbleMessageRouter.Host: stateful message side-effects ----
+
+    override fun onServerVersionMessage(
+        versionV2: Long,
+        versionLegacy: Int,
+        release: String,
+        os: String,
+        osVersion: String,
+    ) {
+        serverVersionV2 = versionV2
+        serverVersionLegacy = versionLegacy
+        serverRelease = release
+        serverOs = os
+        serverOsVersion = osVersion
+    }
+
+    override fun onServerSync(session: Int) {
+        localSession = session
+    }
+
+    override fun onPing(timestampMs: Long, good: Int, late: Int, lost: Int, resync: Int) {
+        inFlightTcpPings.set(0)
+        // Official `tTimestamp` is a QElapsedTimer (monotonic). Wall
+        // time would let NTP steps land inside the 60 s window and
+        // pollute tcpPingAvg / tcpPingVar.
+        val now = SystemClock.elapsedRealtime()
+        if (timestampMs in 1 until now) {
+            val rtt = now - timestampMs
+            if (rtt < 60_000) {
+                tcpPingListener?.onTcpPingReply(rtt)
+            }
+        }
+        // Surface the server-reported crypt statistics (its view of the
+        // UDP packets we sent). The official client uses exactly these
+        // counters to decide whether to fall back to TCP mode.
+        remoteCryptGood = good
+        remoteCryptLate = late
+        remoteCryptLost = lost
+        remoteCryptResync = resync
+        pingStatsListener?.invoke(good, lost)
+    }
+
+    // ---- Handshake ----
+
+    private fun sendVersion() {
+        val version = Version.newBuilder()
+            .setVersionV1(CLIENT_VERSION)
+            .setRelease(clientRelease())
+            .setOs(CLIENT_OS)
+            .setOsVersion(android.os.Build.VERSION.RELEASE ?: "unknown")
+            .setVersionV2(CLIENT_VERSION_V2)
+            .build()
+        sendMessage(MessageType.VERSION, version)
+    }
+
+    private fun sendAuthenticate() {
+        val auth = Authenticate.newBuilder()
+            .setUsername(username)
+            .setPassword(password)
+            .setOpus(true)
+            .setClientType(0)
+        accessTokens.forEach { auth.addTokens(it) }
+        sendMessage(MessageType.AUTHENTICATE, auth.build())
+    }
+
+    // ---- Typed senders (official ServerHandler surface) ----
 
     /** Sends a text message to a channel. */
     fun sendTextToChannel(channelId: Int, text: String) {
@@ -1150,17 +811,16 @@ class MumbleClient(
     /**
      * Clears peer identity captured from TLS / Version / Ping. Official
      * `ServerHandler` is per-connection; these fields are the closest we
-     * have, so they must not outlive the socket.
+     * have, so they must not outlive the socket. The TLS-side fields are
+     * cleared by [ClientTlsPolicy.reset]; the active pin survives.
      */
     private fun clearSessionIdentity() {
-        serverFingerprint = null
+        tls.reset()
         serverVersionV2 = 0
         serverVersionLegacy = 0
         serverRelease = ""
         serverOs = ""
         serverOsVersion = ""
-        tlsProtocol = ""
-        tlsCipherSuite = ""
         remoteCryptGood = 0
         remoteCryptLate = 0
         remoteCryptLost = 0
@@ -1173,7 +833,7 @@ class MumbleClient(
         inFlightTcpPings.set(0)
         // Release a pending certificate prompt so the handshake thread cannot
         // block forever on a dialog nobody will answer any more.
-        certificateGate.abort()
+        tls.abort()
         pingExecutor?.shutdownNow()
         pingExecutor = null
         writeExecutor.shutdownNow()
@@ -1189,10 +849,3 @@ class MumbleClient(
         clearSessionIdentity()
     }
 }
-
-/**
- * Thrown from the trust manager when the user (or a closed session) rejects
- * the server certificate while pinning is enabled. [MumbleClient] unwraps
- * this type to report a clean disconnect reason.
- */
-private class CertificateRejected(message: String) : CertificateException(message)

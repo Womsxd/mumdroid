@@ -82,7 +82,7 @@ The codebase is organised into self-contained layers:
 dev.woms.mumdroid
 ├── core/                   Framework-free layers
 │   ├── proto/              Protobuf (lite) generated Mumble messages + codecs
-│   ├── crypto/             OCB2-AES128 (CryptOCB2) and CryptState key material
+│   ├── crypto/             OCB2-AES128 (CryptOCB2), CryptState and voice crypto policy
 │   ├── net/                MumbleClient (TCP/TLS), UdpVoiceManager + voice framing/crypto/ping, ping probes
 │   ├── audio/              Opus codec, capture, playback, jitter buffer, DSP JNI
 │   ├── i18n/               Runtime locale switching

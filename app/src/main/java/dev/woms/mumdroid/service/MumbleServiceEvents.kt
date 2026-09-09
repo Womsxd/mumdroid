@@ -6,6 +6,7 @@ import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChatMessage
 import dev.woms.mumdroid.core.net.BanEntry
 import dev.woms.mumdroid.core.net.CertificateDecision
+import dev.woms.mumdroid.core.net.ClientTlsPolicy
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.MumbleListener
 import dev.woms.mumdroid.core.net.RegisteredUser
@@ -185,7 +186,7 @@ internal class MumbleServiceEvents(private val svc: MumbleService) : MumbleListe
         svc.reconnect.cancelAndResetAttempts()
         svc._connected.value = false
         svc._connecting.value = false
-        val displayReason = if (reason == MumbleClient.CERTIFICATE_REJECTED) {
+        val displayReason = if (reason == ClientTlsPolicy.CERTIFICATE_REJECTED) {
             svc.getString(R.string.status_certificate_rejected)
         } else {
             reason

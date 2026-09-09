@@ -13,6 +13,10 @@ import java.util.Arrays
  * i.e. 4 bytes of overhead are prepended to the ciphertext. The 16-byte OCB2
  * nonce is incremented before every encrypt, and the first nonce byte is sent
  * in the packet so the receiver can handle packet loss/reordering.
+ *
+ * This class is the wire-format primitive and stays free of session policy:
+ * the armed-time tracking and the official 5-second decryption-failure
+ * resync rule live in [UdpVoiceCrypto] (same package).
  */
 class CryptState {
 

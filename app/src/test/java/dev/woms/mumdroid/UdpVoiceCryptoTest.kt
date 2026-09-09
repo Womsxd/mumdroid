@@ -1,6 +1,6 @@
 package dev.woms.mumdroid
 
-import dev.woms.mumdroid.core.net.UdpVoiceCrypto
+import dev.woms.mumdroid.core.crypto.UdpVoiceCrypto
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

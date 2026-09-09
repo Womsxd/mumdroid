@@ -1,14 +1,13 @@
-package dev.woms.mumdroid.core.net
+package dev.woms.mumdroid.core.crypto
 
 import android.os.SystemClock
-import dev.woms.mumdroid.core.crypto.CryptOCB2
-import dev.woms.mumdroid.core.crypto.CryptState
-import dev.woms.mumdroid.core.net.UdpVoiceCrypto.Companion.RESYNC_AFTER_MS
+import dev.woms.mumdroid.core.crypto.UdpVoiceCrypto.Companion.RESYNC_AFTER_MS
 
 /**
- * Owns the OCB2 [CryptState] of the voice channel plus the official
- * crypto-failure policy around it, mirroring how the official client's
- * `ServerHandler` arms the crypto and its UDP decoder reacts to it:
+ * Voice-channel crypto policy around [CryptState]: arms the OCB2 key material
+ * and enforces the official crypto-failure recovery, mirroring how the
+ * official client's `ServerHandler` reacts to CryptSetup and its UDP decoder
+ * reacts to decryption failures:
  *
  *  - CryptSetup full delivery = fresh crypto context (replay history and
  *    packet statistics cleared),
@@ -17,6 +16,11 @@ import dev.woms.mumdroid.core.net.UdpVoiceCrypto.Companion.RESYNC_AFTER_MS
  *    requested via [onRequestCryptResync] (official 5-second `tLastGood`
  *    rule; the baseline starts when the crypto is armed, not at first
  *    success, so a never-successful decrypt still resyncs after 5 s).
+ *
+ * Layering: [CryptState] is the wire-format primitive (the official
+ * CryptStateOCB2 port) and stays free of session policy; this class is the
+ * policy wrapper and deliberately carries no transport (core/net)
+ * dependencies.
  */
 class UdpVoiceCrypto(
     /** Monotonic ms source (official `QElapsedTimer`). */
