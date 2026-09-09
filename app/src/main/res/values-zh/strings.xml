@@ -2,6 +2,7 @@
 <resources>
     <!-- App / common -->
     <string name="app_name">mumdroid</string>
+    <string name="debug_build">调试版</string>
     <string name="back">返回</string>
     <string name="cancel">取消</string>
     <string name="save">保存</string>
