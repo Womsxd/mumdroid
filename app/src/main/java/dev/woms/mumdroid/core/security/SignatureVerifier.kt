@@ -31,14 +31,22 @@ import java.security.MessageDigest
  * accepted certificates — so an APK signed with a rotated-but-still-trusted key
  * is not falsely flagged as tampered.
  *
- * When the build had no release keystore configured (local debug builds) the
- * expected digest is empty and [isApkTampered] always returns false, i.e. the
- * check is skipped so normal development is unaffected.
+ * The check is a release-only safeguard: debug builds are signed with the
+ * auto-generated debug keystore and therefore never match the release digest,
+ * so [isApkTampered] short-circuits to false whenever `BuildConfig.DEBUG` is
+ * true. Likewise, when the build had no release keystore configured the
+ * expected digest is empty and [isApkTampered] returns false, so normal
+ * development is unaffected either way.
  */
 object SignatureVerifier {
 
     /** Whether the running APK signature matches the one used at compile time. */
     fun isApkTampered(context: Context): Boolean {
+        // Debug builds are signed with the auto-generated debug keystore, which
+        // never matches the embedded release digest. The tamper check is a
+        // release-only safeguard, so skip it entirely for debug builds.
+        if (BuildConfig.DEBUG) return false
+
         val expectedRaw = BuildConfig.EXPECTED_SIGNATURE_SHA256
         if (expectedRaw.isBlank()) return false
         val expected = expectedRaw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
