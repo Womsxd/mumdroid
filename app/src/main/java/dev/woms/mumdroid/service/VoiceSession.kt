@@ -3,16 +3,11 @@ package dev.woms.mumdroid.service
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import dev.woms.mumdroid.R
-import dev.woms.mumdroid.core.audio.AudioInput
-import dev.woms.mumdroid.core.audio.AudioOutput
-import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AppSettings
-import dev.woms.mumdroid.core.model.SelfMuteDeaf
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.UdpVoiceManager
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -75,26 +70,42 @@ internal class VoiceSession(
         sendTunneled = { body -> callbacks.client()?.sendTunneledVoice(body) },
     )
 
-    private val _selfMuted = MutableStateFlow(false)
-    val selfMuted: StateFlow<Boolean> = _selfMuted
+    private val muteDeaf = SelfMuteDeafController(
+        onMuteChanged = { muted -> handleMuteChanged(muted) },
+        onDeafenChanged = { deafened -> handleDeafenChanged(deafened) },
+    )
 
-    private val _selfDeafened = MutableStateFlow(false)
-    val selfDeafened: StateFlow<Boolean> = _selfDeafened
+    private val talk = TalkStateController(
+        transmitter = transmitter,
+        isTransmitBlocked = { isTransmitBlocked() },
+        localSession = { callbacks.localSession() },
+        setUserTalking = { session, talking -> callbacks.setUserTalking(session, talking) },
+    )
 
-    private val _talking = MutableStateFlow(false)
-    private val _vadLevel = MutableStateFlow(0)
+    private val audioHost = object : VoiceAudioEndpoints.Host {
+        override fun settings() = callbacks.settings()
+        override fun localSession() = callbacks.localSession()
+        override fun isLocallyBlocked(session: Int) = callbacks.isLocallyBlocked(session)
+        override fun shouldSuppressIncoming() = talk.shouldSuppressIncoming()
+        override fun shouldTransmit() = talk.shouldTransmit()
+        override fun effectiveFramesPerPacket() = bandwidth.effectiveFramesPerPacket
+        override fun vadGating() = talk.voiceMode == VoiceMode.VAD
+        override fun onCaptureStarting() = talk.startContinuousTalking()
+        override fun onPcmFrame(pcm: ShortArray) = transmitter.sendVoice(pcm)
+        override fun onSpeechDetected(active: Boolean) = talk.onSpeechDetected(active)
+        override fun onVadLevel(level: Int) = talk.onVadLevel(level)
+        override fun setUserTalking(session: Int, talking: Boolean) =
+            callbacks.setUserTalking(session, talking)
+    }
+
+    private val endpoints = VoiceAudioEndpoints(routeController, audioHost)
+
+    val selfMuted: StateFlow<Boolean> get() = muteDeaf.muted
+    val selfDeafened: StateFlow<Boolean> get() = muteDeaf.deafened
 
     var udp: UdpVoiceManager? = null
     @Volatile
     private var protobufMode = false
-
-    private var halfDuplex = false
-    private var voiceMode = VoiceMode.CONTINUOUS
-    @Volatile
-    private var pttHeld = false
-    private var audioInput: AudioInput? = null
-    private var audioOutput: AudioOutput? = null
-    private var unmuteOnUndeaf = false
 
     /** Server `max_bandwidth` in bits/sec; 0 = not yet known. */
     val serverMaxBandwidthBps: Int
@@ -106,12 +117,12 @@ internal class VoiceSession(
     private val useTcp: Boolean
         get() = fallback.useTcp(callbacks.forceTcp())
 
-    fun selfMutedValue(): Boolean = _selfMuted.value
-    fun selfDeafenedValue(): Boolean = _selfDeafened.value
+    fun selfMutedValue(): Boolean = muteDeaf.mutedValue
+    fun selfDeafenedValue(): Boolean = muteDeaf.deafenedValue
 
     fun applyInitialSettings(settings: AppSettings) {
-        voiceMode = settings.voiceMode
-        halfDuplex = settings.halfDuplex
+        talk.setVoiceMode(settings.voiceMode)
+        talk.setHalfDuplex(settings.halfDuplex)
         bandwidth.resetTo(settings)
         fallback.resetTo(settings.forceTcp)
     }
@@ -123,23 +134,18 @@ internal class VoiceSession(
     fun start(session: Int) {
         routeController.resetOverride()
         routeController.applyOutputRoute()
-        audioOutput = createAudioOutput(routeController.currentMediaUsage())
+        endpoints.openOutput()
         attachVoicePlayback()
         if (!callbacks.forceTcp()) {
             maybeStartUdp()
         }
-        startCapture()
+        endpoints.startCapture()
     }
 
     fun stop() {
         transmitter.terminate()
-        pttHeld = false
-        audioInput?.stop()
-        audioInput = null
-        audioOutput?.stop()
-        audioOutput = null
-        _talking.value = false
-        _vadLevel.value = 0
+        endpoints.stop()
+        talk.resetForStop()
     }
 
     fun closeTransport() {
@@ -178,39 +184,24 @@ internal class VoiceSession(
             next.voicePlaybackMode != previous.voicePlaybackMode ||
             next.micSource != previous.micSource
         if (changedNoise) {
-            audioInput?.applySettings(
-                noiseEnabled = next.noiseSuppressionEnabled,
-                mode = next.noiseSuppressionMode,
-                suppressionDb = next.noiseSuppressionDb,
-                agcMode = next.agcMode,
-                agcEnabled = next.agcEnabled,
-                agcMaxGainDb = next.agcMaxGainDb,
-                inputVolume = next.inputVolume,
-                aecMode = activeAecMode(),
-                aecEnabled = next.aecEnabled,
-                micSource = next.micSource,
-                vadGating = next.voiceMode == VoiceMode.VAD,
-                vadMethod = next.vadMethod,
-                vadSpeechThreshold = next.vadSpeechThreshold,
-                vadSilenceThreshold = next.vadSilenceThreshold,
-                vadHoldFrames = next.vadHoldFrames,
-            )
+            endpoints.applyNoiseSettings(next)
         }
         if (changedVoiceMode) {
-            voiceMode = next.voiceMode
-            handleVoiceModeChange()
+            talk.setVoiceMode(next.voiceMode)
+            endpoints.applyCaptureSettingsIfLive()
+            talk.applyVoiceModeChange()
         }
-        if (changedCaptureSession && audioInput != null) {
-            restartCapture()
+        if (changedCaptureSession) {
+            endpoints.restartCaptureIfLive()
         }
-        audioOutput?.volume = next.outputVolume
-        halfDuplex = next.halfDuplex
-        if (changedRoute && audioOutput != null) {
+        endpoints.setVolume(next.outputVolume)
+        talk.setHalfDuplex(next.halfDuplex)
+        if (changedRoute && endpoints.outputLive) {
             routeController.applyOutputRoute()
         }
         if (changedOpus) {
             udp?.setOpusImplementation(next.opusImplementation)
-            audioOutput?.setOpusImplementation(next.opusImplementation)
+            endpoints.setOpusImplementation(next.opusImplementation)
         }
         if (changedQuality || changedOpus || udp != null) {
             reconfigureBandwidth(udp)
@@ -222,67 +213,35 @@ internal class VoiceSession(
         routeController.setOutputTarget(target)
     }
 
-    fun toggleSelfMute(): Boolean {
-        applySelfMuteDeaf(currentMuteDeaf().toggleMute())
-        return _selfMuted.value
-    }
+    fun toggleSelfMute(): Boolean = muteDeaf.toggleMute()
 
-    fun toggleSelfDeafen(): Boolean {
-        applySelfMuteDeaf(currentMuteDeaf().toggleDeafen())
-        return _selfDeafened.value
-    }
+    fun toggleSelfDeafen(): Boolean = muteDeaf.toggleDeafen()
 
-    fun clearMuteDeafen() {
-        _selfMuted.value = false
-        _selfDeafened.value = false
-        unmuteOnUndeaf = false
-    }
+    fun clearMuteDeafen() = muteDeaf.clear()
 
-    private fun currentMuteDeaf(): SelfMuteDeaf =
-        SelfMuteDeaf(_selfMuted.value, _selfDeafened.value, unmuteOnUndeaf)
-
-    private fun applySelfMuteDeaf(next: SelfMuteDeaf) {
-        val wasMuted = _selfMuted.value
-        val wasDeafened = _selfDeafened.value
-        _selfMuted.value = next.muted
-        _selfDeafened.value = next.deafened
-        unmuteOnUndeaf = next.unmuteOnUndeaf
-        if (next.muted && !wasMuted) {
-            endTransmission()
-        } else if (!next.muted && wasMuted && voiceMode == VoiceMode.CONTINUOUS && !isTransmitBlocked()) {
-            _talking.value = true
-            callbacks.setUserTalking(callbacks.localSession(), true)
+    private fun handleMuteChanged(muted: Boolean) {
+        if (muted) {
+            talk.endTransmission()
+        } else if (talk.voiceMode == VoiceMode.CONTINUOUS && !isTransmitBlocked()) {
+            talk.startContinuousTalking()
         }
-        if (next.deafened && !wasDeafened) {
-            audioOutput?.stop()
-        } else if (!next.deafened && wasDeafened) {
-            audioOutput?.start()
-        }
+    }
+
+    private fun handleDeafenChanged(deafened: Boolean) {
+        if (deafened) endpoints.pauseOutput() else endpoints.resumeOutput()
     }
 
     fun applyLocalSpeakBlock(wasBlocked: Boolean, nowBlocked: Boolean) {
         if (nowBlocked) {
-            endTransmission()
-        } else if (wasBlocked && voiceMode == VoiceMode.CONTINUOUS && !isTransmitBlocked()) {
-            _talking.value = true
-            callbacks.setUserTalking(callbacks.localSession(), true)
+            talk.endTransmission()
+        } else if (wasBlocked) {
+            talk.startContinuousTalking()
         }
     }
 
-    fun startTalking() {
-        if (isTransmitBlocked()) return
-        pttHeld = true
-        if (voiceMode == VoiceMode.PTT) {
-            _talking.value = true
-            callbacks.setUserTalking(callbacks.localSession(), true)
-        }
-    }
+    fun startTalking() = talk.startTalking()
 
-    fun stopTalking() {
-        if (voiceMode != VoiceMode.PTT) return
-        pttHeld = false
-        endTransmission()
-    }
+    fun stopTalking() = talk.stopTalking()
 
     private fun attachVoicePlayback() {
         val udpManager = udp ?: return
@@ -294,8 +253,8 @@ internal class VoiceSession(
                 isLastFrame: Boolean,
             ) {
                 if (callbacks.isLocallyBlocked(session)) return
-                if (shouldSuppressIncoming()) return
-                audioOutput?.writePacket(session, frameNumber, payload, isLastFrame)
+                if (talk.shouldSuppressIncoming()) return
+                endpoints.writePacket(session, frameNumber, payload, isLastFrame)
             }
 
             override fun onUdpPing(rttMillis: Long) {}
@@ -334,8 +293,8 @@ internal class VoiceSession(
      */
     private fun reconfigureBandwidth(udpManager: UdpVoiceManager? = udp) {
         val framesChanged = bandwidth.reconfigure(callbacks.settings(), useTcp, udpManager)
-        if (framesChanged && audioInput != null) {
-            restartCapture()
+        if (framesChanged) {
+            endpoints.restartCaptureIfLive()
         }
     }
 
@@ -439,151 +398,33 @@ internal class VoiceSession(
     fun udpFallback(forceTcp: Boolean, live: Boolean): Boolean =
         fallback.isFallbackActive(forceTcp, live)
 
-    private fun startCapture() {
-        if (audioInput != null) return
-        if (voiceMode == VoiceMode.CONTINUOUS && !isTransmitBlocked()) {
-            _talking.value = true
-            callbacks.setUserTalking(callbacks.localSession(), true)
-        }
-        audioInput = AudioInput().apply {
-            applyCaptureSettingsTo(this)
-            setPreferredDevice(routeController.playbackRouter.inputDevice)
-            start(object : AudioInput.Sink {
-                override fun onPcmFrame(pcm: ShortArray) {
-                    if (shouldTransmit()) transmitter.sendVoice(pcm)
-                }
-
-                override fun onSpeechDetected(active: Boolean) {
-                    if (isTransmitBlocked()) return
-                    val wasTalking = _talking.value
-                    if (voiceMode == VoiceMode.VAD && wasTalking != active) {
-                        _talking.value = active
-                        callbacks.setUserTalking(callbacks.localSession(), active)
-                    }
-                    if (voiceMode == VoiceMode.VAD && wasTalking && !active) {
-                        transmitter.terminate()
-                    }
-                }
-
-                override fun onVadLevel(level: Int) {
-                    if (voiceMode == VoiceMode.VAD) {
-                        _vadLevel.value = level
-                    }
-                }
-            })
-        }
-    }
-
     private fun isTransmitBlocked(): Boolean {
-        if (_selfMuted.value || _selfDeafened.value) return true
+        if (muteDeaf.isBlocked) return true
         return callbacks.isServerSpeakBlocked()
     }
-
-    private fun shouldTransmit(): Boolean {
-        if (isTransmitBlocked()) return false
-        if (voiceMode == VoiceMode.PTT) return pttHeld
-        return true
-    }
-
-    private fun endTransmission() {
-        if (_talking.value) {
-            transmitter.terminate()
-        }
-        if (voiceMode == VoiceMode.PTT) pttHeld = false
-        _talking.value = false
-        _vadLevel.value = 0
-        callbacks.setUserTalking(callbacks.localSession(), false)
-    }
-
-    private fun applyCaptureSettingsTo(input: AudioInput) {
-        val settings = callbacks.settings()
-        input.applySettings(
-            noiseEnabled = settings.noiseSuppressionEnabled,
-            mode = settings.noiseSuppressionMode,
-            suppressionDb = settings.noiseSuppressionDb,
-            agcMode = settings.agcMode,
-            agcEnabled = settings.agcEnabled,
-            agcMaxGainDb = settings.agcMaxGainDb,
-            inputVolume = settings.inputVolume,
-            aecMode = activeAecMode(),
-            aecEnabled = settings.aecEnabled,
-            micSource = settings.micSource,
-            vadGating = voiceMode == VoiceMode.VAD,
-            vadMethod = settings.vadMethod,
-            vadSpeechThreshold = settings.vadSpeechThreshold,
-            vadSilenceThreshold = settings.vadSilenceThreshold,
-            vadHoldFrames = settings.vadHoldFrames,
-            framesPerPacket = bandwidth.effectiveFramesPerPacket,
-        )
-    }
-
-    private fun restartCapture() {
-        audioInput?.stop()
-        audioInput = null
-        startCapture()
-    }
-
-    private fun handleVoiceModeChange() {
-        audioInput?.let { applyCaptureSettingsTo(it) }
-        if (voiceMode == VoiceMode.PTT) {
-            if (!pttHeld) endTransmission()
-        } else {
-            pttHeld = false
-            if (voiceMode == VoiceMode.CONTINUOUS && !isTransmitBlocked()) {
-                _talking.value = true
-                callbacks.setUserTalking(callbacks.localSession(), true)
-            }
-        }
-    }
-
-    private fun createAudioOutput(media: Boolean): AudioOutput {
-        val settings = callbacks.settings()
-        return AudioOutput(
-            mediaUsage = media,
-            opusImplementation = settings.opusImplementation,
-        ).apply {
-            volume = settings.outputVolume
-            echoReferenceTap = { pcm -> audioInput?.pushFarEndFrame(pcm) }
-            speakerIdleTap = { session -> callbacks.setUserTalking(session, false) }
-            speakerTalkingTap = { session, talking ->
-                if (session != callbacks.localSession()) callbacks.setUserTalking(session, talking)
-            }
-            setPreferredDevice(routeController.playbackRouter.outputDevice)
-            start()
-        }
-    }
-
-    private fun activeAecMode(): AecMode {
-        val target = routeController.currentTarget() ?: return callbacks.settings().aecMode
-        return callbacks.settings().effectiveAecMode(target)
-    }
-
-    private fun shouldSuppressIncoming(): Boolean =
-        halfDuplex && voiceMode != VoiceMode.CONTINUOUS && _talking.value
 
     // ---- VoiceRouteHost: live endpoints the route policy acts upon ----
 
     override fun settings(): AppSettings = callbacks.settings()
 
-    override fun outputLive(): Boolean = audioOutput != null
+    override fun outputLive(): Boolean = endpoints.outputLive
 
-    override fun inputLive(): Boolean = audioInput != null
+    override fun inputLive(): Boolean = endpoints.inputLive
 
     override fun onOutputMediaChanged() {
-        audioOutput?.stop()
-        audioOutput = createAudioOutput(routeController.currentMediaUsage())
+        endpoints.onOutputMediaChanged()
         attachVoicePlayback()
     }
 
     override fun onAecChanged() {
-        restartCapture()
+        endpoints.onAecChanged()
     }
 
     override fun onInputDevice(device: AudioDeviceInfo?) {
-        audioInput?.setPreferredDevice(device)
+        endpoints.onInputDevice(device)
     }
 
     override fun onOutputDevice(device: AudioDeviceInfo?) {
-        audioOutput?.setPreferredDevice(device)
+        endpoints.onOutputDevice(device)
     }
 }
