@@ -11,14 +11,11 @@ import android.os.IBinder
 import androidx.core.content.ContextCompat
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.AppSettings
-import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.CertificateDecision
-import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ServerConnectionInfo
 import dev.woms.mumdroid.core.model.ServerRemoval
 import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.core.model.UserModeration
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.data.CertificateStore
@@ -30,18 +27,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Foreground service that owns the Mumble TCP session and delegates
- * notifications, reconnect, roster, chat, admin lists, certificates,
- * channels, last-channel restore and voice to focused collaborators.
+ * Foreground service that owns the Mumble TCP session. Connection state lives
+ * in [SessionState], protocol events in [MumbleServiceEvents], and the
+ * UI-facing commands in the focused [SessionPermissions], [ChannelCommands],
+ * [AdminCommands], [UserModerationCommands], [VoiceCommands] and
+ * [ChatCommands] handlers.
  */
 class MumbleService : Service() {
 
@@ -87,7 +84,7 @@ class MumbleService : Service() {
 
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
-    private val events = MumbleServiceEvents(this)
+    internal val state = SessionState()
 
     internal val reconnect = ReconnectController(scope)
     internal val chat = SessionChat(scope)
@@ -99,7 +96,7 @@ class MumbleService : Service() {
     internal val notices = SessionNotices(
         chat,
         roster,
-        { _serverName.value },
+        { state.serverName.value },
         object : SessionNotices.Strings {
             override fun getString(id: Int) = this@MumbleService.getString(id)
             override fun getString(id: Int, vararg formatArgs: Any) =
@@ -109,19 +106,21 @@ class MumbleService : Service() {
     internal lateinit var notifications: ConnectionNotifications
     internal lateinit var voice: VoiceSession
     internal lateinit var sessionChannels: SessionChannels
+    internal lateinit var events: MumbleServiceEvents
 
-    internal val _connected = MutableStateFlow(false)
-    val connected: StateFlow<Boolean> = _connected
-    internal val _connecting = MutableStateFlow(false)
-    val connecting: StateFlow<Boolean> = _connecting
-    internal val _status = MutableStateFlow("")
-    val status: StateFlow<String> = _status
-    internal val _serverName = MutableStateFlow("")
-    val serverName: StateFlow<String> = _serverName
-    internal val _manualDisconnect = MutableStateFlow(false)
-    val manualDisconnect: StateFlow<Boolean> = _manualDisconnect.asStateFlow()
-    internal val _serverRemoval = MutableStateFlow<ServerRemoval?>(null)
-    val serverRemoval: StateFlow<ServerRemoval?> = _serverRemoval
+    internal lateinit var permissions: SessionPermissions
+    internal lateinit var channelCommands: ChannelCommands
+    internal lateinit var adminCommands: AdminCommands
+    internal lateinit var moderationCommands: UserModerationCommands
+    internal lateinit var voiceCommands: VoiceCommands
+    internal lateinit var chatCommands: ChatCommands
+
+    val connected: StateFlow<Boolean> get() = state.connected
+    val connecting: StateFlow<Boolean> get() = state.connecting
+    val status: StateFlow<String> get() = state.status
+    val serverName: StateFlow<String> get() = state.serverName
+    val manualDisconnect: StateFlow<Boolean> get() = state.manualDisconnect
+    val serverRemoval: StateFlow<ServerRemoval?> get() = state.serverRemoval
 
     val outputTarget: StateFlow<VoiceOutputTarget?> get() = voice.outputTarget
     val channels: StateFlow<List<Channel>> get() = roster.channels
@@ -152,14 +151,46 @@ class MumbleService : Service() {
     private lateinit var serverStore: ServerStore
     private lateinit var connectionFactory: ConnectionFactory
 
-    internal var currentSettings = AppSettings()
-    internal var forceTcp = false
-    internal var lastConnectParams: ConnectParams? = null
-    internal var connectedServerId: Long = 0L
-    internal var client: MumbleClient? = null
-    internal var host = ""
-    internal var port = 64738
-    internal var serverMaxUsers = 0
+    internal var currentSettings: AppSettings
+        get() = state.currentSettings
+        set(value) {
+            state.currentSettings = value
+        }
+    internal var forceTcp: Boolean
+        get() = state.forceTcp
+        set(value) {
+            state.forceTcp = value
+        }
+    internal var lastConnectParams: ConnectParams?
+        get() = state.lastConnectParams
+        set(value) {
+            state.lastConnectParams = value
+        }
+    internal var connectedServerId: Long
+        get() = state.connectedServerId
+        set(value) {
+            state.connectedServerId = value
+        }
+    internal var client: MumbleClient?
+        get() = state.client
+        set(value) {
+            state.client = value
+        }
+    internal var host: String
+        get() = state.host
+        set(value) {
+            state.host = value
+        }
+    internal var port: Int
+        get() = state.port
+        set(value) {
+            state.port = value
+        }
+    internal var serverMaxUsers: Int
+        get() = state.serverMaxUsers
+        set(value) {
+            state.serverMaxUsers = value
+        }
 
     inner class LocalBinder : Binder() {
         fun service(): MumbleService = this@MumbleService
@@ -209,7 +240,7 @@ class MumbleService : Service() {
         override fun appendSystem(message: String) = notices.system(message)
         override fun updateConnectedStatus(channelName: String) =
             this@MumbleService.updateConnectedStatus(channelName)
-        override fun serverName() = _serverName.value
+        override fun serverName() = state.serverName.value
         override fun getString(id: Int) = this@MumbleService.getString(id)
         override fun getString(id: Int, vararg formatArgs: Any) =
             this@MumbleService.getString(id, *formatArgs)
@@ -235,7 +266,54 @@ class MumbleService : Service() {
             voiceCallbacks,
         )
         sessionChannels = SessionChannels(scope, roster, admin, channelCallbacks)
-        _status.value = getString(R.string.status_not_connected)
+        events = MumbleServiceEvents(
+            state = state,
+            scope = scope,
+            roster = roster,
+            admin = admin,
+            voice = voice,
+            chat = chat,
+            notices = notices,
+            reconnect = reconnect,
+            cert = cert,
+            lastChannel = lastChannel,
+            sessionChannels = sessionChannels,
+            tcpPing = tcpPing,
+            notifications = notifications,
+            host = object : MumbleServiceEvents.SessionHost {
+                override fun getString(id: Int) = this@MumbleService.getString(id)
+                override fun getString(id: Int, vararg formatArgs: Any) =
+                    this@MumbleService.getString(id, *formatArgs)
+
+                override suspend fun recordCertificate(host: String, port: Int, fingerprint: String) {
+                    certificateStore.record(host, port, fingerprint)
+                }
+
+                override suspend fun persistAccessToken(channelId: Int, token: String) {
+                    admin.persistAccessToken(channelId, token, channelAccessTokenStore, host, port)
+                }
+
+                override suspend fun connect(params: ConnectParams) {
+                    this@MumbleService.connect(
+                        params.host,
+                        params.port,
+                        params.username,
+                        params.password,
+                        params.displayName,
+                        params.serverId,
+                    )
+                }
+
+                override fun stopSelf() = this@MumbleService.stopSelf()
+            },
+        )
+        permissions = SessionPermissions(state, roster)
+        channelCommands = ChannelCommands(sessionChannels, events::applyChannelPassword)
+        adminCommands = AdminCommands(state, roster, admin, channelAccessTokenStore)
+        moderationCommands = UserModerationCommands(scope, state, roster)
+        voiceCommands = VoiceCommands(scope, state, roster, voice)
+        chatCommands = ChatCommands(state, roster, chat)
+        state.status.value = getString(R.string.status_not_connected)
         notifications.createChannels()
         ContextCompat.registerReceiver(
             this,
@@ -256,20 +334,20 @@ class MumbleService : Service() {
                 val serverId = intent.getLongExtra(EXTRA_SERVER_ID, 0L)
                 host = h
                 port = p
-                _serverName.value = name
+                state.serverName.value = name
                 startForegroundSafe()
                 reconnect.abortWaitingCountdown()
                 scope.launch { connect(h, p, u, pw, name, serverId) }
             }
             ACTION_DISCONNECT -> {
                 startForegroundSafe(
-                    _status.value.ifEmpty { getString(R.string.notification_connecting) },
+                    state.status.value.ifEmpty { getString(R.string.notification_connecting) },
                 )
                 disconnect()
             }
             ACTION_RECONNECT_NOW -> {
                 startForegroundSafe(
-                    _status.value.ifEmpty { getString(R.string.notification_connecting) },
+                    state.status.value.ifEmpty { getString(R.string.notification_connecting) },
                 )
                 reconnectNow()
             }
@@ -278,7 +356,7 @@ class MumbleService : Service() {
     }
 
     private fun startForegroundSafe(text: String = getString(R.string.notification_connecting)) {
-        notifications.startForegroundSafe(text, _serverName.value, reconnect.countdown.value)
+        notifications.startForegroundSafe(text, state.serverName.value, reconnect.countdown.value)
     }
 
     private fun updateStatus(text: String) = events.updateStatus(text)
@@ -287,9 +365,6 @@ class MumbleService : Service() {
         events.updateConnectedStatus(channelName)
 
     private fun clearSessionState() = events.clearSessionState()
-
-    private fun applyChannelPassword(channelId: Int, password: String) =
-        events.applyChannelPassword(channelId, password)
 
     private fun buildConnectionStats(): MumbleClient.ConnectionStats = events.buildConnectionStats()
 
@@ -302,9 +377,9 @@ class MumbleService : Service() {
         serverId: Long = 0L,
     ) {
         mutex.withLock {
-            if (_connecting.value || _connected.value) return
+            if (state.connecting.value || state.connected.value) return
             reconnect.beginConnect()
-            _serverRemoval.value = null
+            state.serverRemoval.value = null
             voice.closeTransport()
             client?.close()
             client = null
@@ -316,9 +391,9 @@ class MumbleService : Service() {
             val label = displayName.ifEmpty { lastConnectParams?.displayName.orEmpty() }.ifEmpty { host }
             val params = ConnectParams(host, port, username, password, label, serverId)
             lastConnectParams = params
-            _manualDisconnect.value = false
-            _connecting.value = true
-            _serverName.value = label
+            state.manualDisconnect.value = false
+            state.connecting.value = true
+            state.serverName.value = label
             updateStatus(getString(R.string.status_connecting_to, label))
             notices.joinHintsEnabled = false
             chat.clear()
@@ -346,10 +421,10 @@ class MumbleService : Service() {
                 client = prepared.client
                 Thread { prepared.client.connect() }.start()
             } catch (e: kotlinx.coroutines.CancellationException) {
-                _connecting.value = false
+                state.connecting.value = false
                 throw e
             } catch (e: Exception) {
-                _connecting.value = false
+                state.connecting.value = false
                 updateStatus(getString(R.string.status_connection_failed, e.message ?: ""))
             }
         }
@@ -365,7 +440,7 @@ class MumbleService : Service() {
         reconnect.cancel()
         scope.launch {
             mutex.withLock {
-                _manualDisconnect.value = true
+                state.manualDisconnect.value = true
                 reconnect.markNotReconnecting()
                 lastConnectParams = null
                 voice.stop()
@@ -373,8 +448,8 @@ class MumbleService : Service() {
                 voice.closeTransport()
                 client?.close()
                 client = null
-                _connected.value = false
-                _connecting.value = false
+                state.connected.value = false
+                state.connecting.value = false
                 reconnect.cancelAndResetAttempts()
                 clearSessionState()
                 admin.clearTokens()
@@ -393,10 +468,10 @@ class MumbleService : Service() {
 
     fun reconnectNow() {
         val params = lastConnectParams ?: return
-        if (_manualDisconnect.value || _connected.value || _connecting.value) return
+        if (state.manualDisconnect.value || state.connected.value || state.connecting.value) return
         if (!reconnect.reconnectNow {
                 scope.launch {
-                    if (!_connected.value && !_connecting.value && !_manualDisconnect.value) {
+                    if (!state.connected.value && !state.connecting.value && !state.manualDisconnect.value) {
                         connect(
                             params.host,
                             params.port,
@@ -419,210 +494,6 @@ class MumbleService : Service() {
         voice.applySettings(previous, next)
     }
 
-    fun setOutputTarget(target: VoiceOutputTarget) = voice.setOutputTarget(target)
-
-    fun toggleSelfMute() {
-        voice.toggleSelfMute()
-        sendLocalMuteDeafen()
-    }
-
-    fun toggleSelfDeafen() {
-        voice.toggleSelfDeafen()
-        sendLocalMuteDeafen()
-    }
-
-    private fun sendLocalMuteDeafen() {
-        val muted = voice.selfMutedValue()
-        val deafened = voice.selfDeafenedValue()
-        roster.updateLocalMuteDeafen(muted, deafened)
-        val c = client ?: return
-        scope.launch {
-            c.sendMessage(
-                dev.woms.mumdroid.core.net.MessageType.USER_STATE,
-                dev.woms.mumdroid.core.proto.UserState.newBuilder()
-                    .setSession(c.currentSession)
-                    .setSelfMute(muted)
-                    .setSelfDeaf(deafened)
-                    .build(),
-            )
-        }
-    }
-
-    fun setLocalBlock(session: Int, blocked: Boolean) = roster.setLocalBlock(session, blocked)
-    fun setLocalIgnore(session: Int, ignored: Boolean) = roster.setLocalIgnore(session, ignored)
-
-    fun setRemoteMute(session: Int, muted: Boolean) {
-        val c = client ?: return
-        val user = roster.userMap[session]
-        scope.launch {
-            c.sendMessage(
-                dev.woms.mumdroid.core.net.MessageType.USER_STATE,
-                UserModeration.remoteMute(
-                    session = session,
-                    currentlyMuted = user?.mute ?: false,
-                    currentlySuppressed = user?.suppress ?: false,
-                    wantMuted = muted,
-                ),
-            )
-        }
-    }
-
-    fun setPrioritySpeaker(session: Int, enabled: Boolean) {
-        val c = client ?: return
-        scope.launch {
-            c.sendMessage(
-                dev.woms.mumdroid.core.net.MessageType.USER_STATE,
-                UserModeration.prioritySpeaker(session, enabled),
-            )
-        }
-    }
-
-    fun requestUserStats(session: Int, statsOnly: Boolean = false) =
-        admin.requestUserStats(client, session, statsOnly)
-
-    fun clearUserStats() = admin.clearUserStats()
-
-    fun setRemoteDeafen(session: Int, deafened: Boolean) {
-        val c = client ?: return
-        scope.launch {
-            c.sendMessage(
-                dev.woms.mumdroid.core.net.MessageType.USER_STATE,
-                dev.woms.mumdroid.core.proto.UserState.newBuilder()
-                    .setSession(session)
-                    .setDeaf(deafened).build(),
-            )
-        }
-    }
-
-    fun kickUser(session: Int, reason: String) = admin.kickUser(client, session, reason)
-
-    fun banUser(
-        session: Int,
-        reason: String,
-        banCertificate: Boolean,
-        banIp: Boolean,
-        duration: Int,
-    ) = admin.banUser(
-        client,
-        session,
-        roster.userMap[session],
-        reason,
-        banCertificate,
-        banIp,
-        duration,
-    )
-
-    fun registerUser(session: Int) = admin.registerUser(client, session)
-
-    fun canAdministerChannel(channelId: Int) = roster.canAdministerChannel(channelId)
-    fun canMuteUser(user: User) = roster.canMuteUser(user)
-    fun canPrioritySpeaker(user: User) = roster.canPrioritySpeaker(user)
-    fun canMoveInChannel(channelId: Int) = roster.canMoveInChannel(channelId)
-    fun ensureChannelPermissions(channelId: Int) = sessionChannels.ensurePermissions(channelId)
-    fun canKickUser() = roster.canKickUser()
-    fun canBanUser() = roster.canBanUser()
-    fun canEditRegisteredUsers() = roster.canEditRegisteredUsers()
-    fun canRegisterUser(user: User) = roster.canRegisterUser(user)
-
-    fun supportsSelectiveBan(): Boolean {
-        val c = client ?: return false
-        return UserModeration.supportsSelectiveBan(c.serverVersionV2, c.serverVersionLegacy)
-    }
-
-    fun supportsChannelListen(): Boolean {
-        val c = client ?: return false
-        return UserModeration.supportsChannelListen(c.serverVersionV2, c.serverVersionLegacy)
-    }
-
-    fun canTextMessage(channelId: Int) = roster.canTextMessage(channelId)
-    fun canListen(channelId: Int) = roster.canListen(channelId)
-    fun canWriteChannel(channelId: Int) = roster.canWriteChannel(channelId)
-    fun canAddChannel(channelId: Int) = roster.canAddChannel(channelId)
-    fun canMakePermanentChannel(channelId: Int) = roster.canMakePermanentChannel(channelId)
-    fun canLinkChannel(channelId: Int) = roster.canLinkChannel(channelId)
-    fun canTraverse(channelId: Int) = roster.canTraverse(channelId)
-    fun canSpeak(channelId: Int) = roster.canSpeak(channelId)
-    fun canWhisper(channelId: Int) = roster.canWhisper(channelId)
-    fun canEnter(channelId: Int) = roster.canEnter(channelId)
-    fun canJoinChannel(channelId: Int) = roster.canJoinChannel(channelId)
-    fun canEditAcl(channelId: Int) = roster.canEditAcl(channelId)
-    fun canViewUserInfo(user: User) = roster.canViewUserInfo(user)
-
-    fun canResetUserContent(): Boolean {
-        val c = client ?: return false
-        return UserModeration.canResetUserContent(
-            roster.rootPermissions(),
-            c.serverVersionV2,
-            c.serverVersionLegacy,
-        )
-    }
-
-    fun linkChannel(targetId: Int) = sessionChannels.link(targetId)
-    fun unlinkChannel(targetId: Int) = sessionChannels.unlink(targetId)
-    fun unlinkAllChannels() = sessionChannels.unlinkAll()
-
-    fun createChannel(
-        parentId: Int,
-        name: String,
-        description: String,
-        position: Int,
-        temporary: Boolean,
-        maxUsers: Int,
-        password: String = "",
-    ) = sessionChannels.create(parentId, name, description, position, temporary, maxUsers, password)
-
-    fun updateChannel(
-        channelId: Int,
-        name: String,
-        description: String,
-        position: Int,
-        maxUsers: Int,
-        password: String = "",
-    ) = sessionChannels.update(channelId, name, description, position, maxUsers, password, ::applyChannelPassword)
-
-    fun removeChannel(channelId: Int) = sessionChannels.remove(channelId)
-
-    fun requestChannelDescription(channelId: Int) = sessionChannels.requestDescription(channelId)
-
-    fun requestChannelAcl(channelId: Int) = admin.requestAcl(client, channelId)
-
-    fun sendChannelAcl(snapshot: ChanAclSnapshot) = admin.sendAcl(client, snapshot)
-
-    fun queryAclUsersByName(names: List<String>) = admin.queryUsersByName(client, names)
-
-    fun queryAclUsersById(ids: List<Int>) = admin.queryUsersById(client, ids)
-
-    fun setUserComment(session: Int, comment: String) =
-        admin.setUserComment(client, session, comment)
-
-    fun resetUserComment(session: Int) = admin.resetUserComment(client, session)
-
-    fun setUserTexture(session: Int, texture: ByteArray) =
-        admin.setUserTexture(client, session, texture)
-
-    fun resetUserTexture(session: Int) = admin.resetUserTexture(client, session)
-
-    fun requestUserList(clear: Boolean = true) = admin.requestUserList(client, clear)
-
-    fun renameRegisteredUser(userId: Int, newName: String) =
-        admin.renameRegisteredUser(client, userId, newName)
-
-    fun unregisterUser(userId: Int) = admin.unregisterUser(client, userId)
-
-    fun requestBanList(clear: Boolean = true) = admin.requestBanList(client, clear)
-
-    fun replaceBanList(bans: List<BanEntry>) = admin.replaceBanList(client, bans)
-
-    fun startTalking() = voice.startTalking()
-    fun stopTalking() = voice.stopTalking()
-
-    fun joinChannel(channelId: Int, announceMove: Boolean = true, accessToken: String? = null) =
-        sessionChannels.join(channelId, announceMove, accessToken)
-
-    fun moveUser(session: Int, channelId: Int) = sessionChannels.moveUser(session, channelId)
-
-    fun clearChannelPasswordPrompt() = admin.clearPasswordPrompt()
-
     fun updatePinnedCertificate() = resolveCertificatePrompt(CertificateDecision.UPDATE_PIN)
     fun trustCertificateOnce() = resolveCertificatePrompt(CertificateDecision.TRUST_ONCE)
     fun rejectCertificate() = resolveCertificatePrompt(CertificateDecision.REJECT)
@@ -637,23 +508,8 @@ class MumbleService : Service() {
         respond(decision)
     }
 
-    fun replaceAccessTokens(tokens: List<String>) {
-        admin.replaceAccessTokens(tokens, channelAccessTokenStore, host, port, client)
-    }
-
-    fun sendChat(channelId: Int, text: String) {
-        chat.sendToChannel(client, channelId, text, serverName.value, roster.channelName(channelId))
-    }
-
-    fun sendPrivateChat(session: Int, text: String) {
-        val targetName = roster.userMap[session]?.name ?: session.toString()
-        chat.sendToUser(client, session, text, serverName.value, targetName)
-    }
-
-    fun setChannelListening(channelId: Int, listen: Boolean) = sessionChannels.setListening(channelId, listen)
-
     fun connectionInfo(): ServerConnectionInfo = buildServerConnectionInfo(
-        live = _connected.value,
+        live = state.connected.value,
         host = host,
         port = port,
         userCount = roster.userMap.size,

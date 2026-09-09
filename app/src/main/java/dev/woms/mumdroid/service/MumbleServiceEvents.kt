@@ -10,72 +10,99 @@ import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.net.ClientTlsPolicy
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.MumbleListener
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Receives every [MumbleListener] event on behalf of [MumbleService] and keeps
- * the roster/chat/admin/voice/notice collaborators in sync. All state lives in
- * the owning service; this class only orchestrates it.
+ * Receives every [MumbleListener] event and keeps the roster/chat/admin/voice/
+ * notice collaborators in sync. Session state lives in [SessionState] and the
+ * few service-side operations it needs arrive through [SessionHost], so this
+ * handler never reaches into the owning service.
  */
-internal class MumbleServiceEvents(private val svc: MumbleService) : MumbleListener {
+internal class MumbleServiceEvents(
+    private val state: SessionState,
+    private val scope: CoroutineScope,
+    private val roster: SessionRoster,
+    private val admin: ServerAdminSession,
+    private val voice: VoiceSession,
+    private val chat: SessionChat,
+    private val notices: SessionNotices,
+    private val reconnect: ReconnectController,
+    private val cert: CertificatePromptController,
+    private val lastChannel: LastChannelSession,
+    private val sessionChannels: SessionChannels,
+    private val tcpPing: TcpPingStats,
+    private val notifications: ConnectionNotifications,
+    private val host: SessionHost,
+) : MumbleListener {
+
+    /** Service-side operations the event handler needs. */
+    internal interface SessionHost {
+        fun getString(id: Int): String
+        fun getString(id: Int, vararg formatArgs: Any): String
+        suspend fun recordCertificate(host: String, port: Int, fingerprint: String)
+        suspend fun persistAccessToken(channelId: Int, token: String)
+        suspend fun connect(params: ConnectParams)
+        fun stopSelf()
+    }
 
     private val PROTOBUF_INTRODUCTION_VERSION_V2 = (1L shl 48) or (5L shl 32)
 
     // ---- status helpers ----
 
     fun updateStatus(text: String) {
-        svc._status.value = text
-        svc.notifications.update(text, svc._serverName.value, svc.reconnect.countdown.value)
+        state.status.value = text
+        notifications.update(text, state.serverName.value, reconnect.countdown.value)
     }
 
-    private fun connectedStatusText(channelName: String = svc.roster.localChannelName()): String {
+    private fun connectedStatusText(channelName: String = roster.localChannelName()): String {
         val name = channelName.trim()
-        return if (name.isEmpty()) svc.getString(R.string.status_connected)
-        else svc.getString(R.string.status_connected_in_channel, name)
+        return if (name.isEmpty()) host.getString(R.string.status_connected)
+        else host.getString(R.string.status_connected_in_channel, name)
     }
 
-    fun updateConnectedStatus(channelName: String = svc.roster.localChannelName()) {
-        if (!svc._connected.value) return
+    fun updateConnectedStatus(channelName: String = roster.localChannelName()) {
+        if (!state.connected.value) return
         updateStatus(connectedStatusText(channelName))
     }
 
     fun clearSessionState() {
-        svc.roster.clear()
-        svc.cert.clear()
-        svc.admin.clear()
+        roster.clear()
+        cert.clear()
+        admin.clear()
     }
 
     fun applyChannelPassword(channelId: Int, password: String) {
-        svc.admin.applyChannelPassword(svc.client, channelId, password) { id, token ->
-            svc.admin.persistAccessToken(id, token, svc.channelAccessTokenStore, svc.host, svc.port)
+        admin.applyChannelPassword(state.client, channelId, password) { id, token ->
+            host.persistAccessToken(id, token)
         }
     }
 
     fun handlePrivateReply(intent: android.content.Intent) {
-        val parsed = svc.notifications.parsePrivateReply(intent) ?: return
+        val parsed = notifications.parsePrivateReply(intent) ?: return
         val session = parsed.first
         var actorName = parsed.second.first
         val text = parsed.second.second
         if (actorName.isEmpty()) {
-            actorName = svc.roster.userMap[session]?.name ?: session.toString()
+            actorName = roster.userMap[session]?.name ?: session.toString()
         }
-        if (!svc._connected.value) return
-        svc.sendPrivateChat(session, text)
-        svc.notifications.notifyPrivateChat(
+        if (!state.connected.value) return
+        chat.sendToUser(state.client, session, text, state.serverName.value, actorName)
+        notifications.notifyPrivateChat(
             session,
             actorName,
-            svc.getString(R.string.you) + ": " + text,
+            host.getString(R.string.you) + ": " + text,
             onlyAlertOnce = true,
         )
     }
 
     fun buildConnectionStats(): MumbleClient.ConnectionStats {
-        val voiceStats = svc.voice.connectionStats()
+        val voiceStats = voice.connectionStats()
         return voiceStats.copy(
-            tcpPingAvg = svc.tcpPing.averageMsLong.toFloat(),
-            tcpPingVar = svc.tcpPing.variance,
-            tcpPingPackets = svc.tcpPing.sampleCount,
+            tcpPingAvg = tcpPing.averageMsLong.toFloat(),
+            tcpPingVar = tcpPing.variance,
+            tcpPingPackets = tcpPing.sampleCount,
         )
     }
 
@@ -89,188 +116,179 @@ internal class MumbleServiceEvents(private val svc: MumbleService) : MumbleListe
     // ---- MumbleListener ----
 
     override fun onAcl(acl: dev.woms.mumdroid.core.proto.ACL) {
-        svc.admin.handleAcl(svc.client, acl) { id, token ->
-            svc.admin.persistAccessToken(id, token, svc.channelAccessTokenStore, svc.host, svc.port)
+        admin.handleAcl(state.client, acl) { id, token ->
+            host.persistAccessToken(id, token)
         }
     }
 
     override fun onQueryUsers(ids: List<Int>, names: List<String>) {
-        svc.admin.onQueryUsers(ids, names)
+        admin.onQueryUsers(ids, names)
     }
 
-    override fun onUserList(users: List<RegisteredUser>) = svc.admin.onUserList(users)
+    override fun onUserList(users: List<RegisteredUser>) = admin.onUserList(users)
 
-    override fun onBanList(bans: List<BanEntry>, query: Boolean) = svc.admin.handleBanList(svc.client, bans)
+    override fun onBanList(bans: List<BanEntry>, query: Boolean) = admin.handleBanList(state.client, bans)
 
     override fun onPermissionQuery(channelId: Int, permissions: Long, flush: Boolean) {
-        svc.roster.applyPermissionQuery(channelId, permissions, flush)
+        roster.applyPermissionQuery(channelId, permissions, flush)
     }
 
     override fun onConnected(session: Int, welcomeText: String, maxBandwidth: Int) {
-        svc._connected.value = true
-        svc._connecting.value = false
-        svc.reconnect.noteConnected()
-        svc.roster.markLocalUser(session)
+        state.connected.value = true
+        state.connecting.value = false
+        reconnect.noteConnected()
+        roster.markLocalUser(session)
         updateConnectedStatus()
-        svc.voice.applyMaxBandwidth(maxBandwidth)
+        voice.applyMaxBandwidth(maxBandwidth)
         if (welcomeText.isNotEmpty()) {
-            svc.notices.system(welcomeText)
+            notices.system(welcomeText)
         }
-        svc.lastChannel.restoreAfterSync(
-            host = svc.host,
-            port = svc.port,
-            joinWithoutAnnounce = { svc.sessionChannels.join(it, announceMove = false) },
+        lastChannel.restoreAfterSync(
+            host = state.host,
+            port = state.port,
+            joinWithoutAnnounce = { sessionChannels.join(it, announceMove = false) },
             onStay = { updateConnectedStatus() },
-            announceJoin = { svc.notices.announceLocalJoin(it) },
+            announceJoin = { notices.announceLocalJoin(it) },
         )
-        svc.scope.launch {
+        scope.launch {
             delay(1500)
-            svc.notices.joinHintsEnabled = true
+            notices.joinHintsEnabled = true
         }
-        svc.scope.launch {
-            val fp = svc.client?.serverFingerprint
+        scope.launch {
+            val fp = state.client?.serverFingerprint
             if (!fp.isNullOrBlank()) {
-                svc.certificateStore.record(svc.host, svc.port, fp)
+                host.recordCertificate(state.host, state.port, fp)
             }
         }
-        svc.voice.start(session)
+        voice.start(session)
     }
 
     override fun onRejected(reason: String, type: Int) {
-        svc.notices.joinHintsEnabled = false
-        svc._connecting.value = false
-        svc.reconnect.markNotReconnecting()
-        updateStatus(svc.getString(R.string.status_rejected, reason))
+        notices.joinHintsEnabled = false
+        state.connecting.value = false
+        reconnect.markNotReconnecting()
+        updateStatus(host.getString(R.string.status_rejected, reason))
     }
 
     override fun onDisconnected(reason: String) {
-        svc.notices.joinHintsEnabled = false
-        svc.voice.stop()
-        svc.notifications.cancelChat()
-        if (!svc.lastChannel.restorePending) {
-            svc.lastChannel.persistFromLocal(svc.host, svc.port, svc.connectedServerId)
+        notices.joinHintsEnabled = false
+        voice.stop()
+        notifications.cancelChat()
+        if (!lastChannel.restorePending) {
+            lastChannel.persistFromLocal(state.host, state.port, state.connectedServerId)
         }
         clearSessionState()
-        val params = svc.lastConnectParams
-        val serverForced = svc._serverRemoval.value != null
-        val canRetry = svc.reconnect.canRetry(
-            autoReconnect = svc.currentSettings.autoReconnect,
+        val params = state.lastConnectParams
+        val serverForced = state.serverRemoval.value != null
+        val canRetry = reconnect.canRetry(
+            autoReconnect = state.currentSettings.autoReconnect,
             hasParams = params != null,
-            manualDisconnect = svc._manualDisconnect.value,
+            manualDisconnect = state.manualDisconnect.value,
             serverForced = serverForced,
         )
         if (canRetry && params != null) {
-            svc._connected.value = false
-            svc._connecting.value = false
-            svc.reconnect.startCountdown(
+            state.connected.value = false
+            state.connecting.value = false
+            reconnect.startCountdown(
                 onTick = { remaining ->
-                    updateStatus(svc.getString(R.string.reconnect_in_seconds, remaining))
+                    updateStatus(host.getString(R.string.reconnect_in_seconds, remaining))
                 },
                 onRetry = {
-                    if (!svc._connected.value && !svc._connecting.value && !svc._manualDisconnect.value) {
-                        svc.scope.launch {
-                            svc.connect(
-                                params.host,
-                                params.port,
-                                params.username,
-                                params.password,
-                                params.displayName,
-                                params.serverId,
-                            )
-                        }
+                    if (!state.connected.value && !state.connecting.value && !state.manualDisconnect.value) {
+                        scope.launch { host.connect(params) }
                     }
                 },
             )
             return
         }
-        svc.reconnect.cancelAndResetAttempts()
-        svc._connected.value = false
-        svc._connecting.value = false
+        reconnect.cancelAndResetAttempts()
+        state.connected.value = false
+        state.connecting.value = false
         val displayReason = if (reason == ClientTlsPolicy.CERTIFICATE_REJECTED) {
-            svc.getString(R.string.status_certificate_rejected)
+            host.getString(R.string.status_certificate_rejected)
         } else {
             reason
         }
         updateStatus(
             when {
-                serverForced -> svc._status.value.ifEmpty {
-                    svc.getString(R.string.status_server_removed_title)
+                serverForced -> state.status.value.ifEmpty {
+                    host.getString(R.string.status_server_removed_title)
                 }
-                svc._manualDisconnect.value -> svc.getString(R.string.status_disconnected_reason, displayReason)
-                else -> svc.getString(R.string.status_connection_failed, displayReason)
+                state.manualDisconnect.value -> host.getString(R.string.status_disconnected_reason, displayReason)
+                else -> host.getString(R.string.status_connection_failed, displayReason)
             },
         )
-        svc.stopSelf()
+        host.stopSelf()
     }
 
     override fun onChannelState(channel: Channel) {
-        svc.roster.putChannel(channel)
-        if (svc._connected.value && svc.roster.localUser()?.channelId == channel.id) {
+        roster.putChannel(channel)
+        if (state.connected.value && roster.localUser()?.channelId == channel.id) {
             updateConnectedStatus()
         }
-        svc.scope.launch { svc.roster.publishChannelsNow() }
+        scope.launch { roster.publishChannelsNow() }
     }
 
     override fun onChannelStateProto(state: dev.woms.mumdroid.core.proto.ChannelState) {
-        val (existing, merged) = svc.roster.mergeChannelState(state)
+        val (existing, merged) = roster.mergeChannelState(state)
         onChannelState(merged)
-        svc.admin.maybeCreatePassword(existing == null, merged)?.let { (id, password) ->
+        admin.maybeCreatePassword(existing == null, merged)?.let { (id, password) ->
             applyChannelPassword(id, password)
         }
     }
 
     override fun onPermissionDenied(denied: dev.woms.mumdroid.core.proto.PermissionDenied) {
-        val handled = svc.admin.promptForChannelPassword(
+        val handled = admin.promptForChannelPassword(
             denied,
-            svc.roster.channelMap[denied.channelId],
+            roster.channelMap[denied.channelId],
             ChanACL.ENTER.toLong(),
-            onDenied = { svc.notices.system(it) },
+            onDenied = { notices.system(it) },
             passwordDeniedMessage = { name ->
-                svc.getString(R.string.permission_denied_channel_password, name)
+                host.getString(R.string.permission_denied_channel_password, name)
             },
         )
         if (handled) return
-        onInfo(svc.notices.permissionDeniedText(denied))
+        onInfo(notices.permissionDeniedText(denied))
     }
 
     override fun onCodecVersion(opus: Boolean) {
         if (!opus) {
-            svc.notices.system(svc.getString(R.string.codec_opus_required))
+            notices.system(host.getString(R.string.codec_opus_required))
         }
     }
 
     override fun onChannelRemoved(channelId: Int) {
-        svc.roster.removeChannel(channelId)
+        roster.removeChannel(channelId)
     }
 
     override fun onUserState(user: dev.woms.mumdroid.core.proto.UserState) {
-        val merged = svc.roster.mergeUserState(user) ?: return
+        val merged = roster.mergeUserState(user) ?: return
         val (existing, updated) = merged
-        svc.notices.applyListening(updated.session, user)
+        notices.applyListening(updated.session, user)
         val speakBlocked = updated.mute || updated.deaf || updated.suppress ||
             updated.selfMute || updated.selfDeaf
-        if (updated.session == svc.roster.localSession) {
-            svc.voice.applyLocalSpeakBlock(
+        if (updated.session == roster.localSession) {
+            voice.applyLocalSpeakBlock(
                 wasBlocked = existing?.isSpeakBlocked == true,
                 nowBlocked = speakBlocked,
             )
-            if (user.hasChannelId() && !svc.lastChannel.restorePending) {
-                svc.lastChannel.persistFromLocal(svc.host, svc.port, svc.connectedServerId)
+            if (user.hasChannelId() && !lastChannel.restorePending) {
+                lastChannel.persistFromLocal(state.host, state.port, state.connectedServerId)
                 updateConnectedStatus()
             }
         }
 
         if (user.hasChannelId()) {
-            svc.notices.announceChannelChange(
+            notices.announceChannelChange(
                 protoSession = user.session,
                 newChannel = user.channelId,
                 existing = existing,
                 updatedName = updated.name,
-                restorePending = svc.lastChannel.restorePending,
-                consumePasswordJoin = svc.admin::consumePasswordJoin,
+                restorePending = lastChannel.restorePending,
+                consumePasswordJoin = admin::consumePasswordJoin,
             )
         }
-        svc.roster.publish()
+        roster.publish()
     }
 
     override fun onUserRemoved(
@@ -280,81 +298,81 @@ internal class MumbleServiceEvents(private val svc: MumbleService) : MumbleListe
         reason: String,
         ban: Boolean,
     ) {
-        val event = svc.notices.userRemoved(session, actor, hasActor, reason, ban)
+        val event = notices.userRemoved(session, actor, hasActor, reason, ban)
         if (event.removal != null && event.removal.isLocal) {
-            if (event.removed != null && !svc.lastChannel.restorePending) {
-                svc.lastChannel.remember(event.removed.channelId, svc.host, svc.port, svc.connectedServerId)
+            if (event.removed != null && !lastChannel.restorePending) {
+                lastChannel.remember(event.removed.channelId, state.host, state.port, state.connectedServerId)
             }
-            svc.reconnect.cancel()
-            svc._serverRemoval.value = event.removal
+            reconnect.cancel()
+            state.serverRemoval.value = event.removal
             updateStatus(event.message.orEmpty())
         }
-        svc.roster.removeUser(session)
-        svc.admin.clearUserStatsIfSession(session)
-        svc.roster.publish()
-        svc.admin.handleUserRemovedBan(svc.client, session, ban)
+        roster.removeUser(session)
+        admin.clearUserStatsIfSession(session)
+        roster.publish()
+        admin.handleUserRemovedBan(state.client, session, ban)
     }
 
     override fun onTextMessage(actor: String, text: String, channelId: Int, isPrivate: Boolean) {
         val session = actor.toIntOrNull()
-        val isSystem = session == null || session == 0 || svc.roster.userMap[session] == null
-        if (!isSystem && svc.roster.isIgnored(session)) return
-        val actorName = if (isSystem) svc.serverName.value.ifEmpty { svc.getString(R.string.system_message) }
-        else svc.roster.userMap[session]?.name ?: actor
-        svc.chat.appendAsync(
+        val isSystem = session == null || session == 0 || roster.userMap[session] == null
+        if (!isSystem && roster.isIgnored(session)) return
+        val actorName = if (isSystem) state.serverName.value.ifEmpty { host.getString(R.string.system_message) }
+        else roster.userMap[session]?.name ?: actor
+        chat.appendAsync(
             ChatMessage(
                 actorSession = session ?: 0,
                 actorName = actorName,
                 channelId = channelId,
-                channelName = if (isSystem) "" else svc.roster.channelName(channelId),
+                channelName = if (isSystem) "" else roster.channelName(channelId),
                 text = text,
                 isSystem = isSystem,
                 isPrivate = isPrivate && !isSystem,
             ),
         )
-        if (svc.currentSettings.chatNotifications) {
-            if (isPrivate && !isSystem && session != svc.roster.localSession) {
-                svc.notifications.notifyPrivateChat(session, actorName, text)
-            } else if (!isPrivate && !isSystem && session != svc.roster.localSession) {
-                val myChannel = svc.roster.localUser()?.channelId
+        if (state.currentSettings.chatNotifications) {
+            if (isPrivate && !isSystem && session != roster.localSession) {
+                notifications.notifyPrivateChat(session, actorName, text)
+            } else if (!isPrivate && !isSystem && session != roster.localSession) {
+                val myChannel = roster.localUser()?.channelId
                 if (myChannel == null || channelId == myChannel) {
-                    svc.notifications.notifyChannelChat(actorName, svc.roster.channelName(channelId), text)
+                    notifications.notifyChannelChat(actorName, roster.channelName(channelId), text)
                 }
             }
         }
     }
 
     override fun onServerConfig(welcomeText: String, maxBandwidth: Int, maxUsers: Int) {
-        svc.voice.applyMaxBandwidth(maxBandwidth)
+        voice.applyMaxBandwidth(maxBandwidth)
         if (maxUsers > 0) {
-            svc.serverMaxUsers = maxUsers
+            state.serverMaxUsers = maxUsers
         }
         if (welcomeText.isNotEmpty()) {
-            svc.notices.system(welcomeText)
+            notices.system(welcomeText)
         }
     }
 
     override fun onUserStats(stats: dev.woms.mumdroid.core.proto.UserStats) {
-        val name = svc.roster.userMap[stats.session]?.name.orEmpty()
-        svc.admin.handleUserStats(svc.client, stats, name)
+        val name = roster.userMap[stats.session]?.name.orEmpty()
+        admin.handleUserStats(state.client, stats, name)
     }
 
     override fun onInfo(message: String) {
         if (message.isEmpty()) return
-        svc.notices.system(message)
+        notices.system(message)
     }
 
     override fun onServerVersion(versionV2: Long, legacyVersion: Int) {
         val v2 = if (versionV2 != 0L) versionV2 else legacyVersionToV2(legacyVersion)
-        svc.voice.onServerVersion(v2 >= PROTOBUF_INTRODUCTION_VERSION_V2 && v2 != 0L)
+        voice.onServerVersion(v2 >= PROTOBUF_INTRODUCTION_VERSION_V2 && v2 != 0L)
     }
 
     override fun onCryptSetup(key: ByteArray, clientNonce: ByteArray, serverNonce: ByteArray) {
-        svc.voice.onCryptSetup(svc.host, svc.port, key, clientNonce, serverNonce)
+        voice.onCryptSetup(state.host, state.port, key, clientNonce, serverNonce)
     }
 
     override fun onTunneledPacket(body: ByteArray) {
-        svc.voice.playTunneled(body)
+        voice.playTunneled(body)
     }
 
     override fun onCertificateError(
@@ -362,6 +380,6 @@ internal class MumbleServiceEvents(private val svc: MumbleService) : MumbleListe
         pinnedFingerprint: String,
         respond: (CertificateDecision) -> Unit,
     ) {
-        svc.cert.present(fingerprint, pinnedFingerprint, svc.host, svc.port, respond)
+        cert.present(fingerprint, pinnedFingerprint, state.host, state.port, respond)
     }
 }

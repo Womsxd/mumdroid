@@ -174,33 +174,33 @@ internal class ServiceSessionController(
     }
 
     override fun setOutputTarget(target: VoiceOutputTarget) {
-        service?.setOutputTarget(target)
+        service?.voiceCommands?.setOutputTarget(target)
     }
 
-    override fun toggleSelfMute() { service?.toggleSelfMute() }
-    override fun toggleSelfDeafen() { service?.toggleSelfDeafen() }
-    override fun startTalking() { service?.startTalking() }
-    override fun stopTalking() { service?.stopTalking() }
+    override fun toggleSelfMute() { service?.voiceCommands?.toggleSelfMute() }
+    override fun toggleSelfDeafen() { service?.voiceCommands?.toggleSelfDeafen() }
+    override fun startTalking() { service?.voiceCommands?.startTalking() }
+    override fun stopTalking() { service?.voiceCommands?.stopTalking() }
     override fun joinChannel(channelId: Int, accessToken: String?) {
-        service?.joinChannel(channelId, accessToken = accessToken)
+        service?.channelCommands?.joinChannel(channelId, accessToken = accessToken)
     }
 
-    override fun replaceAccessTokens(tokens: List<String>) { service?.replaceAccessTokens(tokens) }
+    override fun replaceAccessTokens(tokens: List<String>) { service?.adminCommands?.replaceAccessTokens(tokens) }
 
-    override fun canEditRegisteredUsers(): Boolean = service?.canEditRegisteredUsers() ?: false
+    override fun canEditRegisteredUsers(): Boolean = service?.permissions?.canEditRegisteredUsers() ?: false
     override fun requestUserList(clear: Boolean) {
-        service?.requestUserList(clear)
+        service?.adminCommands?.requestUserList(clear)
     }
-    override fun renameRegisteredUser(userId: Int, newName: String) { service?.renameRegisteredUser(userId, newName) }
-    override fun unregisterUser(userId: Int) { service?.unregisterUser(userId) }
+    override fun renameRegisteredUser(userId: Int, newName: String) { service?.adminCommands?.renameRegisteredUser(userId, newName) }
+    override fun unregisterUser(userId: Int) { service?.adminCommands?.unregisterUser(userId) }
     override fun requestBanList(clear: Boolean) {
-        service?.requestBanList(clear)
+        service?.adminCommands?.requestBanList(clear)
     }
-    override fun replaceBanList(bans: List<BanEntry>) { service?.replaceBanList(bans) }
+    override fun replaceBanList(bans: List<BanEntry>) { service?.adminCommands?.replaceBanList(bans) }
 
     /** Move [session] into [channelId] (`UserState.channel_id`). */
-    override fun moveUser(session: Int, channelId: Int) { service?.moveUser(session, channelId) }
-    override fun clearChannelPasswordPrompt() { service?.clearChannelPasswordPrompt() }
+    override fun moveUser(session: Int, channelId: Int) { service?.channelCommands?.moveUser(session, channelId) }
+    override fun clearChannelPasswordPrompt() { service?.adminCommands?.clearChannelPasswordPrompt() }
 
     /** Certificate-mismatch prompt resolution: update pin / trust once / reject. */
     override fun updatePinnedCertificate() { service?.updatePinnedCertificate() }
@@ -209,12 +209,12 @@ internal class ServiceSessionController(
 
     /** Locally block/unblock another user (client-side silencing, no server action). */
     override fun setLocalBlock(session: Int, blocked: Boolean) {
-        service?.setLocalBlock(session, blocked)
+        service?.moderationCommands?.setLocalBlock(session, blocked)
     }
 
     /** Drop another user's text messages on this device only. */
     override fun setLocalIgnore(session: Int, ignored: Boolean) {
-        service?.setLocalIgnore(session, ignored)
+        service?.moderationCommands?.setLocalIgnore(session, ignored)
     }
 
     /**
@@ -222,21 +222,21 @@ internal class ServiceSessionController(
      * Unmute also lifts channel-ACL suppress.
      */
     override fun setRemoteMute(session: Int, muted: Boolean) {
-        service?.setRemoteMute(session, muted)
+        service?.moderationCommands?.setRemoteMute(session, muted)
     }
 
     /** Server-side deafen/undeafen of another user (requires MuteDeafen permission). */
     override fun setRemoteDeafen(session: Int, deafened: Boolean) {
-        service?.setRemoteDeafen(session, deafened)
+        service?.moderationCommands?.setRemoteDeafen(session, deafened)
     }
 
     /** Toggle `UserState.priority_speaker` (requires Write or MuteDeafen). */
     override fun setPrioritySpeaker(session: Int, enabled: Boolean) {
-        service?.setPrioritySpeaker(session, enabled)
+        service?.moderationCommands?.setPrioritySpeaker(session, enabled)
     }
 
     /** Kick another user (requires Kick, Ban, or Write on the root channel). */
-    override fun kickUser(session: Int, reason: String) { service?.kickUser(session, reason) }
+    override fun kickUser(session: Int, reason: String) { service?.adminCommands?.kickUser(session, reason) }
 
     /** Ban another user (requires Ban or Write on the root channel). */
     override fun banUser(
@@ -246,83 +246,83 @@ internal class ServiceSessionController(
         banIp: Boolean,
         duration: Int,
     ) {
-        service?.banUser(session, reason, banCertificate, banIp, duration)
+        service?.adminCommands?.banUser(session, reason, banCertificate, banIp, duration)
     }
 
     /** Register [session] on the server (`UserState.user_id = 0`). */
-    override fun registerUser(session: Int) { service?.registerUser(session) }
+    override fun registerUser(session: Int) { service?.adminCommands?.registerUser(session) }
 
     /** @return true when the local user may server-mute/deafen users in [channelId]. */
-    override fun canAdministerChannel(channelId: Int): Boolean = service?.canAdministerChannel(channelId) ?: false
+    override fun canAdministerChannel(channelId: Int): Boolean = service?.permissions?.canAdministerChannel(channelId) ?: false
 
     /**
      * Desktop Mute menu: others always (with MuteDeafen); self only to lift
      * server mute or ACL suppress.
      */
-    override fun canMuteUser(user: User): Boolean = service?.canMuteUser(user) ?: false
+    override fun canMuteUser(user: User): Boolean = service?.permissions?.canMuteUser(user) ?: false
 
-    override fun canPrioritySpeaker(user: User): Boolean = service?.canPrioritySpeaker(user) ?: false
+    override fun canPrioritySpeaker(user: User): Boolean = service?.permissions?.canPrioritySpeaker(user) ?: false
 
-    override fun canMoveInChannel(channelId: Int): Boolean = service?.canMoveInChannel(channelId) ?: false
+    override fun canMoveInChannel(channelId: Int): Boolean = service?.permissions?.canMoveInChannel(channelId) ?: false
 
-    override fun ensureChannelPermissions(channelId: Int) { service?.ensureChannelPermissions(channelId) }
+    override fun ensureChannelPermissions(channelId: Int) { service?.channelCommands?.ensureChannelPermissions(channelId) }
 
-    override fun canKickUser(): Boolean = service?.canKickUser() ?: false
+    override fun canKickUser(): Boolean = service?.permissions?.canKickUser() ?: false
 
-    override fun canBanUser(): Boolean = service?.canBanUser() ?: false
+    override fun canBanUser(): Boolean = service?.permissions?.canBanUser() ?: false
 
     override fun canRegisterUser(user: User): Boolean =
-        service?.canRegisterUser(user) ?: false
+        service?.permissions?.canRegisterUser(user) ?: false
 
-    override fun supportsSelectiveBan(): Boolean = service?.supportsSelectiveBan() ?: false
+    override fun supportsSelectiveBan(): Boolean = service?.permissions?.supportsSelectiveBan() ?: false
     override fun requestUserStats(session: Int, statsOnly: Boolean) {
-        service?.requestUserStats(session, statsOnly)
+        service?.adminCommands?.requestUserStats(session, statsOnly)
     }
-    override fun clearUserStats() { service?.clearUserStats() }
-    override fun sendChat(channelId: Int, text: String) { service?.sendChat(channelId, text) }
-    override fun sendPrivateChat(session: Int, text: String) { service?.sendPrivateChat(session, text) }
+    override fun clearUserStats() { service?.adminCommands?.clearUserStats() }
+    override fun sendChat(channelId: Int, text: String) { service?.chatCommands?.sendChat(channelId, text) }
+    override fun sendPrivateChat(session: Int, text: String) { service?.chatCommands?.sendPrivateChat(session, text) }
 
-    override fun canTextMessage(channelId: Int): Boolean = service?.canTextMessage(channelId) ?: false
+    override fun canTextMessage(channelId: Int): Boolean = service?.permissions?.canTextMessage(channelId) ?: false
 
-    override fun canListen(channelId: Int): Boolean = service?.canListen(channelId) ?: false
+    override fun canListen(channelId: Int): Boolean = service?.permissions?.canListen(channelId) ?: false
 
-    override fun supportsChannelListen(): Boolean = service?.supportsChannelListen() ?: false
+    override fun supportsChannelListen(): Boolean = service?.permissions?.supportsChannelListen() ?: false
 
     /** Desktop `qaChannelListen`: hear a channel without joining it. */
     override fun setChannelListening(channelId: Int, listen: Boolean) {
-        service?.setChannelListening(channelId, listen)
+        service?.channelCommands?.setChannelListening(channelId, listen)
     }
 
-    override fun canWriteChannel(channelId: Int): Boolean = service?.canWriteChannel(channelId) ?: false
+    override fun canWriteChannel(channelId: Int): Boolean = service?.permissions?.canWriteChannel(channelId) ?: false
 
-    override fun canAddChannel(channelId: Int): Boolean = service?.canAddChannel(channelId) ?: false
+    override fun canAddChannel(channelId: Int): Boolean = service?.permissions?.canAddChannel(channelId) ?: false
 
     override fun canMakePermanentChannel(channelId: Int): Boolean =
-        service?.canMakePermanentChannel(channelId) ?: false
+        service?.permissions?.canMakePermanentChannel(channelId) ?: false
 
-    override fun canLinkChannel(channelId: Int): Boolean = service?.canLinkChannel(channelId) ?: false
+    override fun canLinkChannel(channelId: Int): Boolean = service?.permissions?.canLinkChannel(channelId) ?: false
 
-    override fun canTraverse(channelId: Int): Boolean = service?.canTraverse(channelId) ?: false
+    override fun canTraverse(channelId: Int): Boolean = service?.permissions?.canTraverse(channelId) ?: false
 
-    override fun canSpeak(channelId: Int): Boolean = service?.canSpeak(channelId) ?: false
+    override fun canSpeak(channelId: Int): Boolean = service?.permissions?.canSpeak(channelId) ?: false
 
-    override fun canWhisper(channelId: Int): Boolean = service?.canWhisper(channelId) ?: false
+    override fun canWhisper(channelId: Int): Boolean = service?.permissions?.canWhisper(channelId) ?: false
 
-    override fun canEnter(channelId: Int): Boolean = service?.canEnter(channelId) ?: false
+    override fun canEnter(channelId: Int): Boolean = service?.permissions?.canEnter(channelId) ?: false
 
-    override fun canJoinChannel(channelId: Int): Boolean = service?.canJoinChannel(channelId) ?: false
+    override fun canJoinChannel(channelId: Int): Boolean = service?.permissions?.canJoinChannel(channelId) ?: false
 
-    override fun canEditAcl(channelId: Int): Boolean = service?.canEditAcl(channelId) ?: false
+    override fun canEditAcl(channelId: Int): Boolean = service?.permissions?.canEditAcl(channelId) ?: false
 
-    override fun canViewUserInfo(user: User): Boolean = service?.canViewUserInfo(user) ?: false
+    override fun canViewUserInfo(user: User): Boolean = service?.permissions?.canViewUserInfo(user) ?: false
 
-    override fun canResetUserContent(): Boolean = service?.canResetUserContent() ?: false
+    override fun canResetUserContent(): Boolean = service?.permissions?.canResetUserContent() ?: false
 
-    override fun linkChannel(targetId: Int) { service?.linkChannel(targetId) }
+    override fun linkChannel(targetId: Int) { service?.channelCommands?.linkChannel(targetId) }
 
-    override fun unlinkChannel(targetId: Int) { service?.unlinkChannel(targetId) }
+    override fun unlinkChannel(targetId: Int) { service?.channelCommands?.unlinkChannel(targetId) }
 
-    override fun unlinkAllChannels() { service?.unlinkAllChannels() }
+    override fun unlinkAllChannels() { service?.channelCommands?.unlinkAllChannels() }
 
     override fun createChannel(
         parentId: Int,
@@ -333,7 +333,7 @@ internal class ServiceSessionController(
         maxUsers: Int,
         password: String,
     ) {
-        service?.createChannel(parentId, name, description, position, temporary, maxUsers, password)
+        service?.channelCommands?.createChannel(parentId, name, description, position, temporary, maxUsers, password)
     }
 
     override fun updateChannel(
@@ -344,38 +344,38 @@ internal class ServiceSessionController(
         maxUsers: Int,
         password: String,
     ) {
-        service?.updateChannel(channelId, name, description, position, maxUsers, password)
+        service?.channelCommands?.updateChannel(channelId, name, description, position, maxUsers, password)
     }
 
-    override fun removeChannel(channelId: Int) { service?.removeChannel(channelId) }
+    override fun removeChannel(channelId: Int) { service?.channelCommands?.removeChannel(channelId) }
 
-    override fun requestChannelDescription(channelId: Int) { service?.requestChannelDescription(channelId) }
+    override fun requestChannelDescription(channelId: Int) { service?.channelCommands?.requestChannelDescription(channelId) }
 
-    override fun requestChannelAcl(channelId: Int) { service?.requestChannelAcl(channelId) }
+    override fun requestChannelAcl(channelId: Int) { service?.adminCommands?.requestChannelAcl(channelId) }
 
     override fun sendChannelAcl(snapshot: ChanAclSnapshot) {
-        service?.sendChannelAcl(snapshot)
+        service?.adminCommands?.sendChannelAcl(snapshot)
     }
 
     override fun channelAclSnapshot(): ChanAclSnapshot? = service?.channelAcl?.value
 
     override fun aclUserNames(): AclUserNames = service?.aclUserNames?.value ?: AclUserNames()
 
-    override fun queryAclUsersByName(names: List<String>) { service?.queryAclUsersByName(names) }
+    override fun queryAclUsersByName(names: List<String>) { service?.adminCommands?.queryAclUsersByName(names) }
 
-    override fun queryAclUsersById(ids: List<Int>) { service?.queryAclUsersById(ids) }
+    override fun queryAclUsersById(ids: List<Int>) { service?.adminCommands?.queryAclUsersById(ids) }
 
     override fun setUserComment(session: Int, comment: String) {
-        service?.setUserComment(session, comment)
+        service?.adminCommands?.setUserComment(session, comment)
     }
 
-    override fun resetUserComment(session: Int) { service?.resetUserComment(session) }
+    override fun resetUserComment(session: Int) { service?.adminCommands?.resetUserComment(session) }
 
     override fun setUserTexture(session: Int, texture: ByteArray) {
-        service?.setUserTexture(session, texture)
+        service?.adminCommands?.setUserTexture(session, texture)
     }
 
-    override fun resetUserTexture(session: Int) { service?.resetUserTexture(session) }
+    override fun resetUserTexture(session: Int) { service?.adminCommands?.resetUserTexture(session) }
 
     private fun hasMicrophonePermission(): Boolean {
         return ContextCompat.checkSelfPermission(app, android.Manifest.permission.RECORD_AUDIO) ==
