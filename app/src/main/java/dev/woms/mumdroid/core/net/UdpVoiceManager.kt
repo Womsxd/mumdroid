@@ -4,9 +4,6 @@ import android.os.SystemClock
 import android.util.Log
 import dev.woms.mumdroid.core.audio.OpusCodec
 import dev.woms.mumdroid.core.audio.OpusImplementation
-import dev.woms.mumdroid.core.audio.VoiceFrameCounter
-import dev.woms.mumdroid.core.crypto.CryptOCB2
-import dev.woms.mumdroid.core.crypto.CryptState
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -18,23 +15,16 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Manages the UDP voice channel used to send and receive encrypted voice and
- * ping traffic, mirroring the official Mumble client behaviour.
+ * ping traffic, mirroring the official Mumble client's transport behaviour.
  *
- * ## Framing
- * The whole packet (header byte + payload) is encrypted with the OCB2
- * [CryptState] format, producing a datagram of
- * `[4-byte OCB2 overhead][enc(header|payload)]` — the encryption is identical
- * for both protocol generations (the official client uses `CryptStateOCB2`
- * for the protobuf-framed protocol as well).
- *
- * After decryption the leading byte selects the framing:
- *  - **Legacy** (`protobufMode == false`, servers < 1.5.0):
- *    `(type << 5) | target/context` where the type selects the message kind:
- *     0 = CELT Alpha, 1 = Ping, 2 = Speex, 3 = CELT Beta, 4 = Opus.
- *  - **Protobuf** (`protobufMode == true`, servers >= 1.5.0):
- *    the header byte directly selects the message type
- *    ([ProtoUdpCodec.HEADER_AUDIO] = Audio, [ProtoUdpCodec.HEADER_PING] = Ping)
- *    followed by a serialized MumbleUDP protobuf message.
+ * This class owns the transport concerns only: socket lifecycle, the receive
+ * loop with peer filtering, and the send path with its OCB2 send buffer. The
+ * protocol policy lives in dedicated collaborators:
+ *  - [VoiceFraming] — legacy/protobuf body build and decode (both protocol
+ *    generations; see its KDoc for the framing layouts),
+ *  - [UdpVoiceCrypto] — the OCB2 state plus the official 5-second
+ *    decryption-failure resync rule,
+ *  - [UdpPingTracker] — UDP round-trip-time statistics.
  *
  * As in the official client, only Opus audio is decoded; the obsolete CELT /
  * Speex codecs are dropped. Pings are sent periodically to detect UDP
@@ -59,9 +49,6 @@ class UdpVoiceManager(
         // voice channel, so we align with the official 5-second interval.
         private const val PING_INTERVAL_MS = 5_000L
         private const val RECEIVE_POLL_MS = 250
-
-        /** If decryption keeps failing for this long, request a crypt resync. */
-        private const val RESYNC_AFTER_MS = 5000L
 
         /**
          * Official `udpReady` drops datagrams whose source is not the TCP
@@ -96,9 +83,6 @@ class UdpVoiceManager(
     }
 
     interface Listener {
-        /** Decoded PCM from a remote user (legacy / tests). */
-        fun onAudio(session: Int, pcm: ShortArray) {}
-
         /**
          * Encoded Opus from a remote user, stamped with official
          * `frameNumber` (10 ms units). Playback reorders and conceals.
@@ -126,7 +110,12 @@ class UdpVoiceManager(
         fun onTalking(session: Int, talking: Boolean) {}
     }
 
-    private val crypt = CryptState()
+    /** Monotonic source for ping timestamps and local timeouts (official `QElapsedTimer`). */
+    private val clock = { SystemClock.elapsedRealtime() }
+
+    private val crypto = UdpVoiceCrypto(clock)
+    private val framing = VoiceFraming(clock)
+    private val pingTracker = UdpPingTracker()
     private val sendLock = Any()
     private val encryptPacket = ByteArray(MAX_PACKET)
     private val opus = OpusCodec(opusImplementation)
@@ -136,9 +125,6 @@ class UdpVoiceManager(
     @Volatile
     private var listener: Listener? = null
 
-    /** Monotonic source for ping timestamps and local timeouts (official `QElapsedTimer`). */
-    private val clock = { SystemClock.elapsedRealtime() }
-
     /** Last UDP ping send; 0 until the receive loop has entered `receive()`. */
     private var lastPingSentMs = 0L
 
@@ -147,18 +133,6 @@ class UdpVoiceManager(
     private var peerAddress: InetAddress? = null
     @Volatile
     private var peerPort: Int = 0
-
-    /** Monotonic ms of the last successful UDP decryption (for resync detection). */
-    @Volatile
-    private var lastGoodUdpMs = 0L
-
-    /** Official `tLastGood` starts when crypto is armed, not at first success. */
-    @Volatile
-    private var cryptoReadyMs = 0L
-
-    /** Monotonic ms of the last crypt-resync request we issued. */
-    @Volatile
-    private var lastResyncRequestMs = 0L
 
     /** Opus encode bitrate in bits-per-second (0 = codec default). */
     @Volatile
@@ -178,36 +152,42 @@ class UdpVoiceManager(
     /** Marks the voice socket for low-latency prioritisation (QoS). */
     var qualityOfService: Boolean = false
 
-    /** Whether UDP pings are sent periodically (enabled once crypto is ready). */
-    @Volatile
-    var pingEnabled: Boolean = true
-
     /**
      * The UDP framing negotiated with the server: `true` for the protobuf
      * framing of Mumble >= 1.5.0 servers, `false` for the legacy framing.
-     * Determined from the server's reported protocol version.
+     * See [VoiceFraming.protobufMode].
      */
-    @Volatile
-    var protobufMode: Boolean = false
+    var protobufMode: Boolean
+        get() = framing.protobufMode
+        set(value) {
+            framing.protobufMode = value
+        }
 
     /**
      * Invoked when UDP decryption keeps failing (mirrors the official client's
      * 5-second rule); the owner should send an empty CryptSetup over TCP to
-     * request a nonce resync from the server.
+     * request a nonce resync from the server. See [UdpVoiceCrypto].
      */
-    @Volatile
-    var onRequestCryptResync: (() -> Unit)? = null
-
-    private var localSession = 0
-
-    /**
-     * Outgoing `frameNumber` in 10 ms units (official `iFrameCounter`).
-     * A 20 ms packet is stamped N then advances to N+2.
-     */
-    private val frameCounter = VoiceFrameCounter(clock = clock)
+    var onRequestCryptResync: (() -> Unit)?
+        get() = crypto.onRequestCryptResync
+        set(value) {
+            crypto.onRequestCryptResync = value
+        }
 
     /** Whether the UDP voice channel has been started. */
     val isRunning: Boolean get() = running.get()
+
+    /** Average UDP ping round-trip time in milliseconds (0 when no ping yet). */
+    val averageUdpPing: Long
+        get() = pingTracker.meanMillis
+
+    /** Number of UDP ping round-trips measured so far. */
+    val udpPingCount: Int
+        get() = pingTracker.count
+
+    /** Population variance of measured UDP RTTs, in ms². */
+    val udpPingVariance: Float
+        get() = pingTracker.varianceMillisSquared
 
     /** Registers the playback listener without opening the UDP socket (force-TCP). */
     fun setListener(listener: Listener) {
@@ -216,76 +196,30 @@ class UdpVoiceManager(
 
     /**
      * Sets the OCB2 key and the client/server nonces from CryptSetup.
-     * A full delivery is a fresh crypto context: [CryptState.setKey] clears
+     * A full delivery is a fresh crypto context: [UdpVoiceCrypto.setup] clears
      * the replay history and packet statistics, so key rotations and
      * re-delivered setups cannot inherit state from a previous session.
      */
-    fun setupCryptography(key: ByteArray, clientNonce: ByteArray, serverNonce: ByteArray) {
-        if (!crypt.setKey(key, clientNonce, serverNonce)) return
-        if (cryptoReadyMs == 0L) cryptoReadyMs = clock()
-    }
+    fun setupCryptography(key: ByteArray, clientNonce: ByteArray, serverNonce: ByteArray) =
+        crypto.setup(key, clientNonce, serverNonce)
 
     /**
-     * Adopts a new decryption IV delivered via CryptSetup resync.
-     * Mirrors official client `msgCryptSetup`: size check, then
-     * `m_statsLocal.resync++`, then `setDecryptIV`. Full key delivery
-     * must go through [setupCryptography] instead.
+     * Adopts a new decryption IV delivered via CryptSetup resync
+     * (official `msgCryptSetup`: size check, `m_statsLocal.resync++`,
+     * `setDecryptIV`).
      */
-    fun resyncDecryptIV(iv: ByteArray): Boolean {
-        if (iv.size != CryptOCB2.NONCE_SIZE) return false
-        crypt.incrementResync()
-        return crypt.setDecryptIV(iv)
-    }
+    fun resyncDecryptIV(iv: ByteArray): Boolean = crypto.resyncDecryptIV(iv)
 
     /** The current encryption IV, or null when crypto is not ready. */
-    fun encryptIV(): ByteArray? = crypt.getEncryptIV()
+    fun encryptIV(): ByteArray? = crypto.encryptIV()
 
-    /** @return the legacy OCB2 packet statistics (good/late/lost/resync)
+    /** @return the legacy OCB2 voice-packet statistics (good/late/lost/resync)
      *          accumulated by the decrypt path, so they can be reported in the
      *          TCP Ping (the PC admin's user info shows them). */
-    fun packetStats(): CryptStats = CryptStats(
-        good = crypt.goodPackets,
-        late = crypt.latePackets,
-        lost = crypt.lostPackets,
-        resync = crypt.resyncPackets,
-    )
+    fun packetStats(): UdpVoiceCrypto.CryptStats = crypto.packetStats()
 
-    /** Legacy OCB2 voice-packet counters (good/late/lost/resync). */
-    data class CryptStats(val good: Int, val late: Int, val lost: Int, val resync: Int)
-
-    /** Average UDP ping round-trip time in milliseconds (0 when no ping yet). */
-    val averageUdpPing: Long
-        get() = synchronized(pingStatsLock) {
-            if (udpPingSamples > 0) udpPingTotal / udpPingSamples else 0L
-        }
-
-    /** Number of UDP ping round-trips measured so far. */
-    val udpPingCount: Int
-        get() = synchronized(pingStatsLock) { udpPingSamples }
-
-    /** Population variance of measured UDP RTTs, in ms². */
-    val udpPingVariance: Float
-        get() = synchronized(pingStatsLock) {
-            if (udpPingSamples <= 0) {
-                0f
-            } else {
-                val mean = udpPingTotal.toDouble() / udpPingSamples
-                (udpPingSumSq / udpPingSamples - mean * mean).toFloat().coerceAtLeast(0f)
-            }
-        }
-
-    // Running UDP RTT accumulator for reporting an average to the server.
-    // Written by the UDP receive thread, read by the TCP ping thread
-    // (buildConnectionStats) and the UI. Guarded by a lock rather than
-    // atomics: the Double sum is two 32-bit halves without volatile on
-    // 32-bit JVMs (torn reads), and the variance needs a consistent
-    // cross-field snapshot — per-field atomics could pair a new samples
-    // count with a stale sum. Lock traffic is negligible (one write per
-    // ping, a few reads per second).
-    private val pingStatsLock = Any()
-    private var udpPingTotal = 0L
-    private var udpPingSamples = 0
-    private var udpPingSumSq = 0.0
+    /** @return whether the OCB2 crypto state is ready to encrypt/decrypt. */
+    fun isCryptoReady(): Boolean = crypto.isReady
 
     /**
      * Applies the configured Opus encode settings (bitrate, frame size and
@@ -299,9 +233,6 @@ class UdpVoiceManager(
         }
     }
 
-    /** @return whether the OCB2 crypto state is ready to encrypt/decrypt. */
-    fun isCryptoReady(): Boolean = crypt.isReady
-
     /** Encodes a PCM frame into an Opus payload. */
     fun encodeOpus(pcm: ShortArray): ByteArray? = opus.encode(pcm)
 
@@ -314,51 +245,9 @@ class UdpVoiceManager(
     /** Official `OPUS_RESET_STATE` at the start of a talk spurt. */
     fun resetEncoder() = opus.resetEncoder()
 
-    /** Builds the legacy UDP header byte for a normal Opus talk packet. */
-    fun talkHeaderByte(): Byte = UdpPacketCodec.talkHeaderByte()
-
-    /**
-     * Decrypts a complete legacy/protobuf voice datagram
-     * (`[4-byte OCB2 overhead][ciphertext]`) and returns the plaintext
-     * `[header|payload]`, or null on failure. Mirrors the official client's
-     * 5-second rule: when decryption keeps failing, a crypt-nonce resync is
-     * requested via [onRequestCryptResync].
-     */
-    fun decryptVoicePacket(packet: ByteArray): ByteArray? =
-        decryptVoicePacket(packet, 0, packet.size)
-
-    /**
-     * Decrypts `packet[offset, offset+length)` without copying the datagram
-     * first; [offset] is the start of the 4-byte OCB2 header.
-     */
-    fun decryptVoicePacket(packet: ByteArray, offset: Int, length: Int): ByteArray? {
-        val plain = crypt.decrypt(packet, offset, length)
-        if (plain != null) {
-            lastGoodUdpMs = clock()
-            lastResyncRequestMs = 0L
-        } else if (isCryptoReady()) {
-            val now = clock()
-            // Official tLastGood starts at construction, so a never-successful
-            // decrypt still resyncs after 5 s. lastGoodUdpMs==0 used to skip that.
-            val baseline = if (lastGoodUdpMs != 0L) lastGoodUdpMs else cryptoReadyMs
-            if (baseline != 0L && now - baseline > RESYNC_AFTER_MS) {
-                val lastRequest = lastResyncRequestMs
-                if (lastRequest == 0L || now - lastRequest > RESYNC_AFTER_MS) {
-                    lastResyncRequestMs = now
-                    onRequestCryptResync?.invoke()
-                }
-            }
-        }
-        return plain
-    }
-
     private fun outgoingFrameCount(sampleCount: Int? = null): Int {
         val samples = sampleCount ?: (OpusCodec.FRAME_SIZE_10MS * framesPerPacket.coerceIn(1, 6))
         return OpusCodec.encodedTenMsFrames(samples).coerceAtLeast(1)
-    }
-
-    fun setLocalSession(session: Int) {
-        localSession = session
     }
 
     /**
@@ -460,7 +349,7 @@ class UdpVoiceManager(
     }
 
     private fun maybeSendPing() {
-        if (!pingEnabled || !crypt.isReady || !running.get()) return
+        if (!crypto.isReady || !running.get()) return
         val now = clock()
         // Prime the clock on the first pass so the first ping waits a full
         // interval (official TCP ticker). Sending immediately after bind
@@ -484,104 +373,24 @@ class UdpVoiceManager(
         if (length > MAX_PACKET) return
         // The datagram is `[4-byte OCB2 overhead][ciphertext]`; the framing
         // header byte is inside the encrypted payload, so decrypt the whole
-        // datagram first.
-        val plain = decryptVoicePacket(data, 0, length) ?: return
-        if (plain.isEmpty()) return
-
-        if (protobufMode) {
-            handleProtobufPacket(plain)
-        } else {
-            handleLegacyPacket(plain)
-        }
-    }
-
-    /** Handles a decrypted protobuf-framed (Mumble >= 1.5.0) packet. */
-    private fun handleProtobufPacket(plain: ByteArray) {
-        when (plain[0].toInt() and 0xff) {
-            ProtoUdpCodec.HEADER_PING -> {
-                val ts = ProtoUdpCodec.decodePing(plain, 1, plain.size - 1)
-                if (ts != null && ts > 0) {
-                    val rtt = clock() - ts
-                    if (rtt in 0..60_000) {
-                        recordPingRtt(rtt)
-                    }
+        // datagram first (the 5-second resync rule lives in [UdpVoiceCrypto]).
+        val plain = crypto.decrypt(data, 0, length) ?: return
+        when (val decoded = framing.decodeDatagram(plain)) {
+            is VoiceFraming.Decoded.Ping -> recordPingRtt(decoded.timestamp)
+            is VoiceFraming.Decoded.Audio -> handleDecodedFrame(
+                decoded.session,
+                decoded.frameNumber,
+                decoded.payload,
+                decoded.isLastFrame,
+            )
+            VoiceFraming.Decoded.Unknown ->
+                if (plain.isNotEmpty()) {
+                    Log.d(
+                        TAG,
+                        "Ignoring unknown UDP voice packet header=0x%02x"
+                            .format(plain[0].toInt() and 0xff),
+                    )
                 }
-            }
-            ProtoUdpCodec.HEADER_AUDIO -> handleOpusAudio(plain)
-            else -> Log.d(TAG, "Ignoring unknown protobuf UDP header=${plain[0].toInt()}")
-        }
-    }
-
-    /** Handles a decrypted legacy-framed packet. */
-    private fun handleLegacyPacket(plain: ByteArray) {
-        // Extended legacy ping replies from the server are header-less 24-byte
-        // blocks: [4B server version (BE)][8B echoed timestamp][4B users]
-        // [4B max users][4B max bandwidth]. This check MUST come before the
-        // protobuf-ping-header check below: the first byte is the most
-        // significant byte of the BE server version, and every major=1
-        // server (i.e. virtually all of them) carries 0x01 there — treating
-        // the header check as first-class would swallow the extended ping as
-        // a bogus protobuf ping (protobuf parsing is lenient, so it can
-        // "succeed" with a garbage timestamp). The official UDPDecoder
-        // (MumbleProtocol.cpp) checks the header first and returns the
-        // protobuf result unconditionally, so it drops these extended pings
-        // whenever the 23-byte tail happens to parse; routing by length here
-        // is strictly more robust, and real protobuf pings never reach 24
-        // bytes (a serialised Ping body tops out around 14 bytes), so the
-        // size check is unambiguous.
-        if (plain.size == 24) {
-            handleExtendedPing(plain)
-            return
-        }
-
-        // Mirrors the official UDPDecoder::decode (client role): in legacy mode
-        // a packet whose first byte equals the *protobuf* ping header byte
-        // (0x01) is treated as a protobuf-framed ping, since peers whose version
-        // we have not negotiated may already speak the new framing.
-        if (plain[0].toInt() == ProtoUdpCodec.HEADER_PING) {
-            val ts = ProtoUdpCodec.decodePing(plain, 1, plain.size - 1)
-            if (ts != null && ts > 0) {
-                val rtt = clock() - ts
-                // Same sanity rule as the other ping paths: replies that
-                // cannot be tied to one of our recent pings (clock skew,
-                // bogus echo) are dropped instead of recorded as 0 ms.
-                if (rtt in 0..60_000) {
-                    recordPingRtt(rtt)
-                }
-                return
-            }
-        }
-
-        val header = plain[0].toInt() and 0xff
-        val type = (header ushr 5) and 0x07
-
-        when (type) {
-            UdpType.PING -> handlePing(plain)
-            UdpType.VOICE_OPUS -> handleOpusAudio(plain)
-            UdpType.VOICE_CELT_ALPHA, UdpType.VOICE_CELT_BETA, UdpType.VOICE_SPEEX ->
-                // Obsolete codecs are no longer supported by the official client.
-                Log.d(TAG, "Dropping legacy audio packet using obsolete codec type=$type")
-            else ->
-                Log.d(TAG, "Ignoring unknown UDP message type=$type")
-        }
-    }
-
-    /**
-     * Parses and plays an Opus audio packet.
-     *
-     * Legacy framing: `[header][senderSession varint][frameNumber varint][size varint][opus]`.
-     * Protobuf framing: `[header][Audio protobuf]`.
-     *
-     * Each speaker gets its own decoder state; a shared decoder mixes speakers
-     * and causes the "starts fine then always noisy" artifact.
-     */
-    private fun handleOpusAudio(plain: ByteArray) {
-        if (protobufMode) {
-            val audio = ProtoUdpCodec.decodeAudio(plain, 1, plain.size - 1) ?: return
-            handleDecodedFrame(audio.session, audio.frameNumber, audio.payload, audio.isLastFrame)
-        } else {
-            val p = UdpPacketCodec.parseLegacyOpusFull(plain) ?: return
-            handleDecodedFrame(p.session, p.frameNumber, p.payload, p.isLastFrame)
         }
     }
 
@@ -596,79 +405,27 @@ class UdpVoiceManager(
     }
 
     /**
-     * Decodes a plaintext UDPTunnel body. Tries protobuf then legacy so a
-     * fallback session still plays when the negotiated framing disagrees
-     * with the tunneled header (force-TCP only ever used [handleOpusAudio]).
+     * Plays a plaintext UDPTunnel body (force-TCP fallback). The dispatch in
+     * [VoiceFraming.decodeTunneled] is framing-lenient so a fallback session
+     * still plays when the negotiated framing disagrees with the tunneled
+     * header.
      */
     fun playTunneled(body: ByteArray) {
-        if (body.isEmpty()) return
-        val header = body[0].toInt() and 0xff
-        if (header == ProtoUdpCodec.HEADER_AUDIO) {
-            ProtoUdpCodec.decodeAudio(body, 1, body.size - 1)?.let {
-                handleDecodedFrame(it.session, it.frameNumber, it.payload, it.isLastFrame)
-                return
-            }
-        }
-        UdpPacketCodec.parseLegacyOpusFull(body)?.let {
-            handleDecodedFrame(it.session, it.frameNumber, it.payload, it.isLastFrame)
-        }
+        val decoded = framing.decodeTunneled(body) ?: return
+        handleDecodedFrame(decoded.session, decoded.frameNumber, decoded.payload, decoded.isLastFrame)
     }
 
     /**
-     * Handles a legacy connectivity-ping reply: `[header][varint timestamp]`.
-     * The server echoes the timestamp we sent, so the round-trip time is
-     * `now - timestamp`.
+     * Records a ping round trip: the server echoes the timestamp we sent, so
+     * the RTT is `now - timestamp`. Echoes that cannot be tied to one of our
+     * recent pings (clock skew, bogus echo) are dropped by
+     * [UdpPingTracker.record] instead of being recorded as 0 ms samples.
      */
-    private fun handlePing(plain: ByteArray) {
-        val ts = UdpPacketCodec.readPingTimestamp(plain) ?: return
-        val rtt = clock() - ts
-        // Same sanity rule as the extended ping: replies that cannot be tied
-        // to one of our recent pings (clock skew, bogus echo, ts <= 0) are
-        // dropped instead of recorded as 0 ms samples.
-        if (ts <= 0 || rtt !in 0..60_000) return
-        recordPingRtt(rtt)
-    }
-
-    /**
-     * Handles a header-less 24-byte extended legacy ping reply from the server:
-     * `[4B server version (BE)][8B echoed timestamp][4B users][4B max users]
-     * [4B max bandwidth]`. The timestamp is the raw 64-bit value the client
-     * sent (written little-endian by us and copied verbatim by the server).
-     */
-    private fun handleExtendedPing(plain: ByteArray) {
-        val ts = ServerPingCodec.decode(plain)?.timestamp ?: return
-        val rtt = clock() - ts
-        // A bogus timestamp or an out-of-range RTT means this reply cannot be
-        // tied to one of our pings (malformed or spoofed). Dropping the sample
-        // keeps the mean/variance clean; recording 0 would drag the average
-        // down and inflate the variance. The official decoder matches this
-        // semantics: packets that do not decode are silently discarded before
-        // any statistics are updated (ServerHandler.cpp), and a sane reply
-        // always echoes our own timestamp, so a valid RTT lands in range.
-        if (ts <= 0 || rtt !in 0..60_000) return
-        recordPingRtt(rtt)
-    }
-
-    /** Records a measured UDP RTT and notifies the listener (when present). */
-    private fun recordPingRtt(rttMillis: Long) {
-        synchronized(pingStatsLock) {
-            udpPingSamples++
-            udpPingTotal += rttMillis
-            udpPingSumSq += rttMillis.toDouble() * rttMillis
-        }
-        listener?.onUdpPing(rttMillis)
-    }
-
-    /**
-     * Plaintext connectivity-ping body (protobuf or legacy). Used encrypted
-     * on UDP and as a UDPTunnel payload so murmur sets `aiUdpFlag = 0`.
-     */
-    fun plaintextPingBody(): ByteArray {
-        val timestamp = clock()
-        return if (protobufMode) {
-            ProtoUdpCodec.encodePing(timestamp)
-        } else {
-            UdpPacketCodec.encodePing(timestamp)
+    private fun recordPingRtt(echoedTimestamp: Long) {
+        if (echoedTimestamp <= 0) return
+        val rtt = clock() - echoedTimestamp
+        if (pingTracker.record(rtt)) {
+            listener?.onUdpPing(rtt)
         }
     }
 
@@ -678,38 +435,8 @@ class UdpVoiceManager(
      * `[header][varint timestamp]` framing otherwise.
      */
     private fun sendPing() {
-        if (!crypt.isReady || !running.get()) return
-        encryptAndSend(plaintextPingBody())
-    }
-
-    /**
-     * Sends an Opus audio packet to the server (normal talking). The header
-     * byte, frame-number/size fields (legacy) or protobuf Audio message
-     * (protobuf) are encrypted together with the Opus payload.
-     *
-     * @param isLastFrame set on the final packet of an utterance
-     *        (legacy: 0x2000 size-flag / protobuf: is_terminator), mirroring
-     *        the official client's end-of-transmission marker.
-     */
-    @JvmOverloads
-    fun sendAudio(pcm: ShortArray, isLastFrame: Boolean = false): Boolean {
-        if (!crypt.isReady) return false
-        val encoded = opus.encode(pcm) ?: return false
-        return sendEncoded(encoded, isLastFrame, outgoingFrameCount(pcm.size))
-    }
-
-    /**
-     * Encrypts and sends an already encoded Opus payload as a voice packet.
-     * @return false when the datagram could not be written (caller should
-     *         tunnel the same plaintext over TCP, like official `!bUdp`).
-     */
-    fun sendEncoded(
-        payload: ByteArray,
-        isLastFrame: Boolean = false,
-        frameCount: Int = outgoingFrameCount(),
-    ): Boolean {
-        if (!crypt.isReady || socket == null) return false
-        return encryptAndSend(buildVoiceBody(payload, isLastFrame, frameCount))
+        if (!crypto.isReady || !running.get()) return
+        encryptAndSend(framing.pingBody())
     }
 
     /**
@@ -718,7 +445,7 @@ class UdpVoiceManager(
      * (and sequence number) without encoding twice.
      */
     fun sendPlaintextUdp(body: ByteArray): Boolean {
-        if (!crypt.isReady || socket == null) return false
+        if (!crypto.isReady || socket == null) return false
         return encryptAndSend(body)
     }
 
@@ -728,7 +455,7 @@ class UdpVoiceManager(
      */
     private fun encryptAndSend(plain: ByteArray): Boolean {
         synchronized(sendLock) {
-            val n = crypt.encrypt(plain, encryptPacket)
+            val n = crypto.encrypt(plain, encryptPacket)
             if (n < 0) return false
             return sendDatagram(encryptPacket, n)
         }
@@ -763,24 +490,6 @@ class UdpVoiceManager(
     }
 
     /**
-     * Builds the full plaintext voice packet body (header + payload in the
-     * negotiated framing) used both as the OCB2-encrypted UDP datagram and as
-     * the plaintext body of a force-TCP UDPTunnel message.
-     */
-    private fun buildVoiceBody(
-        payload: ByteArray,
-        isLastFrame: Boolean,
-        frameCount: Int = outgoingFrameCount(),
-    ): ByteArray {
-        val frameNumber = frameCounter.allocate(frameCount)
-        return if (protobufMode) {
-            ProtoUdpCodec.encodeAudio(frameNumber, payload, target = 0, isLastFrame = isLastFrame)
-        } else {
-            UdpPacketCodec.encodeLegacyOpus(payload, isLastFrame, frameNumber)
-        }
-    }
-
-    /**
      * Builds the plaintext body of a force-TCP UDPTunnel message. TCP is
      * already TLS-encrypted, so the full voice packet is sent WITHOUT OCB2
      * encryption, mirroring the official client's force-TCP branch.
@@ -790,37 +499,7 @@ class UdpVoiceManager(
         payload: ByteArray,
         isLastFrame: Boolean = false,
         frameCount: Int = outgoingFrameCount(),
-    ): ByteArray = buildVoiceBody(payload, isLastFrame, frameCount)
-
-    /** Decoded tunneled audio with terminator flag. */
-    data class TunnelAudio(val session: Int, val payload: ByteArray, val isLastFrame: Boolean)
-
-    /**
-     * Decodes the plaintext body of a received UDPTunnel message into the
-     * sender session and raw Opus payload (framing-aware).
-     */
-    fun decodeTunnelBody(body: ByteArray): Pair<Int, ByteArray>? {
-        val t = decodeTunnelBodyFull(body) ?: return null
-        return t.session to t.payload
-    }
-
-    fun decodeTunnelBodyFull(body: ByteArray): TunnelAudio? {
-        return if (protobufMode) {
-            if (body.isEmpty()) return null
-            val audio = if (body[0].toInt() == ProtoUdpCodec.HEADER_AUDIO) {
-                ProtoUdpCodec.decodeAudio(body, 1, body.size - 1)
-            } else {
-                ProtoUdpCodec.decodeAudio(body)
-            }
-            audio?.let {
-                TunnelAudio(it.session, it.payload, it.isLastFrame)
-            }
-        } else {
-            UdpPacketCodec.parseLegacyOpusFull(body)?.let {
-                TunnelAudio(it.session, it.payload, it.isLastFrame)
-            }
-        }
-    }
+    ): ByteArray = framing.buildVoiceBody(payload, isLastFrame, frameCount)
 
     /**
      * Closes the datagram socket and ping loop but keeps crypto/codec so
@@ -851,11 +530,8 @@ class UdpVoiceManager(
         // Full teardown: wipe the OCB2 key/history/stats so no crypto state
         // survives across sessions. (stopDatagram above deliberately keeps
         // crypto for the TCP-tunnel fallback — only close() discards it.)
-        crypt.reset()
-        frameCounter.reset()
-        lastGoodUdpMs = 0L
-        cryptoReadyMs = 0L
-        lastResyncRequestMs = 0L
+        crypto.reset()
+        framing.reset()
         opus.close()
     }
 }

@@ -83,7 +83,7 @@ dev.woms.mumdroid
 ├── core/                   Framework-free layers
 │   ├── proto/              Protobuf (lite) generated Mumble messages + codecs
 │   ├── crypto/             OCB2-AES128 (CryptOCB2) and CryptState key material
-│   ├── net/                MumbleClient (TCP/TLS), UdpVoiceManager, ping probes
+│   ├── net/                MumbleClient (TCP/TLS), UdpVoiceManager + voice framing/crypto/ping, ping probes
 │   ├── audio/              Opus codec, capture, playback, jitter buffer, DSP JNI
 │   ├── i18n/               Runtime locale switching
 │   └── model/              Channel / User / Server / settings data classes

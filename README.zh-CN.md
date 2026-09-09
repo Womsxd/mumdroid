@@ -83,7 +83,7 @@ dev.woms.mumdroid
 ├── core/                   框架无关层
 │   ├── proto/              Protobuf（lite）生成的 Mumble 消息 + 编解码
 │   ├── crypto/             OCB2-AES128（CryptOCB2）与 CryptState 密钥材料
-│   ├── net/                MumbleClient（TCP/TLS）、UdpVoiceManager、ping 探测
+│   ├── net/                MumbleClient（TCP/TLS）、UdpVoiceManager + 语音分帧/加密/ping 统计、ping 探测
 │   ├── audio/              Opus 编解码、采集、播放、抖动缓冲、DSP JNI
 │   ├── i18n/               运行时语言切换
 │   └── model/              频道 / 用户 / 服务器 / 设置数据类

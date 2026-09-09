@@ -324,7 +324,6 @@ internal class VoiceSession(
 
     fun maybeStartUdp() {
         val udpManager = udp ?: return
-        udpManager.setLocalSession(callbacks.localSession())
         udpManager.protobufMode = protobufMode
         udpManager.onRequestCryptResync = { callbacks.client()?.requestCryptResync() }
         configureUdpCodec(udpManager)
