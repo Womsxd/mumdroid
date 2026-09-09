@@ -1,32 +1,46 @@
 package dev.woms.mumdroid.service
 
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
-import android.os.SystemClock
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.audio.AudioInput
 import dev.woms.mumdroid.core.audio.AudioOutput
-import dev.woms.mumdroid.core.audio.OpusCodec
-import dev.woms.mumdroid.core.audio.VoiceBandwidth
-import dev.woms.mumdroid.core.audio.VoicePlaybackRouter
-import dev.woms.mumdroid.core.audio.VoiceRouteSelection
 import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.SelfMuteDeaf
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.net.MumbleClient
-import dev.woms.mumdroid.core.net.UdpAvailability
 import dev.woms.mumdroid.core.net.UdpVoiceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Capture, playback, PTT/VAD gating, and the UDP/TCP voice path.
+ * Audio endpoint orchestration for a connected session: capture and playback
+ * lifecycles, PTT/VAD gating, self-mute/deafen, and the wiring between the
+ * audio endpoints and the UDP/TCP voice transport.
+ *
+ * Focused collaborators own the individual policies:
+ *  - [VoiceTransmitter] — outgoing frames: the hold-one-frame utterance
+ *    state machine and the UDP → TCP-tunnel send fallback,
+ *  - [VoiceBandwidthController] — bitrate/packet-size adaptation to the
+ *    server's `max_bandwidth`,
+ *  - [UdpFallbackController] — UDP availability state and the fallback /
+ *    restore decisions,
+ *  - [VoiceRouteController] — output device selection and the
+ *    media/communication routing policy (this class implements
+ *    [VoiceRouteHost] to supply the live audio endpoints).
+ *
+ * Threading: methods are entered from the TCP-reader thread, the ping
+ * scheduler, `Dispatchers.Default` workers, the main thread and the
+ * audio capture / UDP receive / playback threads. The original field
+ * visibility semantics are preserved (@Volatile where it was before, no new
+ * locks); StateFlow emission is thread-safe.
  */
 internal class VoiceSession(
     audioManager: AudioManager,
     private val callbacks: Callbacks,
-) {
+) : VoiceRouteHost {
 
     interface Callbacks {
         fun settings(): AppSettings
@@ -43,21 +57,23 @@ internal class VoiceSession(
         fun getString(id: Int, vararg formatArgs: Any): String
     }
 
-    val playbackRouter = VoicePlaybackRouter(
-        audioManager,
-        onDevicesChanged = {
-            if (audioOutput != null) applyOutputRoute()
-        },
-        onInputDeviceChanged = { device ->
-            audioInput?.setPreferredDevice(device)
-        },
-        onOutputDeviceChanged = { device ->
-            audioOutput?.setPreferredDevice(device)
+    private val routeController = VoiceRouteController(audioManager, host = this)
+
+    private val bandwidth = VoiceBandwidthController(
+        onBandwidthAdjusted = { serverMaxKbps, adjustedKbps, framesMs ->
+            callbacks.appendSystemMessage(
+                callbacks.getString(R.string.bandwidth_auto_adjusted, serverMaxKbps, adjustedKbps, framesMs),
+            )
         },
     )
 
-    private val _outputTarget = MutableStateFlow<VoiceOutputTarget?>(null)
-    val outputTarget: StateFlow<VoiceOutputTarget?> = _outputTarget
+    private val fallback = UdpFallbackController()
+
+    private val transmitter = VoiceTransmitter(
+        channel = { udp },
+        useTcp = { useTcp },
+        sendTunneled = { body -> callbacks.client()?.sendTunneledVoice(body) },
+    )
 
     private val _selfMuted = MutableStateFlow(false)
     val selfMuted: StateFlow<Boolean> = _selfMuted
@@ -66,69 +82,48 @@ internal class VoiceSession(
     val selfDeafened: StateFlow<Boolean> = _selfDeafened
 
     private val _talking = MutableStateFlow(false)
-    val talking: StateFlow<Boolean> = _talking
-
     private val _vadLevel = MutableStateFlow(0)
-    val vadLevel: StateFlow<Int> = _vadLevel
 
     var udp: UdpVoiceManager? = null
     @Volatile
-    var protobufMode = false
-    @Volatile
-    var udpAvailable = true
-    @Volatile
-    var udpProbeStartMs = 0L
-    var serverMaxBandwidthBps = 0
-    var effectiveFramesPerPacket = 2
-    var effectiveBitrateBps = 40_000
+    private var protobufMode = false
 
-    private var sessionOutputOverride: VoiceOutputTarget? = null
-    private var routedMedia = false
-    private var routedAec: AecMode? = null
     private var halfDuplex = false
     private var voiceMode = VoiceMode.CONTINUOUS
     @Volatile
     private var pttHeld = false
     private var audioInput: AudioInput? = null
     private var audioOutput: AudioOutput? = null
-    private var lastBandwidthNoticeBitrate = 0
-    private var lastBandwidthNoticeFrames = 0
-    private var pendingVoicePcm: ShortArray? = null
-    private var pendingVoiceFrames = 0
-    private var voiceUtteranceOpen = false
     private var unmuteOnUndeaf = false
 
-    private val useTcp: Boolean
-        get() = callbacks.forceTcp() || !udpAvailable
+    /** Server `max_bandwidth` in bits/sec; 0 = not yet known. */
+    val serverMaxBandwidthBps: Int
+        get() = bandwidth.serverMaxBandwidthBps
 
-    fun talkingValue(): Boolean = _talking.value
+    val outputTarget: StateFlow<VoiceOutputTarget?>
+        get() = routeController.outputTarget
+
+    private val useTcp: Boolean
+        get() = fallback.useTcp(callbacks.forceTcp())
+
     fun selfMutedValue(): Boolean = _selfMuted.value
     fun selfDeafenedValue(): Boolean = _selfDeafened.value
 
     fun applyInitialSettings(settings: AppSettings) {
         voiceMode = settings.voiceMode
         halfDuplex = settings.halfDuplex
-        effectiveFramesPerPacket = settings.framesPerPacket.coerceIn(1, 6)
-        effectiveBitrateBps = settings.transmitQuality * 1000
-        lastBandwidthNoticeBitrate = 0
-        lastBandwidthNoticeFrames = 0
-        udpAvailable = !settings.forceTcp
-        udpProbeStartMs = 0L
-        serverMaxBandwidthBps = 0
+        bandwidth.resetTo(settings)
+        fallback.resetTo(settings.forceTcp)
     }
 
     fun resetEncodeToSettings(settings: AppSettings) {
-        effectiveFramesPerPacket = settings.framesPerPacket.coerceIn(1, 6)
-        effectiveBitrateBps = settings.transmitQuality * 1000
-        lastBandwidthNoticeBitrate = 0
-        lastBandwidthNoticeFrames = 0
-        serverMaxBandwidthBps = 0
+        bandwidth.resetTo(settings)
     }
 
     fun start(session: Int) {
-        sessionOutputOverride = null
-        applyOutputRoute()
-        audioOutput = createAudioOutput()
+        routeController.resetOverride()
+        routeController.applyOutputRoute()
+        audioOutput = createAudioOutput(routeController.currentMediaUsage())
         attachVoicePlayback()
         if (!callbacks.forceTcp()) {
             maybeStartUdp()
@@ -137,7 +132,7 @@ internal class VoiceSession(
     }
 
     fun stop() {
-        flushPendingVoice(isLastFrame = true)
+        transmitter.terminate()
         pttHeld = false
         audioInput?.stop()
         audioInput = null
@@ -153,11 +148,7 @@ internal class VoiceSession(
     }
 
     fun leaveCall() {
-        playbackRouter.leaveCall()
-        sessionOutputOverride = null
-        _outputTarget.value = null
-        routedMedia = false
-        routedAec = null
+        routeController.leaveCall()
     }
 
     fun applySettings(previous: AppSettings, next: AppSettings) {
@@ -215,21 +206,20 @@ internal class VoiceSession(
         audioOutput?.volume = next.outputVolume
         halfDuplex = next.halfDuplex
         if (changedRoute && audioOutput != null) {
-            applyOutputRoute()
+            routeController.applyOutputRoute()
         }
         if (changedOpus) {
             udp?.setOpusImplementation(next.opusImplementation)
             audioOutput?.setOpusImplementation(next.opusImplementation)
         }
         if (changedQuality || changedOpus || udp != null) {
-            configureUdpCodec(udp)
+            reconfigureBandwidth(udp)
         }
         udp?.qualityOfService = next.qualityOfService
     }
 
     fun setOutputTarget(target: VoiceOutputTarget) {
-        sessionOutputOverride = target
-        applyOutputRoute()
+        routeController.setOutputTarget(target)
     }
 
     fun toggleSelfMute(): Boolean {
@@ -294,7 +284,7 @@ internal class VoiceSession(
         endTransmission()
     }
 
-    fun attachVoicePlayback() {
+    private fun attachVoicePlayback() {
         val udpManager = udp ?: return
         udpManager.setListener(object : UdpVoiceManager.Listener {
             override fun onAudioPacket(
@@ -311,7 +301,7 @@ internal class VoiceSession(
             override fun onUdpPing(rttMillis: Long) {}
 
             override fun onUdpConnected() {
-                udpProbeStartMs = SystemClock.elapsedRealtime()
+                fallback.markProbeStarted()
                 callbacks.updateConnectedStatus()
             }
 
@@ -322,11 +312,11 @@ internal class VoiceSession(
         })
     }
 
-    fun maybeStartUdp() {
+    private fun maybeStartUdp() {
         val udpManager = udp ?: return
         udpManager.protobufMode = protobufMode
         udpManager.onRequestCryptResync = { callbacks.client()?.requestCryptResync() }
-        configureUdpCodec(udpManager)
+        reconfigureBandwidth(udpManager)
         udpManager.qualityOfService = callbacks.settings().qualityOfService
         attachVoicePlayback()
         if (udpManager.isRunning) return
@@ -337,82 +327,42 @@ internal class VoiceSession(
         )
     }
 
-    fun configureUdpCodec(udpManager: UdpVoiceManager? = udp) {
-        val settings = callbacks.settings()
-        val wantedBitrate = settings.transmitQuality * 1000
-        val wantedFrames = settings.framesPerPacket.coerceIn(1, 6)
-        val adjusted = VoiceBandwidth.adjustBandwidth(
-            bitsPerSec = if (serverMaxBandwidthBps > 0) serverMaxBandwidthBps else -1,
-            quality = wantedBitrate,
-            framesPerPacket = wantedFrames,
-            allowLowDelay = settings.lowLatency,
-            tcpMode = useTcp,
-        )
-        val framesChanged = adjusted.frames != effectiveFramesPerPacket
-        effectiveFramesPerPacket = adjusted.frames
-        effectiveBitrateBps = adjusted.bitrate
-        udpManager?.let {
-            it.bitrate = adjusted.bitrate
-            it.framesPerPacket = adjusted.frames
-            it.lowLatency = settings.lowLatency
-            it.applyBitrate()
-        }
+    /**
+     * Recomputes the effective bitrate/frames and applies them to the UDP
+     * codec; a changed packet duration requires a capture restart so the
+     * engine bundles the new frame count.
+     */
+    private fun reconfigureBandwidth(udpManager: UdpVoiceManager? = udp) {
+        val framesChanged = bandwidth.reconfigure(callbacks.settings(), useTcp, udpManager)
         if (framesChanged && audioInput != null) {
             restartCapture()
         }
-        val wasAdjusted = serverMaxBandwidthBps > 0 &&
-            (adjusted.bitrate != wantedBitrate || adjusted.frames != wantedFrames)
-        if (wasAdjusted &&
-            (adjusted.bitrate != lastBandwidthNoticeBitrate ||
-                adjusted.frames != lastBandwidthNoticeFrames)
-        ) {
-            lastBandwidthNoticeBitrate = adjusted.bitrate
-            lastBandwidthNoticeFrames = adjusted.frames
-            callbacks.appendSystemMessage(
-                callbacks.getString(
-                    R.string.bandwidth_auto_adjusted,
-                    serverMaxBandwidthBps / 1000,
-                    adjusted.bitrate / 1000,
-                    adjusted.frames * 10,
-                ),
-            )
-        }
     }
 
-    fun markUdpUnavailable(message: String) {
-        if (callbacks.forceTcp() || !udpAvailable) return
-        udpAvailable = false
+    private fun markUdpUnavailable(message: String) {
+        if (!fallback.markUnavailable(callbacks.forceTcp())) return
         callbacks.appendSystemMessage(message)
-        configureUdpCodec(udp)
+        reconfigureBandwidth()
     }
 
     fun evaluateUdpAvailability(remoteGood: Int) {
-        val udp = udp ?: return
-        val localGood = udp.packetStats().good
-        if (UdpAvailability.shouldFallbackToTcp(
-                udpAvailable = udpAvailable,
-                forceTcp = callbacks.forceTcp(),
-                udpProbeStartMs = udpProbeStartMs,
-                nowMs = SystemClock.elapsedRealtime(),
-                remoteGood = remoteGood,
-                localGood = localGood,
+        val udp = this.udp ?: return
+        when (val decision = fallback.evaluate(callbacks.forceTcp(), remoteGood, udp.packetStats().good)) {
+            is UdpFallbackController.Decision.Fallback -> markUdpUnavailable(
+                callbacks.getString(
+                    when (decision.reason) {
+                        UdpFallbackController.Reason.BOTH_DOWN -> R.string.udp_unavailable_both
+                        UdpFallbackController.Reason.SEND_BROKEN -> R.string.udp_unavailable_send
+                        UdpFallbackController.Reason.RECEIVE_BROKEN -> R.string.udp_unavailable_receive
+                    },
+                ),
             )
-        ) {
-            markUdpUnavailable(
-                when {
-                    remoteGood == 0 && localGood == 0 ->
-                        callbacks.getString(R.string.udp_unavailable_both)
-                    remoteGood == 0 ->
-                        callbacks.getString(R.string.udp_unavailable_send)
-                    else ->
-                        callbacks.getString(R.string.udp_unavailable_receive)
-                },
-            )
-        } else if (UdpAvailability.shouldRestoreUdp(udpAvailable, callbacks.forceTcp(), remoteGood, localGood)) {
-            udpAvailable = true
-            callbacks.appendSystemMessage(callbacks.getString(R.string.udp_available_again))
-            maybeStartUdp()
-            configureUdpCodec(udp)
+            UdpFallbackController.Decision.Restore -> {
+                callbacks.appendSystemMessage(callbacks.getString(R.string.udp_available_again))
+                maybeStartUdp()
+                reconfigureBandwidth(udp)
+            }
+            null -> Unit
         }
     }
 
@@ -437,7 +387,7 @@ internal class VoiceSession(
             serverNonce.isNotEmpty() -> {
                 // Official msgCryptSetup nonce branch: resync++ then setDecryptIV.
                 udp.resyncDecryptIV(serverNonce)
-                configureUdpCodec(udp)
+                reconfigureBandwidth(udp)
             }
             else -> {
                 val iv = udp.encryptIV()
@@ -446,7 +396,7 @@ internal class VoiceSession(
                 }
             }
         }
-        configureUdpCodec(udp)
+        reconfigureBandwidth(udp)
         attachVoicePlayback()
         if (!callbacks.forceTcp()) {
             maybeStartUdp()
@@ -458,9 +408,9 @@ internal class VoiceSession(
     }
 
     fun applyMaxBandwidth(maxBandwidth: Int) {
-        if (maxBandwidth <= 0) return
-        serverMaxBandwidthBps = maxBandwidth
-        udp?.let { configureUdpCodec(it) }
+        if (bandwidth.onServerMaxBandwidth(maxBandwidth)) {
+            udp?.let { reconfigureBandwidth(it) }
+        }
     }
 
     fun onServerVersion(protobuf: Boolean) {
@@ -484,14 +434,10 @@ internal class VoiceSession(
         )
     }
 
-    fun currentBandwidthBps(): Int = VoiceBandwidth.getNetworkBandwidth(
-        effectiveBitrateBps,
-        effectiveFramesPerPacket,
-        tcpMode = useTcp,
-    )
+    fun currentBandwidthBps(): Int = bandwidth.currentBandwidthBps(useTcp)
 
     fun udpFallback(forceTcp: Boolean, live: Boolean): Boolean =
-        live && !forceTcp && !udpAvailable
+        fallback.isFallbackActive(forceTcp, live)
 
     private fun startCapture() {
         if (audioInput != null) return
@@ -501,10 +447,10 @@ internal class VoiceSession(
         }
         audioInput = AudioInput().apply {
             applyCaptureSettingsTo(this)
-            setPreferredDevice(playbackRouter.inputDevice)
+            setPreferredDevice(routeController.playbackRouter.inputDevice)
             start(object : AudioInput.Sink {
                 override fun onPcmFrame(pcm: ShortArray) {
-                    if (shouldTransmit()) sendVoice(pcm)
+                    if (shouldTransmit()) transmitter.sendVoice(pcm)
                 }
 
                 override fun onSpeechDetected(active: Boolean) {
@@ -515,7 +461,7 @@ internal class VoiceSession(
                         callbacks.setUserTalking(callbacks.localSession(), active)
                     }
                     if (voiceMode == VoiceMode.VAD && wasTalking && !active) {
-                        sendTransmissionTerminator()
+                        transmitter.terminate()
                     }
                 }
 
@@ -541,7 +487,7 @@ internal class VoiceSession(
 
     private fun endTransmission() {
         if (_talking.value) {
-            sendTransmissionTerminator()
+            transmitter.terminate()
         }
         if (voiceMode == VoiceMode.PTT) pttHeld = false
         _talking.value = false
@@ -567,7 +513,7 @@ internal class VoiceSession(
             vadSpeechThreshold = settings.vadSpeechThreshold,
             vadSilenceThreshold = settings.vadSilenceThreshold,
             vadHoldFrames = settings.vadHoldFrames,
-            framesPerPacket = effectiveFramesPerPacket,
+            framesPerPacket = bandwidth.effectiveFramesPerPacket,
         )
     }
 
@@ -590,11 +536,8 @@ internal class VoiceSession(
         }
     }
 
-    private fun createAudioOutput(): AudioOutput {
-        val target = _outputTarget.value
+    private fun createAudioOutput(media: Boolean): AudioOutput {
         val settings = callbacks.settings()
-        val media = target != null && settings.usesMediaPlayback(target)
-        routedMedia = media
         return AudioOutput(
             mediaUsage = media,
             opusImplementation = settings.opusImplementation,
@@ -605,112 +548,42 @@ internal class VoiceSession(
             speakerTalkingTap = { session, talking ->
                 if (session != callbacks.localSession()) callbacks.setUserTalking(session, talking)
             }
-            setPreferredDevice(playbackRouter.outputDevice)
+            setPreferredDevice(routeController.playbackRouter.outputDevice)
             start()
         }
     }
 
     private fun activeAecMode(): AecMode {
-        val target = _outputTarget.value ?: return callbacks.settings().aecMode
+        val target = routeController.currentTarget() ?: return callbacks.settings().aecMode
         return callbacks.settings().effectiveAecMode(target)
-    }
-
-    private fun applyOutputRoute() {
-        val settings = callbacks.settings()
-        val types = playbackRouter.availableOutputTypes()
-        val connected = VoiceRouteSelection.connectedTargets(types)
-        val override = sessionOutputOverride
-        if (override != null && override !in connected) {
-            sessionOutputOverride = null
-        }
-        val wanted = sessionOutputOverride?.takeIf { it in connected }
-            ?: VoiceRouteSelection.pick(settings.outputDeviceOrder, connected)
-        _outputTarget.value = wanted
-        if (wanted == null) return
-        val media = settings.usesMediaPlayback(wanted)
-        val aec = settings.effectiveAecMode(wanted)
-        val mediaChanged = media != routedMedia
-        playbackRouter.enterCall(wanted, media)
-        routedMedia = media
-        if (audioOutput != null) {
-            if (mediaChanged) {
-                audioOutput?.stop()
-                audioOutput = createAudioOutput()
-                attachVoicePlayback()
-            } else {
-                audioOutput?.setPreferredDevice(playbackRouter.outputDevice)
-            }
-        }
-        if (audioInput != null) {
-            if (routedAec != null && routedAec != aec) {
-                restartCapture()
-            } else {
-                audioInput?.setPreferredDevice(playbackRouter.inputDevice)
-            }
-        }
-        routedAec = aec
     }
 
     private fun shouldSuppressIncoming(): Boolean =
         halfDuplex && voiceMode != VoiceMode.CONTINUOUS && _talking.value
 
-    private fun sendVoice(pcm: ShortArray, isLastFrame: Boolean = false) {
-        if (!voiceUtteranceOpen) {
-            udp?.resetEncoder()
-            voiceUtteranceOpen = true
-        }
-        val held = pendingVoicePcm
-        val heldFrames = pendingVoiceFrames
-        pendingVoicePcm = pcm.copyOf()
-        pendingVoiceFrames = OpusCodec.encodedTenMsFrames(pcm.size).coerceAtLeast(1)
-        if (held != null) {
-            emitVoicePcm(held, isLastFrame = false, heldFrames)
-        }
-        if (isLastFrame) flushPendingVoice(isLastFrame = true)
+    // ---- VoiceRouteHost: live endpoints the route policy acts upon ----
+
+    override fun settings(): AppSettings = callbacks.settings()
+
+    override fun outputLive(): Boolean = audioOutput != null
+
+    override fun inputLive(): Boolean = audioInput != null
+
+    override fun onOutputMediaChanged() {
+        audioOutput?.stop()
+        audioOutput = createAudioOutput(routeController.currentMediaUsage())
+        attachVoicePlayback()
     }
 
-    private fun emitVoicePcm(pcm: ShortArray, isLastFrame: Boolean, frameCount: Int) {
-        val udpManager = udp ?: return
-        val encoded = udpManager.encodeOpus(pcm) ?: return
-        sendEncodedVoice(encoded, isLastFrame, frameCount)
+    override fun onAecChanged() {
+        restartCapture()
     }
 
-    private fun flushPendingVoice(isLastFrame: Boolean) {
-        val last = pendingVoicePcm
-        val frames = pendingVoiceFrames
-        pendingVoicePcm = null
-        pendingVoiceFrames = 0
-        voiceUtteranceOpen = false
-        if (last != null) {
-            emitVoicePcm(last, isLastFrame, frames)
-        } else if (isLastFrame) {
-            val udpManager = udp ?: return
-            val encoded = udpManager.encodeSilence() ?: return
-            sendEncodedVoice(encoded.first, isLastFrame = true, encoded.second)
-        }
+    override fun onInputDevice(device: AudioDeviceInfo?) {
+        audioInput?.setPreferredDevice(device)
     }
 
-    private fun sendEncodedVoice(
-        encoded: ByteArray,
-        isLastFrame: Boolean,
-        frameCount: Int,
-    ) {
-        val udpManager = udp ?: return
-        val body = udpManager.buildTunnelPacket(encoded, isLastFrame, frameCount)
-        // Official ServerHandler::sendMessage: TcpModeEnabled || !bUdp →
-        // UDPTunnel. A failed datagram write (socket closed, network switch)
-        // is the same as !bUdp for this packet — reuse the already-stamped
-        // body so the sequence number is not allocated twice.
-        val sentUdp = !useTcp &&
-            udpManager.isRunning &&
-            udpManager.isCryptoReady() &&
-            udpManager.sendPlaintextUdp(body)
-        if (!sentUdp) {
-            callbacks.client()?.sendTunneledVoice(body)
-        }
-    }
-
-    private fun sendTransmissionTerminator() {
-        flushPendingVoice(isLastFrame = true)
+    override fun onOutputDevice(device: AudioDeviceInfo?) {
+        audioOutput?.setPreferredDevice(device)
     }
 }

@@ -133,8 +133,6 @@ class MumbleService : Service() {
     val aclUserNames get() = admin.aclUserNames
     val selfMuted: StateFlow<Boolean> get() = voice.selfMuted
     val selfDeafened: StateFlow<Boolean> get() = voice.selfDeafened
-    val talking: StateFlow<Boolean> get() = voice.talking
-    val vadLevel: StateFlow<Int> get() = voice.vadLevel
     val chatMessages get() = chat.messages
     val reconnectCountdown: StateFlow<Int> get() = reconnect.countdown
     val reconnecting: StateFlow<Boolean> get() = reconnect.reconnecting

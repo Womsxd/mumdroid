@@ -14,6 +14,51 @@ import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
+ * The send-side surface of the voice channel: encode helpers, plaintext body
+ * assembly and the UDP datagram writer. Implemented by [UdpVoiceManager] so
+ * callers (the service-layer send pipeline, unit tests) can stay decoupled
+ * from the concrete manager.
+ */
+interface VoiceSendChannel {
+    /** Encodes a PCM frame into an Opus payload, or null on failure. */
+    fun encodeOpus(pcm: ShortArray): ByteArray?
+
+    /** Official `OPUS_RESET_STATE` at the start of a talk spurt. */
+    fun resetEncoder()
+
+    /**
+     * Encodes one frame of digital silence — the payload used by the official
+     * client for its end-of-transmission packet.
+     *
+     * @return Opus bytes and the 10 ms frame count actually consumed (not the
+     *         configured frames-per-packet, which is not a legal Opus size at
+     *         30/50 ms).
+     */
+    fun encodeSilence(): Pair<ByteArray, Int>?
+
+    /**
+     * Builds the plaintext voice packet body for the negotiated framing
+     * (also the UDPTunnel body), allocating the outgoing frame number.
+     */
+    fun buildTunnelPacket(payload: ByteArray, isLastFrame: Boolean, frameCount: Int): ByteArray
+
+    /** Whether the UDP datagram path is running. */
+    val isRunning: Boolean
+
+    /** @return whether the OCB2 crypto state is ready for the UDP send path. */
+    fun isCryptoReady(): Boolean
+
+    /**
+     * Encrypts a pre-built plaintext voice body and writes it as a UDP
+     * datagram.
+     *
+     * @return false when the datagram could not be written (caller should
+     *         tunnel the same plaintext over TCP, like official `!bUdp`).
+     */
+    fun sendPlaintextUdp(body: ByteArray): Boolean
+}
+
+/**
  * Manages the UDP voice channel used to send and receive encrypted voice and
  * ping traffic, mirroring the official Mumble client's transport behaviour.
  *
@@ -34,7 +79,7 @@ class UdpVoiceManager(
     private val host: String,
     private val port: Int,
     opusImplementation: OpusImplementation = OpusImplementation.LIBOPUS,
-) {
+) : VoiceSendChannel {
     companion object {
         private const val TAG = "UdpVoiceManager"
         // Matches the official `MAX_UDP_PACKET_SIZE` (murmur/MumbleProtocol.h):
@@ -175,7 +220,7 @@ class UdpVoiceManager(
         }
 
     /** Whether the UDP voice channel has been started. */
-    val isRunning: Boolean get() = running.get()
+    override val isRunning: Boolean get() = running.get()
 
     /** Average UDP ping round-trip time in milliseconds (0 when no ping yet). */
     val averageUdpPing: Long
@@ -219,7 +264,7 @@ class UdpVoiceManager(
     fun packetStats(): UdpVoiceCrypto.CryptStats = crypto.packetStats()
 
     /** @return whether the OCB2 crypto state is ready to encrypt/decrypt. */
-    fun isCryptoReady(): Boolean = crypto.isReady
+    override fun isCryptoReady(): Boolean = crypto.isReady
 
     /**
      * Applies the configured Opus encode settings (bitrate, frame size and
@@ -234,7 +279,7 @@ class UdpVoiceManager(
     }
 
     /** Encodes a PCM frame into an Opus payload. */
-    fun encodeOpus(pcm: ShortArray): ByteArray? = opus.encode(pcm)
+    override fun encodeOpus(pcm: ShortArray): ByteArray? = opus.encode(pcm)
 
     /** Switches the Opus encode/decode backend and re-applies bitrate settings. */
     fun setOpusImplementation(implementation: OpusImplementation) {
@@ -243,12 +288,7 @@ class UdpVoiceManager(
     }
 
     /** Official `OPUS_RESET_STATE` at the start of a talk spurt. */
-    fun resetEncoder() = opus.resetEncoder()
-
-    private fun outgoingFrameCount(sampleCount: Int? = null): Int {
-        val samples = sampleCount ?: (OpusCodec.FRAME_SIZE_10MS * framesPerPacket.coerceIn(1, 6))
-        return OpusCodec.encodedTenMsFrames(samples).coerceAtLeast(1)
-    }
+    override fun resetEncoder() = opus.resetEncoder()
 
     /**
      * Opens the UDP voice socket. When [bindAddress] is set (the TCP socket's
@@ -444,7 +484,7 @@ class UdpVoiceManager(
      * Used by the unified send path so TCP fallback can reuse the same body
      * (and sequence number) without encoding twice.
      */
-    fun sendPlaintextUdp(body: ByteArray): Boolean {
+    override fun sendPlaintextUdp(body: ByteArray): Boolean {
         if (!crypto.isReady || socket == null) return false
         return encryptAndSend(body)
     }
@@ -482,7 +522,7 @@ class UdpVoiceManager(
      *         consumed (not the configured [framesPerPacket], which is not a
      *         legal Opus size at 30/50 ms).
      */
-    fun encodeSilence(): Pair<ByteArray, Int>? {
+    override fun encodeSilence(): Pair<ByteArray, Int>? {
         val pcm = ShortArray(opus.getFrameSize())
         val encoded = opus.encode(pcm) ?: return null
         val frames = OpusCodec.encodedTenMsFrames(pcm.size).coerceAtLeast(1)
@@ -494,11 +534,10 @@ class UdpVoiceManager(
      * already TLS-encrypted, so the full voice packet is sent WITHOUT OCB2
      * encryption, mirroring the official client's force-TCP branch.
      */
-    @JvmOverloads
-    fun buildTunnelPacket(
+    override fun buildTunnelPacket(
         payload: ByteArray,
-        isLastFrame: Boolean = false,
-        frameCount: Int = outgoingFrameCount(),
+        isLastFrame: Boolean,
+        frameCount: Int,
     ): ByteArray = framing.buildVoiceBody(payload, isLastFrame, frameCount)
 
     /**
