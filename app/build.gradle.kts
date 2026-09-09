@@ -5,6 +5,17 @@ plugins {
     alias(libs.plugins.protobuf)
 }
 
+// Release signing configuration + expected-signature digest live in the
+// isolated signing.gradle.kts script. Applying it evaluates the config and
+// publishes the results to the project `extra`; we read them back below.
+apply(from = file("signing.gradle.kts"))
+
+val releaseStoreFilePath: String? = extra["releaseSigningStoreFile"] as? String
+val releaseStorePassword: String? = extra["releaseSigningStorePassword"] as? String
+val releaseKeyAlias: String? = extra["releaseSigningKeyAlias"] as? String
+val releaseKeyPassword: String? = extra["releaseSigningKeyPassword"] as? String
+val expectedSignatureSha256: String = (extra["releaseSigningSha256"] as? String).orEmpty()
+
 val gitHash: String = providers.exec {
     commandLine("git", "rev-parse", "--short", "HEAD")
     workingDir = rootProject.projectDir
@@ -19,11 +30,12 @@ android {
 
     signingConfigs {
         create("release") {
-            if (System.getenv("KEYSTORE_FILE") != null) {
-                storeFile = file(System.getenv("KEYSTORE_FILE"))
-                storePassword = System.getenv("KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("KEY_ALIAS")
-                keyPassword =  System.getenv("KEY_PASSWORD")
+            val storeFilePath = releaseStoreFilePath
+            if (storeFilePath != null) {
+                storeFile = file(storeFilePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
@@ -38,6 +50,7 @@ android {
         buildConfigField("Long", "BUILD_TIME", "${System.currentTimeMillis()}L")
         buildConfigField("String", "versionCodeName", "\"Mondstadt\"")
         buildConfigField("String", "versionCodeNameZH", "\"蒙德\"")
+        buildConfigField("String", "EXPECTED_SIGNATURE_SHA256", "\"$expectedSignatureSha256\"")
 
         ndkVersion = "30.0.15729638"
 

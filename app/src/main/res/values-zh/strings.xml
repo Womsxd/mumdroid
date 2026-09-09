@@ -517,4 +517,8 @@
     <string name="oss_protobuf_desc">对与 Mumble 服务器交换的二进制协议消息进行编解码。</string>
     <string name="oss_bouncycastle_desc">提供用于客户端证书认证的 X.509 证书生成支持。</string>
     <string name="oss_material_desc">提供 Material 3 设计规范与视觉元素。</string>
+    <string name="tamper_warning_title">检测到 APK 可能被篡改</string>
+    <string name="tamper_warning_message">当前 APK 的签名与编译时的签名不一致，可能已被第三方修改或重新打包。为保证安全，请获取原始版本；如需自行修改，请使用源码进行编译。</string>
+    <string name="tamper_warning_about">前往关于</string>
+    <string name="tamper_warning_dismiss">我知道了</string>
 </resources>

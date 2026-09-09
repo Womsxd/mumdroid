@@ -517,4 +517,8 @@
     <string name="oss_protobuf_desc">Encodes and decodes the binary protocol messages exchanged with Mumble servers.</string>
     <string name="oss_bouncycastle_desc">Provides X.509 certificate generation for client authentication with servers.</string>
     <string name="oss_material_desc">Provides the Material 3 design guidelines and visual elements.</string>
+    <string name="tamper_warning_title">APK appears to be tampered</string>
+    <string name="tamper_warning_message">The signature of this APK does not match the one used when it was compiled. It may have been modified or repackaged by a third party. For your safety please obtain the original build. To build it yourself, please compile from the source code.</string>
+    <string name="tamper_warning_about">About</string>
+    <string name="tamper_warning_dismiss">Dismiss</string>
 </resources>

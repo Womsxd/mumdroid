@@ -15,3 +15,11 @@
 local.properties
 /.idea/*
 /.commandcode/*
+release
+
+# --- Signing keystores & credentials (never commit) ---
+keystore.properties
+*.jks
+*.keystore
+*.p12
+*.pem

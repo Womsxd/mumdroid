@@ -13,9 +13,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -33,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.i18n.LocaleManager
 import dev.woms.mumdroid.core.model.MumbleServer
+import dev.woms.mumdroid.core.security.SignatureVerifier
 import dev.woms.mumdroid.ui.MainViewModel
 import dev.woms.mumdroid.ui.screen.ServerEditDialog
 import dev.woms.mumdroid.ui.screen.ServerListScreen
@@ -55,6 +60,14 @@ class MainActivity : BaseActivity() {
     @Composable
     override fun Content(vm: MainViewModel) {
         val servers by vm.servers.collectAsStateWithLifecycle()
+        // --- APK tamper check: warn when the running signature does not match
+        // the one this build was signed with. ---
+        val context = LocalContext.current
+        var showTamperDialog by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            showTamperDialog = SignatureVerifier.isApkTampered(context)
+        }
+
         val serverPings by vm.serverPings.collectAsStateWithLifecycle()
         val refreshingPings by vm.refreshingPings.collectAsStateWithLifecycle()
         val showAddDialog by vm.showAddDialog.collectAsStateWithLifecycle()
@@ -189,6 +202,30 @@ class MainActivity : BaseActivity() {
                 onDismiss = { vm.dismissAddDialog() },
                 onSave = { name, host, port, username, password ->
                     vm.saveServer(name, host, port, username, password)
+                },
+            )
+        }
+
+        // Tampered-APK warning dialog. The highlighted (filled) button opens the
+        // About screen; the plain text button just dismisses this warning.
+        if (showTamperDialog) {
+            AlertDialog(
+                onDismissRequest = { showTamperDialog = false },
+                icon = { Icon(Icons.Filled.Warning, contentDescription = null) },
+                title = { Text(stringResource(R.string.tamper_warning_title)) },
+                text = { Text(stringResource(R.string.tamper_warning_message)) },
+                confirmButton = {
+                    Button(onClick = {
+                        showTamperDialog = false
+                        startActivity(Intent(this@MainActivity, AboutActivity::class.java))
+                    }) {
+                        Text(stringResource(R.string.tamper_warning_about))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showTamperDialog = false }) {
+                        Text(stringResource(R.string.tamper_warning_dismiss))
+                    }
                 },
             )
         }
