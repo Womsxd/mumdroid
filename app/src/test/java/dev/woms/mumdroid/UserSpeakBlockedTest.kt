@@ -1,5 +1,6 @@
 package dev.woms.mumdroid
 
+import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.User
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -29,7 +30,7 @@ class UserSpeakBlockedTest {
 
     @Test
     fun talkingFlag_doesNotOverrideBlock() {
-        val user = User(session = 1, name = "a", mute = true, talking = true)
+        val user = User(session = 1, name = "a", mute = true, talkState = TalkState.TALKING)
         assertTrue(user.isSpeakBlocked)
     }
 }

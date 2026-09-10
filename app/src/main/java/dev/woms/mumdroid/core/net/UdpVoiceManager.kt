@@ -5,6 +5,7 @@ import android.util.Log
 import dev.woms.mumdroid.core.audio.OpusCodec
 import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.crypto.UdpVoiceCrypto
+import dev.woms.mumdroid.core.model.AudioContext
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -40,8 +41,18 @@ interface VoiceSendChannel {
     /**
      * Builds the plaintext voice packet body for the negotiated framing
      * (also the UDPTunnel body), allocating the outgoing frame number.
+     *
+     * @param target voice-target id for this frame: 0 regular speech, 1..30 a
+     *        registered shout/whisper target.
+     * @return the body, or null when [target] cannot be encoded (out of the
+     *         five-header-bit range) — the caller must then not send anything.
      */
-    fun buildTunnelPacket(payload: ByteArray, isLastFrame: Boolean, frameCount: Int): ByteArray
+    fun buildTunnelPacket(
+        payload: ByteArray,
+        isLastFrame: Boolean,
+        frameCount: Int,
+        target: Int = 0,
+    ): ByteArray?
 
     /** Whether the UDP datagram path is running. */
     val isRunning: Boolean
@@ -138,6 +149,7 @@ class UdpVoiceManager(
             frameNumber: Long,
             payload: ByteArray,
             isLastFrame: Boolean,
+            context: AudioContext,
         ) {}
 
         /** A UDP ping round-trip time measurement, in milliseconds. */
@@ -148,12 +160,6 @@ class UdpVoiceManager(
 
         /** UDP error. */
         fun onUdpError(message: String)
-
-        /**
-         * Talk-state change for [session], mirroring official
-         * `ClientUser::setTalking` driven from the audio path (not UserState).
-         */
-        fun onTalking(session: Int, talking: Boolean) {}
     }
 
     /** Monotonic source for ping timestamps and local timeouts (official `QElapsedTimer`). */
@@ -423,6 +429,7 @@ class UdpVoiceManager(
                 decoded.frameNumber,
                 decoded.payload,
                 decoded.isLastFrame,
+                decoded.context,
             )
             VoiceFraming.Decoded.Unknown ->
                 if (plain.isNotEmpty()) {
@@ -435,14 +442,23 @@ class UdpVoiceManager(
         }
     }
 
-    private fun handleDecodedFrame(session: Int, frameNumber: Long, payload: ByteArray, isLastFrame: Boolean) {
+    private fun handleDecodedFrame(
+        session: Int,
+        frameNumber: Long,
+        payload: ByteArray,
+        isLastFrame: Boolean,
+        context: AudioContext,
+    ) {
         // Do not decode or conceal here. Official AudioOutputSpeech puts the
         // encoded packet into the jitter buffer with
         // `timestamp = iFrameSize * frameNumber` and decodes in timestamp
         // order at playback. Receive-time PLC with a +1 increment treated
         // every official 20 ms packet (seq 0, 2, 4…) as a loss.
-        listener?.onAudioPacket(session, frameNumber, payload, isLastFrame)
-        listener?.onTalking(session, !isLastFrame)
+        //
+        // Talk state (including shout/whisper) is NOT derived here either: like
+        // the desktop client it follows playback liveness in the jitter buffer,
+        // which is why the packet's context travels with it.
+        listener?.onAudioPacket(session, frameNumber, payload, isLastFrame, context)
     }
 
     /**
@@ -453,7 +469,13 @@ class UdpVoiceManager(
      */
     fun playTunneled(body: ByteArray) {
         val decoded = framing.decodeTunneled(body) ?: return
-        handleDecodedFrame(decoded.session, decoded.frameNumber, decoded.payload, decoded.isLastFrame)
+        handleDecodedFrame(
+            decoded.session,
+            decoded.frameNumber,
+            decoded.payload,
+            decoded.isLastFrame,
+            decoded.context,
+        )
     }
 
     /**
@@ -539,7 +561,8 @@ class UdpVoiceManager(
         payload: ByteArray,
         isLastFrame: Boolean,
         frameCount: Int,
-    ): ByteArray = framing.buildVoiceBody(payload, isLastFrame, frameCount)
+        target: Int,
+    ): ByteArray? = framing.buildVoiceBody(payload, isLastFrame, frameCount, target)
 
     /**
      * Closes the datagram socket and ping loop but keeps crypto/codec so

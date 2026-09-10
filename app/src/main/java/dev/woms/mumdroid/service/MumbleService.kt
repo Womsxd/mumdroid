@@ -13,10 +13,13 @@ import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.CertificateDecision
 import dev.woms.mumdroid.core.model.Channel
+import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.ServerConnectionInfo
 import dev.woms.mumdroid.core.model.ServerRemoval
+import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
+import dev.woms.mumdroid.core.model.VoiceTargetStatus
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.data.CertificateStore
 import dev.woms.mumdroid.data.ChannelAccessTokenStore
@@ -123,6 +126,8 @@ class MumbleService : Service() {
     val serverRemoval: StateFlow<ServerRemoval?> get() = state.serverRemoval
 
     val outputTarget: StateFlow<VoiceOutputTarget?> get() = voice.outputTarget
+    val voiceTarget: StateFlow<VoiceTargetStatus> get() = voice.voiceTarget
+    val loopbackMode: StateFlow<LoopbackMode> get() = voice.loopbackMode
     val channels: StateFlow<List<Channel>> get() = roster.channels
     val users: StateFlow<List<User>> get() = roster.users
     val permissionEpoch: StateFlow<Int> get() = roster.permissionEpoch
@@ -213,8 +218,9 @@ class MumbleService : Service() {
         override fun client() = this@MumbleService.client
         override fun localSession() = roster.localSession
         override fun forceTcp() = forceTcp
-        override fun setUserTalking(session: Int, talking: Boolean) =
-            roster.setUserTalking(session, talking)
+        override fun roster() = this@MumbleService.roster
+        override fun setUserTalkState(session: Int, state: TalkState) =
+            roster.setUserTalkState(session, state)
         override fun isServerSpeakBlocked(): Boolean {
             val local = roster.localUser() ?: return false
             return local.mute || local.suppress || local.deaf
@@ -260,6 +266,7 @@ class MumbleService : Service() {
             certificateStore,
         )
         lastChannel.attach(serverStore)
+        roster.onRosterPruned = { if (::voice.isInitialized) voice.refreshVoiceTarget() }
         notifications = ConnectionNotifications(this)
         voice = VoiceSession(
             requireNotNull(getSystemService(AudioManager::class.java)),
@@ -431,6 +438,7 @@ class MumbleService : Service() {
     }
 
     private fun attachClientRuntime(c: MumbleClient) {
+        voice.attachTargetSender(c)
         c.statsProvider = MumbleClient.StatsProvider { buildConnectionStats() }
         c.tcpPingListener = MumbleClient.TcpPingListener { rtt -> tcpPing.record(rtt) }
         c.pingStatsListener = { remoteGood, _ -> voice.evaluateUdpAvailability(remoteGood) }

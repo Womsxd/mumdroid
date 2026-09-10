@@ -908,9 +908,9 @@ class ProtocolTest {
     fun outgoingVoice_stampsTenMsFrameNumbers() {
         val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738)
         udp.framesPerPacket = 2
-        val p0 = udp.buildTunnelPacket(byteArrayOf(1, 2, 3), false, 2)
-        val p1 = udp.buildTunnelPacket(byteArrayOf(4, 5, 6), false, 2)
-        val p2 = udp.buildTunnelPacket(byteArrayOf(7, 8, 9), false, 2)
+        val p0 = requireNotNull(udp.buildTunnelPacket(byteArrayOf(1, 2, 3), false, 2))
+        val p1 = requireNotNull(udp.buildTunnelPacket(byteArrayOf(4, 5, 6), false, 2))
+        val p2 = requireNotNull(udp.buildTunnelPacket(byteArrayOf(7, 8, 9), false, 2))
         fun frameNumber(packet: ByteArray): Long {
             val parsed = dev.woms.mumdroid.core.net.UdpPacketCodec.readVarInt(packet, 1, packet.size)
             return parsed!!.first
@@ -926,8 +926,8 @@ class ProtocolTest {
         val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738)
         udp.protobufMode = true
         udp.framesPerPacket = 2
-        val p0 = udp.buildTunnelPacket(byteArrayOf(1, 2, 3), false, 2)
-        val p1 = udp.buildTunnelPacket(byteArrayOf(4, 5, 6), false, 2)
+        val p0 = requireNotNull(udp.buildTunnelPacket(byteArrayOf(1, 2, 3), false, 2))
+        val p1 = requireNotNull(udp.buildTunnelPacket(byteArrayOf(4, 5, 6), false, 2))
         assertEquals(0, p0[0].toInt())
         val d0 = dev.woms.mumdroid.core.net.ProtoUdpCodec.decodeAudio(p0.copyOfRange(1, p0.size))
         val d1 = dev.woms.mumdroid.core.net.ProtoUdpCodec.decodeAudio(p1.copyOfRange(1, p1.size))
@@ -949,6 +949,7 @@ class ProtocolTest {
                 frameNumber: Long,
                 payload: ByteArray,
                 isLastFrame: Boolean,
+                context: dev.woms.mumdroid.core.model.AudioContext,
             ) {
                 capturedSession = session
                 frame = frameNumber
@@ -987,6 +988,7 @@ class ProtocolTest {
                 frameNumber: Long,
                 payload: ByteArray,
                 isLastFrame: Boolean,
+                context: dev.woms.mumdroid.core.model.AudioContext,
             ) {
                 capturedSession = session
                 capturedPayload = payload

@@ -48,6 +48,13 @@ class VoiceFraming(
             val frameNumber: Long,
             val payload: ByteArray,
             val isLastFrame: Boolean,
+            /**
+             * Server→client context of this audio (0 normal / 1 shout /
+             * 2 whisper / 3 listener), mapped to
+             * [dev.woms.mumdroid.core.model.AudioContext].
+             */
+            val context: dev.woms.mumdroid.core.model.AudioContext =
+                dev.woms.mumdroid.core.model.AudioContext.NORMAL,
         ) : Decoded
 
         /** A ping reply carrying the echoed timestamp. */
@@ -79,17 +86,29 @@ class VoiceFraming(
      * Builds the full plaintext voice packet body (header + payload in the
      * negotiated framing) used both as the OCB2-encrypted UDP datagram and as
      * the plaintext body of a force-TCP UDPTunnel message.
+     *
+     * [target] is the voice-target id: 0 for regular speech, 1..30 for a
+     * registered shout/whisper target. Official `UDPAudioEncoder` refuses
+     * anything that does not fit the five legacy header bits, and the desktop
+     * client never encodes audio at all while its target is unresolvable; this
+     * returns null for the same inputs so a broken whisper cannot silently
+     * degrade into a channel-wide broadcast. The frame number is only consumed
+     * when the packet is actually built.
+     *
+     * @return the packet body, or null when [target] is out of range.
      */
     fun buildVoiceBody(
         payload: ByteArray,
         isLastFrame: Boolean,
         frameCount: Int,
-    ): ByteArray {
+        target: Int = dev.woms.mumdroid.core.model.VoiceTargetId.REGULAR_SPEECH,
+    ): ByteArray? {
+        if (target !in 0..dev.woms.mumdroid.core.model.VoiceTargetId.SERVER_LOOPBACK) return null
         val frameNumber = frameCounter.allocate(frameCount)
         return if (protobufMode) {
-            ProtoUdpCodec.encodeAudio(frameNumber, payload, target = 0, isLastFrame = isLastFrame)
+            ProtoUdpCodec.encodeAudio(frameNumber, payload, target = target, isLastFrame = isLastFrame)
         } else {
-            UdpPacketCodec.encodeLegacyOpus(payload, isLastFrame, frameNumber)
+            UdpPacketCodec.encodeLegacyOpus(payload, isLastFrame, frameNumber, target = target)
         }
     }
 
@@ -116,7 +135,13 @@ class VoiceFraming(
             ProtoUdpCodec.HEADER_AUDIO -> {
                 val audio = ProtoUdpCodec.decodeAudio(plain, 1, plain.size - 1)
                     ?: return Decoded.Unknown
-                Decoded.Audio(audio.session, audio.frameNumber, audio.payload, audio.isLastFrame)
+                Decoded.Audio(
+                    audio.session,
+                    audio.frameNumber,
+                    audio.payload,
+                    audio.isLastFrame,
+                    dev.woms.mumdroid.core.model.AudioContext.fromWire(audio.context),
+                )
             }
             else -> Decoded.Unknown
         }
@@ -162,7 +187,13 @@ class VoiceFraming(
             }
             UdpType.VOICE_OPUS -> {
                 val p = UdpPacketCodec.parseLegacyOpusFull(plain) ?: return Decoded.Unknown
-                Decoded.Audio(p.session, p.frameNumber, p.payload, p.isLastFrame)
+                Decoded.Audio(
+                    p.session,
+                    p.frameNumber,
+                    p.payload,
+                    p.isLastFrame,
+                    dev.woms.mumdroid.core.model.AudioContext.fromWire(p.context),
+                )
             }
             UdpType.VOICE_CELT_ALPHA, UdpType.VOICE_CELT_BETA, UdpType.VOICE_SPEEX ->
                 // Obsolete codecs are no longer supported by the official client.
@@ -182,10 +213,22 @@ class VoiceFraming(
         val header = body[0].toInt() and 0xff
         if (header == ProtoUdpCodec.HEADER_AUDIO) {
             ProtoUdpCodec.decodeAudio(body, 1, body.size - 1)?.let {
-                return Decoded.Audio(it.session, it.frameNumber, it.payload, it.isLastFrame)
+                return Decoded.Audio(
+                    it.session,
+                    it.frameNumber,
+                    it.payload,
+                    it.isLastFrame,
+                    dev.woms.mumdroid.core.model.AudioContext.fromWire(it.context),
+                )
             }
         }
         val legacy = UdpPacketCodec.parseLegacyOpusFull(body) ?: return null
-        return Decoded.Audio(legacy.session, legacy.frameNumber, legacy.payload, legacy.isLastFrame)
+        return Decoded.Audio(
+            legacy.session,
+            legacy.frameNumber,
+            legacy.payload,
+            legacy.isLastFrame,
+            dev.woms.mumdroid.core.model.AudioContext.fromWire(legacy.context),
+        )
     }
 }

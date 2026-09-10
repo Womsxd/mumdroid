@@ -192,18 +192,30 @@ object UdpPacketCodec {
         }
     }
 
-    /** Legacy header byte for a normal Opus talk packet (`type << 5`). */
-    fun talkHeaderByte(): Byte = ((UdpType.VOICE_OPUS shl 5) or 0).toByte()
+    /**
+     * Legacy header byte for an Opus talk packet: `(type << 5) | target`.
+     *
+     * The five least significant bits carry the voice-target id (0 = regular
+     * speech, 1..30 = a registered shout/whisper target), exactly as official
+     * `UDPAudioEncoder::updateAudioPacket_legacy` assembles it. The official
+     * encoder refuses any value that does not fit in five bits; see
+     * [VoiceFraming.buildVoiceBody] for the same refusal on this side.
+     */
+    fun talkHeaderByte(target: Int = 0): Byte =
+        ((UdpType.VOICE_OPUS shl 5) or (target and 0x1f)).toByte()
 
     /**
      * Client→server legacy Opus body: `[header][frameNumber][size][opus]`.
      * The server-bound packet has no sender-session varint.
+     *
+     * [target] is the voice-target id written into the low five header bits.
      */
     fun encodeLegacyOpus(
         payload: ByteArray,
         isLastFrame: Boolean,
         frameNumber: Long,
-        header: Byte = talkHeaderByte(),
+        target: Int = 0,
+        header: Byte = talkHeaderByte(target),
     ): ByteArray {
         val out = ByteArrayOutputStream(1 + 6 + 2 + payload.size)
         out.write(header.toInt() and 0xff)
@@ -234,6 +246,12 @@ object UdpPacketCodec {
         val frameNumber: Long,
         val payload: ByteArray,
         val isLastFrame: Boolean,
+        /**
+         * The five least significant header bits: on a server→client packet
+         * this is the `context` (0 normal / 1 shout / 2 whisper / 3 listener),
+         * see [dev.woms.mumdroid.core.model.AudioContext].
+         */
+        val context: Int = 0,
     )
 
     /**
@@ -268,6 +286,7 @@ object UdpPacketCodec {
             frameNumber = frame.first,
             payload = body.copyOfRange(pos, pos + payloadSize),
             isLastFrame = isLast,
+            context = header and 0x1f,
         )
     }
 

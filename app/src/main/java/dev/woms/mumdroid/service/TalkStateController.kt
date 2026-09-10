@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.service
 
+import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.VoiceMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -7,12 +8,22 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * Transmission talk-state machine: PTT / VAD / continuous gating, the local
  * talking + VAD-level flows, and the half-duplex incoming-suppression rule.
+ *
+ * The local talk state reported to the roster is not a plain boolean: while a
+ * voice target is active the user is whispering or shouting rather than talking
+ * (official `Settings::TalkState`). This client can tell the two apart from the
+ * target's shape, whereas the desktop client only knows the numeric id.
  */
 internal class TalkStateController(
     private val transmitter: VoiceTransmitter,
     private val isTransmitBlocked: () -> Boolean,
     private val localSession: () -> Int,
-    private val setUserTalking: (session: Int, talking: Boolean) -> Unit,
+    /**
+     * Talk state to report while transmitting, or null when the active target
+     * cannot send anything (nothing is shown in that case).
+     */
+    private val localTalkState: () -> TalkState?,
+    private val setUserTalkState: (session: Int, state: TalkState) -> Unit,
 ) {
     private val _talking = MutableStateFlow(false)
     val talking: StateFlow<Boolean> = _talking
@@ -69,7 +80,7 @@ internal class TalkStateController(
         if (voiceMode == VoiceMode.PTT) pttHeld = false
         _talking.value = false
         _vadLevel.value = 0
-        setUserTalking(localSession(), false)
+        setUserTalkState(localSession(), TalkState.PASSIVE)
     }
 
     fun onSpeechDetected(active: Boolean) {
@@ -101,6 +112,7 @@ internal class TalkStateController(
 
     private fun setTalking(talking: Boolean) {
         _talking.value = talking
-        setUserTalking(localSession(), talking)
+        val state = if (talking) localTalkState() ?: TalkState.PASSIVE else TalkState.PASSIVE
+        setUserTalkState(localSession(), state)
     }
 }

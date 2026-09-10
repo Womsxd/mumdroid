@@ -4,8 +4,13 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.AudioContext
+import dev.woms.mumdroid.core.model.LoopbackMode
+import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
+import dev.woms.mumdroid.core.model.VoiceTargetSpec
+import dev.woms.mumdroid.core.model.VoiceTargetStatus
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.UdpVoiceManager
 import kotlinx.coroutines.flow.StateFlow
@@ -42,7 +47,9 @@ internal class VoiceSession(
         fun client(): MumbleClient?
         fun localSession(): Int
         fun forceTcp(): Boolean
-        fun setUserTalking(session: Int, talking: Boolean)
+        /** Live roster, so the target controller can see who is still around. */
+        fun roster(): SessionRoster
+        fun setUserTalkState(session: Int, state: TalkState)
         fun isServerSpeakBlocked(): Boolean
         fun isLocallyBlocked(session: Int): Boolean
         fun appendSystemMessage(message: String)
@@ -64,10 +71,26 @@ internal class VoiceSession(
 
     private val fallback = UdpFallbackController()
 
+    private val targets = VoiceTargetController(callbacks.roster())
+
+    private val loopback = AudioLoopback(
+        localSession = { callbacks.localSession() },
+        // Routed through a method instead of touching [endpoints] directly: the
+        // lambda is part of this property's initializer, and referencing a
+        // property declared further down would make the field types mutually
+        // dependent.
+        play = { session, pcm -> writeLocalLoopback(session, pcm) },
+    )
+
     private val transmitter = VoiceTransmitter(
         channel = { udp },
         useTcp = { useTcp },
         sendTunneled = { body -> callbacks.client()?.sendTunneledVoice(body) },
+        // The self-test target overrides the whisper/shout id (official
+        // AudioInput::encodeAudioFrame), and in the local mode nothing is sent
+        // at all — the caller plays those frames back instead.
+        targetId = { loopback.outgoingTargetId(targets.sendTargetId) },
+        withholdAudio = { loopback.current.isLocal },
     )
 
     private val muteDeaf = SelfMuteDeafController(
@@ -79,7 +102,8 @@ internal class VoiceSession(
         transmitter = transmitter,
         isTransmitBlocked = { isTransmitBlocked() },
         localSession = { callbacks.localSession() },
-        setUserTalking = { session, talking -> callbacks.setUserTalking(session, talking) },
+        localTalkState = { localTalkState() },
+        setUserTalkState = { session, state -> callbacks.setUserTalkState(session, state) },
     )
 
     private val audioHost = object : VoiceAudioEndpoints.Host {
@@ -91,17 +115,28 @@ internal class VoiceSession(
         override fun effectiveFramesPerPacket() = bandwidth.effectiveFramesPerPacket
         override fun vadGating() = talk.voiceMode == VoiceMode.VAD
         override fun onCaptureStarting() = talk.startContinuousTalking()
-        override fun onPcmFrame(pcm: ShortArray) = transmitter.sendVoice(pcm)
+        override fun onPcmFrame(pcm: ShortArray) {
+            // Local self-test: the frame stays on this device, so it is never
+            // encoded or sent (official LoopUser branch).
+            if (loopback.loopLocal(pcm)) return
+            transmitter.sendVoice(pcm)
+        }
         override fun onSpeechDetected(active: Boolean) = talk.onSpeechDetected(active)
         override fun onVadLevel(level: Int) = talk.onVadLevel(level)
-        override fun setUserTalking(session: Int, talking: Boolean) =
-            callbacks.setUserTalking(session, talking)
+        override fun setUserTalkState(session: Int, state: TalkState) =
+            callbacks.setUserTalkState(session, state)
     }
 
     private val endpoints = VoiceAudioEndpoints(routeController, audioHost)
 
     val selfMuted: StateFlow<Boolean> get() = muteDeaf.muted
     val selfDeafened: StateFlow<Boolean> get() = muteDeaf.deafened
+
+    /** Active shout/whisper target, or a regular-speech status. */
+    val voiceTarget: StateFlow<VoiceTargetStatus> get() = targets.status
+
+    /** Active audio self-test mode (off / local / server). */
+    val loopbackMode: StateFlow<LoopbackMode> get() = loopback.mode
 
     var udp: UdpVoiceManager? = null
     @Volatile
@@ -131,6 +166,35 @@ internal class VoiceSession(
         bandwidth.resetTo(settings)
     }
 
+    /**
+     * Wires the voice-target controller to the session's control channel. A
+     * null client detaches the sink (nothing may write during a teardown).
+     */
+    fun attachTargetSender(client: MumbleClient?) {
+        targets.send = client?.let { c -> { type, message -> c.sendMessage(type, message) } }
+    }
+
+    /** Sets (or clears) the shout/whisper target for the session. */
+    fun setVoiceTarget(spec: VoiceTargetSpec?) = targets.setSpec(spec)
+
+    /**
+     * Switches the audio self-test mode. Changing it ends the utterance in
+     * flight: its held frame was captured under the previous mode, so flushing
+     * it afterwards could send a self-test frame to the channel (or lose a
+     * channel frame to the self-test).
+     */
+    fun setLoopback(mode: LoopbackMode) {
+        if (!loopback.set(mode)) return
+        talk.endTransmission()
+    }
+
+    /**
+     * Re-checks the active target against the live roster (a target user left,
+     * a channel was removed): a target with no receivers left is reported as
+     * unavailable and stops transmitting instead of falling back to broadcast.
+     */
+    fun refreshVoiceTarget() = targets.onRosterChanged()
+
     fun start(session: Int) {
         routeController.resetOverride()
         routeController.applyOutputRoute()
@@ -144,11 +208,20 @@ internal class VoiceSession(
 
     fun stop() {
         transmitter.terminate()
+        // Revoke the server-side registrations: murmur keeps a client's voice
+        // targets until they are cleared, so leaving without a clear would
+        // leave ids dangling on the server across reconnects.
+        targets.clear()
+        // The self-test is session-scoped: it must never outlive the session
+        // (or a stale mode would silence the next connection).
+        loopback.reset()
         endpoints.stop()
         talk.resetForStop()
     }
 
     fun closeTransport() {
+        attachTargetSender(null)
+        targets.reset()
         udp?.close()
         udp = null
     }
@@ -251,10 +324,11 @@ internal class VoiceSession(
                 frameNumber: Long,
                 payload: ByteArray,
                 isLastFrame: Boolean,
+                context: AudioContext,
             ) {
                 if (callbacks.isLocallyBlocked(session)) return
                 if (talk.shouldSuppressIncoming()) return
-                endpoints.writePacket(session, frameNumber, payload, isLastFrame)
+                endpoints.writePacket(session, frameNumber, payload, isLastFrame, context)
             }
 
             override fun onUdpPing(rttMillis: Long) {}
@@ -397,6 +471,19 @@ internal class VoiceSession(
 
     fun udpFallback(forceTcp: Boolean, live: Boolean): Boolean =
         fallback.isFallbackActive(forceTcp, live)
+
+    /** Queues a locally looped-back capture frame for playback. */
+    private fun writeLocalLoopback(session: Int, pcm: ShortArray) {
+        endpoints.writeLocalPcm(session, pcm)
+    }
+
+    /**
+     * Talk state to show for the local user while transmitting. A self-test is
+     * plain talking: the whisper/shout id is overridden (server mode) or not
+     * used at all (local mode), so no whisper/shout indicator may be shown.
+     */
+    private fun localTalkState(): TalkState? =
+        if (loopback.current.isActive) TalkState.TALKING else targets.activeTalkState()
 
     private fun isTransmitBlocked(): Boolean {
         if (muteDeaf.isBlocked) return true

@@ -522,4 +522,30 @@
     <string name="tamper_warning_message">当前 APK 的签名与编译时的签名不一致，可能已被第三方修改或重新打包。为保证安全，请获取原始版本；如需自行修改，请使用源码进行编译。</string>
     <string name="tamper_warning_about">前往关于</string>
     <string name="tamper_warning_dismiss">我知道了</string>
+
+    <!-- Whisper / shout（语音目标） -->
+    <string name="shout_to_channel">向该频道喊话</string>
+    <string name="shout_dialog_title">向 %1$s 喊话</string>
+    <string name="shout_include_links">跟随链接频道</string>
+    <string name="shout_include_children">包含子频道</string>
+    <string name="shout_advanced_group">限制到 ACL 组</string>
+    <string name="whisper_to_user">私语给 %1$s</string>
+    <string name="stop_voice_target">停止私语/喊话</string>
+    <string name="voice_target_chip_shout">正在向 #%1$s 喊话</string>
+    <string name="voice_target_chip_shout_children">正在向 #%1$s 喊话（含子频道）</string>
+    <string name="voice_target_chip_shout_links">正在向 #%1$s 喊话（含链接频道）</string>
+    <string name="voice_target_chip_shout_links_children">正在向 #%1$s 喊话（含链接频道与子频道）</string>
+    <string name="voice_target_chip_whisper_many">正在私语 %1$s</string>
+    <string name="voice_target_unavailable">目标已无接收者——当前不会发送语音</string>
+    <string name="voice_target_clear">恢复普通说话</string>
+    <string name="talking_whisper">私语中</string>
+    <string name="talking_shout">喊话中</string>
+    <string name="voice_target_label">说话目标</string>
+    <string name="whisper_to_ellipsis">私语给…</string>
+    <string name="shout_to_channel_ellipsis">向频道喊话…</string>
+    <string name="loopback_self_test">音频自测</string>
+    <string name="loopback_use_server">通过服务器回环</string>
+    <string name="loopback_chip_local">音频自测（本地）——其他人听不到你</string>
+    <string name="loopback_chip_server">音频自测（服务器）——其他人听不到你</string>
+    <string name="loopback_disable">停止音频自测</string>
 </resources>

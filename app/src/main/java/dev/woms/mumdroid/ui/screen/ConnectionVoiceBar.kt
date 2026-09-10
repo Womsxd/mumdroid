@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -22,7 +23,9 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PhoneInTalk
@@ -33,6 +36,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,10 +56,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.audio.VoiceRouteSelection
+import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
+import dev.woms.mumdroid.core.model.VoiceTargetStatus
 
-/** Bottom bar with mute, deafen and an optional full-width PTT hold bar. */
+/**
+ * Bottom bar with mute, deafen, the voice-target chip and an optional PTT bar.
+ *
+ * Picking a speaking target deliberately has no button here: whisper and shout
+ * are started from the long press menu of the user / channel they address, so
+ * the bar keeps only the three controls a call always needs. The chip above
+ * still shows the active target and clears it in one tap.
+ */
 @Composable
 internal fun VoiceControlBar(
     selfMuted: Boolean,
@@ -67,6 +80,10 @@ internal fun VoiceControlBar(
     voiceMode: VoiceMode,
     outputTarget: VoiceOutputTarget?,
     onSelectOutputTarget: (VoiceOutputTarget) -> Unit,
+    voiceTarget: VoiceTargetStatus,
+    loopback: LoopbackMode,
+    onClearVoiceTarget: () -> Unit,
+    onSetLoopback: (LoopbackMode) -> Unit,
 ) {
     val connectedTargets = rememberConnectedOutputTargets()
     Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp) {
@@ -77,6 +94,8 @@ internal fun VoiceControlBar(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            LoopbackChip(mode = loopback, onDisable = { onSetLoopback(LoopbackMode.OFF) })
+            VoiceTargetChip(status = voiceTarget, onClear = onClearVoiceTarget)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -277,5 +296,56 @@ private fun PushToTalkBar(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
         )
+    }
+}
+
+/**
+ * Status strip for an active audio self-test, above the voice bar.
+ *
+ * It is a warning, not decoration: while the self-test runs the microphone is
+ * heard by nobody else, which a user who forgot the switch is on would read as
+ * "nobody answers me". The trailing button turns it off in one tap.
+ */
+@Composable
+private fun LoopbackChip(mode: LoopbackMode, onDisable: () -> Unit) {
+    if (!mode.isActive) return
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Hearing,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = stringResource(
+                    if (mode.isServer) R.string.loopback_chip_server
+                    else R.string.loopback_chip_local,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 8.dp),
+            )
+            IconButton(
+                onClick = onDisable,
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = stringResource(R.string.loopback_disable),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
     }
 }

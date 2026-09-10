@@ -1,6 +1,8 @@
 package dev.woms.mumdroid.core.audio
 
 import android.os.SystemClock
+import dev.woms.mumdroid.core.model.AudioContext
+import dev.woms.mumdroid.core.model.TalkState
 import java.util.TreeMap
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -63,6 +65,12 @@ class VoiceJitterBuffer(
         val opus: ByteArray?,
         val isLast: Boolean,
         var spanSamples: Int,
+        /**
+         * Audio context of this packet (normal / shout / whisper / listener).
+         * Server→client metadata, so it is decided per packet at receive time
+         * and carried to playback, where the talk state is derived from it.
+         */
+        val context: AudioContext = AudioContext.NORMAL,
     ) {
         val spanFrames: Int
             get() = OpusCodec.tenMsFrames(spanSamples).coerceAtLeast(1)
@@ -77,6 +85,10 @@ class VoiceJitterBuffer(
         var lastPushMs = 0L
         var missCount = 0
         var talking = false
+        /** Context of the last real (non-concealed) packet pulled. */
+        var context = AudioContext.NORMAL
+        /** Last talk state reported through [onTalking] for this session. */
+        var reportedState = TalkState.PASSIVE
         var timedMode = false
         var playHead: Long? = null
         var targetPreroll = initialPreroll
@@ -106,26 +118,32 @@ class VoiceJitterBuffer(
     /**
      * Playback-liveness talk state, matching `ClientUser::setTalking` from
      * [AudioOutputSpeech::needSamples]. Not packet-arrival.
+     *
+     * The state is [TalkState.PASSIVE] when the stream goes quiet, otherwise it
+     * is derived from the packet context (official
+     * `AudioOutputSpeech::prepareSampleBuffer`), so a whispering speaker can be
+     * distinguished from a talking one.
      */
     @Volatile
-    var onTalking: ((Int, Boolean) -> Unit)? = null
+    var onTalking: ((Int, TalkState) -> Unit)? = null
 
     /** Number of speakers currently buffered (including prerolling). */
     val sessionCount: Int
         get() = synchronized(lock) { sessions.size }
 
     /** Queues a decoded PCM frame for [session]. The array is copied. */
-    fun push(session: Int, pcm: ShortArray) {
+    fun push(session: Int, pcm: ShortArray, context: AudioContext = AudioContext.NORMAL) {
         if (pcm.isEmpty()) return
         val copy = pcm.copyOf()
         synchronized(lock) {
             val s = sessions.getOrPut(session) { Session(minTimedPreroll) }
+            s.context = context
             if (s.timedMode) {
                 val head = s.playHead ?: 0L
                 val guessed = s.timed.lastEntry()?.let { last ->
                     last.key + last.value.spanFrames
                 } ?: head
-                ingestTimed(s, Packet(guessed, copy, null, false, copy.size))
+                ingestTimed(s, Packet(guessed, copy, null, false, copy.size, context))
                 return
             }
             while (s.queued.size >= maxQueuedFrames) {
@@ -149,6 +167,7 @@ class VoiceJitterBuffer(
         pcm: ShortArray,
         isLast: Boolean = false,
         spanFrames: Int = OpusCodec.tenMsFrames(pcm.size).coerceAtLeast(1),
+        context: AudioContext = AudioContext.NORMAL,
     ) {
         if (pcm.isEmpty()) return
         val samples = spanFrames.coerceAtLeast(1) * OpusCodec.FRAME_SIZE_10MS
@@ -156,7 +175,7 @@ class VoiceJitterBuffer(
             val s = sessions.getOrPut(session) { Session(minTimedPreroll) }
             ingestTimed(
                 s,
-                Packet(frameNumber, pcm.copyOf(), null, isLast, samples),
+                Packet(frameNumber, pcm.copyOf(), null, isLast, samples, context),
             )
         }
     }
@@ -170,6 +189,7 @@ class VoiceJitterBuffer(
         frameNumber: Long,
         opus: ByteArray,
         isLast: Boolean = false,
+        context: AudioContext = AudioContext.NORMAL,
     ) {
         if (opus.isEmpty()) return
         val samples = OpusCodec.packetSampleCount(opus)
@@ -177,7 +197,7 @@ class VoiceJitterBuffer(
             val s = sessions.getOrPut(session) { Session(minTimedPreroll) }
             ingestTimed(
                 s,
-                Packet(frameNumber, null, opus.copyOf(), isLast, samples),
+                Packet(frameNumber, null, opus.copyOf(), isLast, samples, context),
             )
         }
     }
@@ -218,7 +238,7 @@ class VoiceJitterBuffer(
         val now = clock()
         var had = false
         val ended = ArrayList<Int>()
-        val talkOn = ArrayList<Int>()
+        val talkOn = ArrayList<Pair<Int, TalkState>>()
         val talkOff = ArrayList<Int>()
         synchronized(lock) {
             val it = sessions.entries.iterator()
@@ -229,7 +249,11 @@ class VoiceJitterBuffer(
                     s.timed.isEmpty() &&
                     s.leftoverRemaining() == 0
                 if (idle) {
-                    if (s.talking) talkOff.add(id)
+                    if (s.talking) {
+                        s.talking = false
+                        s.reportedState = TalkState.PASSIVE
+                        talkOff.add(id)
+                    }
                     decoder?.reset(id)
                     it.remove()
                     ended.add(id)
@@ -243,9 +267,11 @@ class VoiceJitterBuffer(
                     Pull.Real -> {
                         had = true
                         s.missCount = 0
-                        if (!s.talking) {
+                        val state = TalkState.fromContext(s.context)
+                        if (!s.talking || s.reportedState != state) {
                             s.talking = true
-                            talkOn.add(id)
+                            s.reportedState = state
+                            talkOn.add(id to state)
                         }
                     }
                     Pull.Conceal -> {
@@ -253,6 +279,7 @@ class VoiceJitterBuffer(
                         s.missCount++
                         if (s.talking && s.missCount > missLimit) {
                             s.talking = false
+                            s.reportedState = TalkState.PASSIVE
                             talkOff.add(id)
                         }
                     }
@@ -260,6 +287,7 @@ class VoiceJitterBuffer(
                         s.missCount++
                         if (s.talking && s.missCount > missLimit) {
                             s.talking = false
+                            s.reportedState = TalkState.PASSIVE
                             talkOff.add(id)
                         }
                     }
@@ -271,8 +299,8 @@ class VoiceJitterBuffer(
         }
         val talkingTap = onTalking
         if (talkingTap != null) {
-            for (id in talkOn) talkingTap(id, true)
-            for (id in talkOff) talkingTap(id, false)
+            for ((id, state) in talkOn) talkingTap(id, state)
+            for (id in talkOff) talkingTap(id, TalkState.PASSIVE)
         }
         val tap = onSessionEnded
         if (tap != null) {
@@ -350,6 +378,7 @@ class VoiceJitterBuffer(
                     exact.spanSamples = pcm.size
                 }
                 s.lastDecodedSamples = pcm.size
+                s.context = exact.context
                 s.playHead = head + exact.spanFrames
                 if (s.needFadeIn) {
                     if (pcm.size >= OpusCodec.FRAME_SIZE_10MS) applyFadeIn(pcm)

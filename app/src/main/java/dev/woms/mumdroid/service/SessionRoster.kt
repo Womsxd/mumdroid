@@ -4,6 +4,7 @@ import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelLinks
 import dev.woms.mumdroid.core.model.ChannelTree
+import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.net.UserStateMerge
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +38,13 @@ internal class SessionRoster(private val scope: CoroutineScope) {
     val channelPermissions = ConcurrentHashMap<Int, Long>()
 
     var localSession: Int = 0
+
+    /**
+     * Fired when a user or channel disappears from the roster, so the active
+     * voice target can be re-resolved: a whisper target whose users all left
+     * must stop transmitting rather than fall back to a channel broadcast.
+     */
+    var onRosterPruned: (() -> Unit)? = null
 
     fun snapshotUsers(): List<User> =
         userMap.values
@@ -80,11 +88,16 @@ internal class SessionRoster(private val scope: CoroutineScope) {
 
     fun isIgnored(session: Int?): Boolean = session != null && session in localIgnoreSet
 
-    fun setUserTalking(session: Int, talking: Boolean) {
+    /**
+     * Applies a playback-liveness talk state for [session], mirroring official
+     * `ClientUser::setTalking`. A speak-blocked user (mute / deaf / ACL
+     * suppress) never shows a talking indicator.
+     */
+    fun setUserTalkState(session: Int, state: TalkState) {
         val user = userMap[session] ?: return
-        val next = talking && !user.isSpeakBlocked
-        if (user.talking == next) return
-        userMap[session] = user.copy(talking = next)
+        val next = if (user.isSpeakBlocked) TalkState.PASSIVE else state
+        if (user.talkState == next) return
+        userMap[session] = user.copy(talkState = next)
         publish()
     }
 
@@ -152,6 +165,7 @@ internal class SessionRoster(private val scope: CoroutineScope) {
 
     fun removeChannel(channelId: Int) {
         val gone = channelMap.remove(channelId)
+        if (gone != null) onRosterPruned?.invoke()
         if (gone != null) {
             ChannelLinks.syncPartners(channelMap, channelId, gone.linkedIds, emptySet())
         }
@@ -182,7 +196,7 @@ internal class SessionRoster(private val scope: CoroutineScope) {
             deaf = deaf,
             suppress = suppress,
             prioritySpeaker = prioritySpeaker,
-            talking = if (speakBlocked) false else existing?.talking ?: false,
+            talkState = if (speakBlocked) TalkState.PASSIVE else existing?.talkState ?: TalkState.PASSIVE,
             isLocalUser = user.session == localSession,
             localBlock = existing?.localBlock ?: (user.session in localBlockSet),
             localIgnore = existing?.localIgnore ?: (user.session in localIgnoreSet),
@@ -194,6 +208,7 @@ internal class SessionRoster(private val scope: CoroutineScope) {
 
     fun removeUser(session: Int): User? {
         val removed = userMap.remove(session)
+        if (removed != null) onRosterPruned?.invoke()
         listeningBySession.remove(session)
         if (session == localSession) _listeningChannels.value = emptySet()
         return removed
@@ -316,6 +331,15 @@ internal class SessionRoster(private val scope: CoroutineScope) {
 
     fun canWhisper(channelId: Int): Boolean =
         ChanACL.canWhisper(permissions(channelId))
+
+    /**
+     * Whether whispering to [channelId] may be offered. Unlike [canWhisper] this
+     * stays true while the channel's ACL bits have not arrived yet: hiding the
+     * entry until a query returns would make it pop in on every menu open, and
+     * murmur validates the permission again when the target is registered.
+     */
+    fun mayWhisper(channelId: Int): Boolean =
+        !hasPermissions(channelId) || canWhisper(channelId)
 
     fun canEnter(channelId: Int): Boolean =
         ChanACL.canEnter(permissions(channelId))

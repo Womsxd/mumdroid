@@ -29,6 +29,11 @@ object ProtoUdpCodec {
         val payload: ByteArray,
         val isLastFrame: Boolean,
         val frameNumber: Long = 0L,
+        /**
+         * Server→client `context` field (0 normal / 1 shout / 2 whisper /
+         * 3 listener), see [dev.woms.mumdroid.core.model.AudioContext].
+         */
+        val context: Int = 0,
     )
 
     /**
@@ -73,6 +78,7 @@ object ProtoUdpCodec {
             payload = audio.opusData.toByteArray(),
             isLastFrame = audio.isTerminator,
             frameNumber = audio.frameNumber,
+            context = audio.context,
         )
     }
 

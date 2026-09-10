@@ -28,6 +28,7 @@ internal class SessionPermissions(
     fun canTraverse(channelId: Int) = roster.canTraverse(channelId)
     fun canSpeak(channelId: Int) = roster.canSpeak(channelId)
     fun canWhisper(channelId: Int) = roster.canWhisper(channelId)
+    fun mayWhisper(channelId: Int) = roster.mayWhisper(channelId)
     fun canEnter(channelId: Int) = roster.canEnter(channelId)
     fun canJoinChannel(channelId: Int) = roster.canJoinChannel(channelId)
     fun canEditAcl(channelId: Int) = roster.canEditAcl(channelId)

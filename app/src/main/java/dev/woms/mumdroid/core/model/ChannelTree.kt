@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.model
 
+import dev.woms.mumdroid.core.model.ChannelTree.compareUsers
 import java.text.Collator
 import java.util.Locale
 
@@ -92,7 +93,7 @@ object ChannelTree {
             for (channelId in listened) {
                 byId[channelId]?.users?.add(
                     user.copy(
-                        talking = false,
+                        talkState = TalkState.PASSIVE,
                         isChannelListener = true,
                         listenerChannelId = channelId,
                     ),

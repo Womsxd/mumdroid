@@ -32,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.ChannelPick
+import dev.woms.mumdroid.core.model.LoopbackMode
+import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.UserStatusIcon
 
@@ -69,6 +71,14 @@ internal fun UserRow(
         onSendPrivateChat = actions.onSendPrivateChat,
         onSetChannelListening = actions.onSetChannelListening,
         onUserInformation = actions.onUserInformation,
+        onWhisperToUser = actions.onWhisperToUser,
+        onStopVoiceTarget = actions.onStopVoiceTarget,
+        whisperSessions = actions.whisperSessions,
+        mayWhisper = actions.mayWhisper,
+        loopback = actions.loopback,
+        onSetLoopback = actions.onSetLoopback,
+        onWhisperToUsers = actions.onWhisperToUsers,
+        onShoutToChannel = actions.onShoutToChannelPicker,
     )
 }
 
@@ -101,6 +111,14 @@ internal fun UserRow(
     onSendPrivateChat: (Int, String) -> Unit,
     onSetChannelListening: (Int, Boolean) -> Unit,
     onUserInformation: (Int, String) -> Unit,
+    onWhisperToUser: (Int) -> Unit,
+    onStopVoiceTarget: () -> Unit,
+    whisperSessions: Set<Int>,
+    mayWhisper: (Int) -> Boolean,
+    loopback: LoopbackMode,
+    onSetLoopback: (LoopbackMode) -> Unit,
+    onWhisperToUsers: () -> Unit,
+    onShoutToChannel: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var kickDialog by remember { mutableStateOf(false) }
@@ -110,6 +128,7 @@ internal fun UserRow(
     var sendDialog by remember { mutableStateOf(false) }
     var moveSubOpen by remember { mutableStateOf(false) }
     var adminSubOpen by remember { mutableStateOf(false) }
+    var voiceTargetSubOpen by remember { mutableStateOf(false) }
     // Colors verified against the PC (Mumble desktop) client skin files
     // (themes/Default/muted_self.svg, muted_server.svg, muted_local.svg,
     // muted_suppressed.svg, priority_speaker.svg, status/text-missing.svg):
@@ -121,9 +140,16 @@ internal fun UserRow(
     val remoteColor = Color(0xFF44A3F2) // blue (服务器)
     val suppressColor = Color(0xFF34A853) // green (频道 ACL)
     val localColor = Color(0xFF9B59B6) // purple (本地)
+    // Talk-state colours from the desktop skin (talking_whisper.svg /
+    // talking_alt.svg): whispering purple, shouting amber.
+    val whisperColor = Color(0xFF9B59B6)
+    val shoutColor = Color(0xFFFBBC05)
 
     // Which flags are applied by someone else (server/remote) vs by the user themself
     // vs locally on this device only.
+    val whisperActive = user.session in whisperSessions
+    val showWhisper = !user.isLocalUser && !user.isChannelListener &&
+        (whisperActive || mayWhisper(user.channelId))
     val remoteMuted = user.mute || user.deaf || user.suppress
     val selfMuted = user.selfMute || user.selfDeaf
     val locallyBlocked = user.localBlock
@@ -142,6 +168,19 @@ internal fun UserRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val showTalking = user.talking && !user.isSpeakBlocked
+            val talkingColor = when (user.talkState) {
+                // Colours follow the desktop skin preview: whispering is
+                // purple (#9B59B6, talking_whisper.svg), shouting amber
+                // (#FBBC05, talking_alt.svg), plain talking the theme accent.
+                TalkState.WHISPERING -> whisperColor
+                TalkState.SHOUTING -> shoutColor
+                else -> MaterialTheme.colorScheme.primary
+            }
+            val talkingDesc = when (user.talkState) {
+                TalkState.WHISPERING -> R.string.talking_whisper
+                TalkState.SHOUTING -> R.string.talking_shout
+                else -> if (showTalking) R.string.talking else R.string.not_talking
+            }
             if (user.isChannelListener) {
                 Icon(
                     Icons.Filled.Hearing,
@@ -154,10 +193,8 @@ internal fun UserRow(
             } else {
                 Icon(
                     Icons.Filled.GraphicEq,
-                    contentDescription = stringResource(
-                        if (showTalking) R.string.talking else R.string.not_talking
-                    ),
-                    tint = if (showTalking) MaterialTheme.colorScheme.primary
+                    contentDescription = stringResource(talkingDesc),
+                    tint = if (showTalking) talkingColor
                     else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                     modifier = Modifier
                         .padding(end = 6.dp)
@@ -238,6 +275,7 @@ internal fun UserRow(
             if (!menuOpen) {
                 moveSubOpen = false
                 adminSubOpen = false
+                voiceTargetSubOpen = false
             } else {
                 onQueryChannelPermissions(user.channelId)
                 if (user.isChannelListener) onQueryChannelPermissions(user.listenerChannelId)
@@ -282,6 +320,23 @@ internal fun UserRow(
             canBanUser = canBanUser,
             canRegisterUser = canRegisterUser,
             canTextMessage = canTextMessage,
+            showWhisper = showWhisper,
+            whisperActive = whisperActive,
+            // The self-test only makes sense on your own row: it loops your own
+            // microphone back to you, it is not a per-user action on somebody
+            // else.
+            showLoopback = user.isLocalUser,
+            loopback = loopback,
+            onSetLoopback = onSetLoopback,
+            voiceTargetSubOpen = voiceTargetSubOpen,
+            onVoiceTargetSubOpenChange = { voiceTargetSubOpen = it },
+            onWhisperToUsers = onWhisperToUsers,
+            onShoutToChannel = onShoutToChannel,
+            onWhisper = {
+                // Clearing an already-active whisper restores regular speech;
+                // picking the same user again would be a no-op re-registration.
+                if (whisperActive) onStopVoiceTarget() else onWhisperToUser(user.session)
+            },
         )
 
         if (moveDialog) {

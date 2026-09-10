@@ -4,10 +4,12 @@ import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.CertificatePrompt
 import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
+import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.model.ServerConnectionInfo
 import dev.woms.mumdroid.core.model.ServerRemoval
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
+import dev.woms.mumdroid.core.model.VoiceTargetStatus
 import dev.woms.mumdroid.core.net.UserConnectionInfo
 
 /** Low-frequency session snapshot for the UI.
@@ -48,6 +50,18 @@ data class ConnectionState(
     val serverRemoval: ServerRemoval? = null,
     /** Device currently playing incoming voice; null while disconnected. */
     val outputTarget: VoiceOutputTarget? = null,
+    /**
+     * Active shout/whisper target: a target chip is shown while a channel or
+     * user target is selected, and it turns into a warning when the target no
+     * longer resolves to anybody.
+     */
+    val voiceTarget: VoiceTargetStatus = VoiceTargetStatus(),
+    /**
+     * Active audio self-test mode. While it is not [LoopbackMode.OFF] the
+     * microphone audio is only heard locally (local mode) or only by this
+     * device through the server (server mode) — never by other users.
+     */
+    val loopbackMode: LoopbackMode = LoopbackMode.OFF,
     /** Channel ids the local user is listening to without joining. */
     val listeningChannels: Set<Int> = emptySet(),
     /** Password from the last ACL query, used by the channel-edit dialog. */

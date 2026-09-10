@@ -6,6 +6,8 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.SystemClock
 import android.util.Log
+import dev.woms.mumdroid.core.model.AudioContext
+import dev.woms.mumdroid.core.model.TalkState
 import kotlin.math.roundToInt
 
 /**
@@ -73,9 +75,13 @@ class AudioOutput(
     @Volatile
     var speakerIdleTap: ((Int) -> Unit)? = null
 
-    /** Playback-liveness talk flag, from the mix (PC AudioOutputSpeech). */
+    /**
+     * Playback-liveness talk state, from the mix (PC AudioOutputSpeech). The
+     * state is [TalkState.PASSIVE] when the speaker goes quiet, otherwise it
+     * reflects the received audio context (talking / whispering / shouting).
+     */
     @Volatile
-    var speakerTalkingTap: ((Int, Boolean) -> Unit)? = null
+    var speakerTalkingTap: ((Int, TalkState) -> Unit)? = null
 
     @Volatile
     private var preferredDevice: AudioDeviceInfo? = null
@@ -186,9 +192,15 @@ class AudioOutput(
      * (10 ms units). Decode and PLC happen on the playback thread in
      * timestamp order.
      */
-    fun writePacket(session: Int, frameNumber: Long, payload: ByteArray, isLast: Boolean = false) {
+    fun writePacket(
+        session: Int,
+        frameNumber: Long,
+        payload: ByteArray,
+        isLast: Boolean = false,
+        context: AudioContext = AudioContext.NORMAL,
+    ) {
         if (!running.get()) return
-        jitter.pushEncoded(session, frameNumber, payload, isLast)
+        jitter.pushEncoded(session, frameNumber, payload, isLast, context)
     }
 
     /** Switches the Opus decode backend; per-session decoder state is dropped. */

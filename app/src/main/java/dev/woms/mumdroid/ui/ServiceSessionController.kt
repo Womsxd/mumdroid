@@ -15,9 +15,11 @@ import androidx.core.content.ContextCompat
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.BanEntry
+import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.MumbleServer
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
+import dev.woms.mumdroid.core.model.VoiceTargetSpec
 import dev.woms.mumdroid.core.net.AclUserNames
 import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.service.MumbleService
@@ -181,6 +183,10 @@ internal class ServiceSessionController(
     override fun toggleSelfDeafen() { service?.voiceCommands?.toggleSelfDeafen() }
     override fun startTalking() { service?.voiceCommands?.startTalking() }
     override fun stopTalking() { service?.voiceCommands?.stopTalking() }
+    override fun setVoiceTarget(spec: VoiceTargetSpec?) { service?.voiceCommands?.setVoiceTarget(spec) }
+    override fun clearVoiceTarget() { service?.voiceCommands?.clearVoiceTarget() }
+
+    override fun setLoopback(mode: LoopbackMode) { service?.voiceCommands?.setLoopback(mode) }
     override fun joinChannel(channelId: Int, accessToken: String?) {
         service?.channelCommands?.joinChannel(channelId, accessToken = accessToken)
     }
@@ -307,6 +313,8 @@ internal class ServiceSessionController(
     override fun canSpeak(channelId: Int): Boolean = service?.permissions?.canSpeak(channelId) ?: false
 
     override fun canWhisper(channelId: Int): Boolean = service?.permissions?.canWhisper(channelId) ?: false
+
+    override fun mayWhisper(channelId: Int): Boolean = service?.permissions?.mayWhisper(channelId) ?: false
 
     override fun canEnter(channelId: Int): Boolean = service?.permissions?.canEnter(channelId) ?: false
 
@@ -457,6 +465,8 @@ internal class ServiceSessionController(
         bind(svc.banListRefreshing) { copy(banListRefreshing = it) },
         bind(svc.serverRemoval) { copy(serverRemoval = it) },
         bind(svc.outputTarget) { copy(outputTarget = it) },
+        bind(svc.voiceTarget) { copy(voiceTarget = it) },
+        bind(svc.loopbackMode) { copy(loopbackMode = it) },
         bind(svc.permissionEpoch) { copy(permissionEpoch = it) },
         bind(svc.listeningChannels) { copy(listeningChannels = it) },
         bind(svc.channelAclPassword) { copy(channelAclPassword = it) },
@@ -495,6 +505,8 @@ internal class ServiceSessionController(
         permissionEpoch = svc.permissionEpoch.value,
         serverRemoval = svc.serverRemoval.value,
         outputTarget = svc.outputTarget.value,
+        voiceTarget = svc.voiceTarget.value,
+        loopbackMode = svc.loopbackMode.value,
         listeningChannels = svc.listeningChannels.value,
         channelAclPassword = svc.channelAclPassword.value,
         favoriteId = svc.favoriteId(),

@@ -1,6 +1,8 @@
 package dev.woms.mumdroid
 
 import com.google.protobuf.ByteString
+import dev.woms.mumdroid.core.model.AudioContext
+import dev.woms.mumdroid.core.model.VoiceTargetId
 import dev.woms.mumdroid.core.net.ProtoUdpCodec
 import dev.woms.mumdroid.core.net.UdpPacketCodec
 import dev.woms.mumdroid.core.net.UdpType
@@ -174,8 +176,8 @@ class VoiceFramingTest {
     fun legacyBuild_stampsFrameNumbersAndLastFlag() {
         val f = framing(protobufMode = false)
         val payload = byteArrayOf(1, 2, 3)
-        val p0 = f.buildVoiceBody(payload, isLastFrame = false, frameCount = 2)
-        val p1 = f.buildVoiceBody(payload, isLastFrame = true, frameCount = 2)
+        val p0 = requireNotNull(f.buildVoiceBody(payload, isLastFrame = false, frameCount = 2))
+        val p1 = requireNotNull(f.buildVoiceBody(payload, isLastFrame = true, frameCount = 2))
 
         fun frameNumber(packet: ByteArray): Long {
             val parsed = UdpPacketCodec.readVarInt(packet, 1, packet.size)
@@ -197,7 +199,9 @@ class VoiceFramingTest {
         val f = framing(protobufMode = false)
         f.buildVoiceBody(byteArrayOf(1), isLastFrame = false, frameCount = 2)
         f.reset()
-        val body = f.buildVoiceBody(byteArrayOf(1), isLastFrame = false, frameCount = 2)
+        val body = requireNotNull(
+            f.buildVoiceBody(byteArrayOf(1), isLastFrame = false, frameCount = 2),
+        )
         assertEquals(0L, UdpPacketCodec.readVarInt(body, 1, body.size)!!.first)
     }
 
@@ -206,7 +210,7 @@ class VoiceFramingTest {
         val f = framing(protobufMode = true)
         val payload = byteArrayOf(9, 8, 7, 6)
         val decoded = f.decodeDatagram(
-            f.buildVoiceBody(payload, isLastFrame = true, frameCount = 2),
+            requireNotNull(f.buildVoiceBody(payload, isLastFrame = true, frameCount = 2)),
         ) as VoiceFraming.Decoded.Audio
         // Client→server Audio has no sender session.
         assertEquals(0, decoded.session)
@@ -214,10 +218,89 @@ class VoiceFramingTest {
         assertArrayEquals(payload, decoded.payload)
         assertTrue(decoded.isLastFrame)
         val next = f.decodeDatagram(
-            f.buildVoiceBody(payload, isLastFrame = false, frameCount = 2),
+            requireNotNull(f.buildVoiceBody(payload, isLastFrame = false, frameCount = 2)),
         ) as VoiceFraming.Decoded.Audio
         assertEquals(2L, next.frameNumber)
         assertFalse(next.isLastFrame)
+    }
+
+
+    // ---- Voice targets (whisper / shout) ----
+
+    @Test
+    fun legacyBuild_writesTargetIntoTheLowHeaderBits() {
+        val f = framing(protobufMode = false)
+        val body = requireNotNull(
+            f.buildVoiceBody(byteArrayOf(1, 2), isLastFrame = false, frameCount = 2, target = 7),
+        )
+        // (type << 5) | target, as official updateAudioPacket_legacy.
+        assertEquals((UdpType.VOICE_OPUS shl 5) or 7, body[0].toInt() and 0xff)
+    }
+
+    @Test
+    fun legacyServerAudio_exposesTheContextFromTheHeaderBits() {
+        val f = framing(protobufMode = false)
+        val body = legacyServerAudio(
+            session = 3,
+            frameNumber = 1,
+            payload = byteArrayOf(1, 2, 3),
+            isLastFrame = false,
+        )
+        // Server→client: the same five bits carry the context.
+        body[0] = ((UdpType.VOICE_OPUS shl 5) or AudioContext.WHISPER.wire).toByte()
+        val decoded = f.decodeDatagram(body) as VoiceFraming.Decoded.Audio
+        assertEquals(AudioContext.WHISPER, decoded.context)
+    }
+
+    @Test
+    fun protobufBuild_stampsTargetAndDecodesContext() {
+        val f = framing(protobufMode = true)
+        val body = requireNotNull(
+            f.buildVoiceBody(byteArrayOf(5), isLastFrame = true, frameCount = 2, target = 4),
+        )
+        val message = Audio.parseFrom(body.copyOfRange(1, body.size))
+        assertEquals(4, message.target)
+        assertTrue(message.isTerminator)
+        val audio = ProtoUdpCodec.decodeAudio(body, 1, body.size - 1)!!
+        assertEquals(0L, audio.frameNumber)
+    }
+
+    @Test
+    fun protobufServerAudio_exposesTheContext() {
+        val f = framing(protobufMode = true)
+        val audio = Audio.newBuilder()
+            .setContext(AudioContext.SHOUT.wire)
+            .setSenderSession(11)
+            .setFrameNumber(3L)
+            .setOpusData(ByteString.copyFrom(byteArrayOf(9)))
+            .build()
+        val proto = audio.toByteArray()
+        val body = ByteArray(1 + proto.size)
+        body[0] = ProtoUdpCodec.HEADER_AUDIO.toByte()
+        System.arraycopy(proto, 0, body, 1, proto.size)
+        val decoded = f.decodeDatagram(body) as VoiceFraming.Decoded.Audio
+        assertEquals(AudioContext.SHOUT, decoded.context)
+    }
+
+    @Test
+    fun buildVoiceBody_refusesTargetsThatDoNotFitFiveBits() {
+        val f = framing(protobufMode = false)
+        // Official updateAudioPacket_legacy returns an empty packet here; the
+        // client must not send anything at all rather than wrap around to a
+        // broadcast target.
+        assertNull(f.buildVoiceBody(byteArrayOf(1), false, 2, target = 32))
+        assertNull(f.buildVoiceBody(byteArrayOf(1), false, 2, target = VoiceTargetId.NONE))
+        // The refused packet must not consume a frame number.
+        val next = requireNotNull(f.buildVoiceBody(byteArrayOf(1), false, 2))
+        assertEquals(0L, UdpPacketCodec.readVarInt(next, 1, next.size)!!.first)
+    }
+
+    @Test
+    fun tunneledLegacyAudio_keepsTheContext() {
+        val f = framing(protobufMode = false)
+        val body = legacyServerAudio(2, 1, byteArrayOf(1, 2), isLastFrame = false)
+        body[0] = ((UdpType.VOICE_OPUS shl 5) or AudioContext.LISTEN.wire).toByte()
+        assertEquals(AudioContext.LISTEN, f.decodeTunneled(body)!!.context)
     }
 
     @Test

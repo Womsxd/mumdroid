@@ -2,9 +2,11 @@ package dev.woms.mumdroid.ui
 
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.BanEntry
+import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.MumbleServer
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
+import dev.woms.mumdroid.core.model.VoiceTargetSpec
 import dev.woms.mumdroid.core.net.AclUserNames
 import dev.woms.mumdroid.core.net.ChanAclSnapshot
 
@@ -23,6 +25,11 @@ interface SessionCommands {
     fun toggleSelfDeafen()
     fun startTalking()
     fun stopTalking()
+    fun setVoiceTarget(spec: VoiceTargetSpec?)
+    fun clearVoiceTarget()
+
+    /** Audio self-test mode (off / local / server). */
+    fun setLoopback(mode: LoopbackMode)
     fun joinChannel(channelId: Int, accessToken: String? = null)
     fun replaceAccessTokens(tokens: List<String>)
     fun canEditRegisteredUsers(): Boolean
@@ -74,6 +81,9 @@ interface SessionCommands {
     fun canTraverse(channelId: Int): Boolean
     fun canSpeak(channelId: Int): Boolean
     fun canWhisper(channelId: Int): Boolean
+
+    /** Like [canWhisper] but true while the channel ACL is unknown. */
+    fun mayWhisper(channelId: Int): Boolean
     fun canEnter(channelId: Int): Boolean
     fun canJoinChannel(channelId: Int): Boolean
     fun canEditAcl(channelId: Int): Boolean

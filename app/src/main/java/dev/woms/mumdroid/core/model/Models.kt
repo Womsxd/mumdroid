@@ -61,7 +61,13 @@ data class User(
      * the blue Campaign icon, same colour as server mute.
      */
     var prioritySpeaker: Boolean = false,
-    val talking: Boolean = false,
+    /**
+     * Talking state (official `Settings::TalkState`), derived from the active
+     * voice target while sending and from the received audio context while
+     * playing. Broadcast in the roster so the row icon can distinguish plain
+     * talking from whispering / shouting.
+     */
+    val talkState: TalkState = TalkState.PASSIVE,
     var isLocalUser: Boolean = false,
     /** Local (client-side) block: silence this user's audio on this device only. */
     var localBlock: Boolean = false,
@@ -82,6 +88,9 @@ data class User(
 ) {
     /** Official `iId >= 0`: SuperUser or a registered account. */
     val isRegistered: Boolean get() = userId >= 0
+
+    /** Whether this user is currently producing any talking indicator. */
+    val talking: Boolean get() = talkState.isAudible
 
     /**
      * True when this user cannot be heard: self mute/deaf, server mute/deaf,

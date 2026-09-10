@@ -18,10 +18,14 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PersonRemove
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -30,12 +34,18 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.ChannelPick
+import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.User
 
 /**
  * Desktop `qmUser_aboutToShow` order, with Move and moderation nested
  * so the long-press list stays short on a phone. Listener proxies use
  * a shorter menu (desktop `qmListener`).
+ *
+ * Whisper / shout and the audio self-test both live here instead of in the
+ * voice bar: on a phone the target is chosen by pointing at the user or the
+ * channel it addresses, and a self-test is a per-user action, so neither needs
+ * a permanent button in the bar.
  */
 @Composable
 internal fun UserContextMenu(
@@ -70,6 +80,18 @@ internal fun UserContextMenu(
     canBanUser: () -> Boolean,
     canRegisterUser: (User) -> Boolean,
     canTextMessage: (Int) -> Boolean,
+    showWhisper: Boolean,
+    whisperActive: Boolean,
+    onWhisper: () -> Unit,
+    /** Audio self-test entries: only offered on the local user's own row. */
+    showLoopback: Boolean,
+    loopback: LoopbackMode,
+    onSetLoopback: (LoopbackMode) -> Unit,
+    /** Multi-select whisper / channel shout: reachable from your own row. */
+    voiceTargetSubOpen: Boolean,
+    onVoiceTargetSubOpenChange: (Boolean) -> Unit,
+    onWhisperToUsers: () -> Unit,
+    onShoutToChannel: () -> Unit,
 ) {
     val isListener = user.isChannelListener
     val inOtherChannel = !user.isLocalUser && user.channelId != localChannelId
@@ -86,6 +108,7 @@ internal fun UserContextMenu(
     val showAdminMenu = showKick || showBan || showMuteAction || showDeafAction || showPrioritySpeaker
     val showRegister = !isListener && canRegisterUser(user)
     val showStopListening = isListener && user.isLocalUser
+    val showBlockActions = !user.isLocalUser && !isListener
     val showSendMessage = !user.isLocalUser && canTextMessage(
         if (isListener) user.listenerChannelId else user.channelId,
     )
@@ -236,7 +259,7 @@ internal fun UserContextMenu(
                 }
             }
         }
-        if (!user.isLocalUser && !isListener) {
+        if (showBlockActions) {
             if (inOtherChannel || showMoveMenu || showAdminMenu || showStopListening) {
                 HorizontalDivider()
             }
@@ -267,6 +290,29 @@ internal fun UserContextMenu(
                 },
             )
         }
+        if (showWhisper) {
+            if (inOtherChannel || showMoveMenu || showAdminMenu || showStopListening) {
+                HorizontalDivider()
+            }
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        stringResource(
+                            if (whisperActive) R.string.stop_voice_target
+                            else R.string.whisper_to_user,
+                            user.name,
+                        )
+                    )
+                },
+                leadingIcon = {
+                    Icon(Icons.Filled.RecordVoiceOver, contentDescription = null)
+                },
+                onClick = {
+                    onDismiss()
+                    onWhisper()
+                },
+            )
+        }
         if (showSendMessage) {
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.send_message)) },
@@ -279,9 +325,47 @@ internal fun UserContextMenu(
                 },
             )
         }
-        if (inOtherChannel || showMoveMenu || showAdminMenu || showStopListening
-            || (!user.isLocalUser && !isListener) || showSendMessage
-        ) {
+        if (showLoopback) {
+            if (showBlockActions || showWhisper || showSendMessage) {
+                HorizontalDivider()
+            }
+            // Whisper and shout are normally started from the row of the user /
+            // channel they address; the two pickers below are the entry points
+            // for everything a row cannot express (whispering to several users
+            // at once, shouting to a channel that is not on screen), which is
+            // why they hang off your own row.
+            NestedDropdownMenu(
+                label = stringResource(R.string.voice_target_label),
+                icon = Icons.Filled.RecordVoiceOver,
+                expanded = voiceTargetSubOpen,
+                onExpandedChange = onVoiceTargetSubOpenChange,
+            ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.whisper_to_ellipsis)) },
+                    leadingIcon = { Icon(Icons.Filled.RecordVoiceOver, contentDescription = null) },
+                    onClick = {
+                        onVoiceTargetSubOpenChange(false)
+                        onDismiss()
+                        onWhisperToUsers()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.shout_to_channel_ellipsis)) },
+                    leadingIcon = { Icon(Icons.Filled.Campaign, contentDescription = null) },
+                    onClick = {
+                        onVoiceTargetSubOpenChange(false)
+                        onDismiss()
+                        onShoutToChannel()
+                    },
+                )
+            }
+            LoopbackMenuItems(
+                loopback = loopback,
+                enabled = !user.isChannelListener,
+                onSetLoopback = onSetLoopback,
+            )
+        }
+        if (showBlockActions || showWhisper || showSendMessage || showLoopback) {
             HorizontalDivider()
         }
         DropdownMenuItem(
@@ -332,4 +416,54 @@ internal fun NestedDropdownMenu(
             content = content,
         )
     }
+}
+
+/**
+ * Audio self-test ("loopback") entries. Both are switches rather than a single
+ * item, because the two halves of the feature are independently worth knowing
+ * about: the self-test itself (the microphone becomes audible to nobody else)
+ * and where the audio is looped back, which starts local — offline, no server
+ * round trip — and can be moved to the server to exercise the whole uplink.
+ *
+ * The self-test is not persisted, so turning it on always means "local, right
+ * now", and the row is also the only place it can be switched off again.
+ */
+@Composable
+private fun LoopbackMenuItems(
+    loopback: LoopbackMode,
+    enabled: Boolean,
+    onSetLoopback: (LoopbackMode) -> Unit,
+) {
+    val active = loopback.isActive
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.loopback_self_test)) },
+        leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+        trailingIcon = {
+            Switch(
+                checked = active,
+                enabled = enabled,
+                onCheckedChange = { on -> onSetLoopback(LoopbackMode.of(enabled = on, server = false)) },
+            )
+        },
+        onClick = { onSetLoopback(LoopbackMode.of(enabled = !active, server = false)) },
+    )
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.loopback_use_server)) },
+        leadingIcon = { Icon(Icons.Filled.SwapVert, contentDescription = null) },
+        trailingIcon = {
+            Switch(
+                checked = loopback.isServer,
+                enabled = enabled && active,
+                onCheckedChange = { server ->
+                    onSetLoopback(LoopbackMode.of(enabled = true, server = server))
+                },
+            )
+        },
+        // The switch already expresses both states; the row only matters while
+        // the self-test runs, so a tap on it is a no-op when nothing loops.
+        enabled = enabled && active,
+        onClick = {
+            onSetLoopback(LoopbackMode.of(enabled = true, server = !loopback.isServer))
+        },
+    )
 }

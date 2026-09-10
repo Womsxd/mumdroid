@@ -41,8 +41,10 @@ import androidx.compose.ui.res.stringResource
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
+import dev.woms.mumdroid.core.model.ChannelPick
 import dev.woms.mumdroid.core.model.ChannelTree
 import dev.woms.mumdroid.core.model.VoiceMode
+import dev.woms.mumdroid.core.model.VoiceTargetSpec
 import dev.woms.mumdroid.ui.ConnectionState
 import dev.woms.mumdroid.ui.SessionCommands
 import kotlinx.coroutines.delay
@@ -67,6 +69,9 @@ fun ConnectionScreen(
     var infoSession by remember { mutableStateOf<Int?>(null) }
     var infoUserName by remember { mutableStateOf("") }
     var localPasswordPrompt by remember { mutableStateOf<ChannelPasswordPrompt?>(null) }
+    var whisperPicker by remember { mutableStateOf(false) }
+    var shoutPicker by remember { mutableStateOf(false) }
+    var pendingShoutChannel by remember { mutableStateOf<ChannelPick?>(null) }
     val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val showVoiceControls = tab != 1 || !keyboardOpen
     val localChannelId = state.users.firstOrNull { it.isLocalUser }?.channelId ?: 0
@@ -109,6 +114,13 @@ fun ConnectionScreen(
 
     LaunchedEffect(state.connected) {
         if (state.connected) commands.ensureChannelPermissions(0)
+    }
+
+    val voiceTarget = state.voiceTarget
+    val activeShoutChannelId = (voiceTarget.spec as? VoiceTargetSpec.Channel)?.channelId
+    val whisperSessions = (voiceTarget.spec as? VoiceTargetSpec.Users)?.sessions?.toSet() ?: emptySet()
+    val onWhisperToUser = remember(commands) {
+        { session: Int -> commands.setVoiceTarget(VoiceTargetSpec.Users(listOf(session))) }
     }
 
     when (adminPage) {
@@ -197,6 +209,38 @@ fun ConnectionScreen(
         )
     }
 
+    // Whisper / shout pickers, reached from the local user's long-press menu.
+    if (whisperPicker) {
+        WhisperToUsersDialog(
+            users = state.users,
+            onConfirm = { sessions ->
+                whisperPicker = false
+                if (sessions.isNotEmpty()) commands.setVoiceTarget(VoiceTargetSpec.Users(sessions))
+            },
+            onDismiss = { whisperPicker = false },
+        )
+    }
+    if (shoutPicker) {
+        ShoutChannelPickerDialog(
+            channels = moveChannels,
+            onSelect = { pick ->
+                shoutPicker = false
+                pendingShoutChannel = pick
+            },
+            onDismiss = { shoutPicker = false },
+        )
+    }
+    pendingShoutChannel?.let { pick ->
+        ShoutToChannelDialog(
+            channelName = pick.name,
+            onConfirm = { links, children, group ->
+                pendingShoutChannel = null
+                commands.setVoiceTarget(VoiceTargetSpec.Channel(pick.id, links, children, group))
+            },
+            onDismiss = { pendingShoutChannel = null },
+        )
+    }
+
     Scaffold(
         modifier = Modifier.imePadding(),
         topBar = {
@@ -228,6 +272,10 @@ fun ConnectionScreen(
                     voiceMode = voiceMode,
                     outputTarget = state.outputTarget,
                     onSelectOutputTarget = commands::setOutputTarget,
+                    voiceTarget = voiceTarget,
+                    loopback = state.loopbackMode,
+                    onClearVoiceTarget = commands::clearVoiceTarget,
+                    onSetLoopback = commands::setLoopback,
                 )
             }
         },
@@ -287,6 +335,20 @@ fun ConnectionScreen(
                     permissionEpoch = state.permissionEpoch,
                     showUserCount = showUserCount,
                     onUserInformation = onUserInformation,
+                    onWhisperToUser = onWhisperToUser,
+                    onStopVoiceTarget = commands::clearVoiceTarget,
+                    whisperSessions = whisperSessions,
+                    mayWhisper = commands::mayWhisper,
+                    onShoutToChannel = { channelId, links, children, group ->
+                        commands.setVoiceTarget(
+                            VoiceTargetSpec.Channel(channelId, links, children, group),
+                        )
+                    },
+                    activeShoutChannelId = activeShoutChannelId,
+                    loopback = state.loopbackMode,
+                    onSetLoopback = commands::setLoopback,
+                    onWhisperToUsers = { whisperPicker = true },
+                    onShoutToChannelPicker = { shoutPicker = true },
                 )
                 1 -> ChatPanel(
                     messages = state.chatMessages,

@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Hearing
@@ -19,7 +20,7 @@ import androidx.compose.ui.res.stringResource
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.ChannelLinks
 
-/** Desktop channel long-press menu: join, listen, add/edit/remove, link, send. */
+/** Channel long-press menu: join, listen, shout, add/edit/remove, link, send. */
 @Composable
 internal fun ChannelContextMenu(
     expanded: Boolean,
@@ -27,6 +28,10 @@ internal fun ChannelContextMenu(
     showJoin: Boolean,
     showListen: Boolean,
     listening: Boolean,
+    showShout: Boolean,
+    shoutActive: Boolean,
+    onShout: () -> Unit,
+    onStopShout: () -> Unit,
     showAdd: Boolean,
     showEdit: Boolean,
     showRemove: Boolean,
@@ -74,7 +79,23 @@ internal fun ChannelContextMenu(
                 },
             )
         }
-        if ((showJoin || showListen) && (showAdmin || linkMenu.any || showSend)) {
+        if (showShout) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        stringResource(
+                            if (shoutActive) R.string.stop_voice_target else R.string.shout_to_channel
+                        )
+                    )
+                },
+                leadingIcon = { Icon(Icons.Filled.Campaign, contentDescription = null) },
+                onClick = {
+                    onDismiss()
+                    if (shoutActive) onStopShout() else onShout()
+                },
+            )
+        }
+        if ((showJoin || showListen || showShout) && (showAdmin || linkMenu.any || showSend)) {
             HorizontalDivider()
         }
         if (showAdd) {

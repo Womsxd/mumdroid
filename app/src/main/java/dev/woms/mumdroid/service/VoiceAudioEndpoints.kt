@@ -6,6 +6,8 @@ import dev.woms.mumdroid.core.audio.AudioOutput
 import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.AudioContext
+import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.VoiceMode
 
 /**
@@ -30,7 +32,7 @@ internal class VoiceAudioEndpoints(
         fun onPcmFrame(pcm: ShortArray)
         fun onSpeechDetected(active: Boolean)
         fun onVadLevel(level: Int)
-        fun setUserTalking(session: Int, talking: Boolean)
+        fun setUserTalkState(session: Int, state: TalkState)
     }
 
     private var audioInput: AudioInput? = null
@@ -127,8 +129,23 @@ internal class VoiceAudioEndpoints(
         audioOutput?.setOpusImplementation(implementation)
     }
 
-    fun writePacket(session: Int, frameNumber: Long, payload: ByteArray, isLastFrame: Boolean) {
-        audioOutput?.writePacket(session, frameNumber, payload, isLastFrame)
+    fun writePacket(
+        session: Int,
+        frameNumber: Long,
+        payload: ByteArray,
+        isLastFrame: Boolean,
+        context: AudioContext,
+    ) {
+        audioOutput?.writePacket(session, frameNumber, payload, isLastFrame, context)
+    }
+
+    /**
+     * Queues already-decoded PCM for [session]. Used by the local audio
+     * self-test, which feeds captured frames straight into playback instead of
+     * encoding and sending them.
+     */
+    fun writeLocalPcm(session: Int, pcm: ShortArray) {
+        audioOutput?.write(session, pcm)
     }
 
     fun onOutputMediaChanged() {
@@ -178,9 +195,15 @@ internal class VoiceAudioEndpoints(
         ).apply {
             volume = settings.outputVolume
             echoReferenceTap = { pcm -> audioInput?.pushFarEndFrame(pcm) }
-            speakerIdleTap = { session -> host.setUserTalking(session, false) }
-            speakerTalkingTap = { session, talking ->
-                if (session != host.localSession()) host.setUserTalking(session, talking)
+            // The local audio self-test mixes the local session into playback,
+            // so both taps must ignore it: the local talk state is owned by the
+            // transmission path, and letting playback clear it after the loop
+            // buffer goes idle would drop the indicator mid-sentence.
+            speakerIdleTap = { session ->
+                if (session != host.localSession()) host.setUserTalkState(session, TalkState.PASSIVE)
+            }
+            speakerTalkingTap = { session, state ->
+                if (session != host.localSession()) host.setUserTalkState(session, state)
             }
             setPreferredDevice(routeController.playbackRouter.outputDevice)
             start()

@@ -2,6 +2,8 @@ package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.audio.OpusCodec
 import dev.woms.mumdroid.core.audio.VoiceJitterBuffer
+import dev.woms.mumdroid.core.model.AudioContext
+import dev.woms.mumdroid.core.model.TalkState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -89,19 +91,57 @@ class VoiceJitterBufferTest {
 
     @Test
     fun talking_followsPlaybackLiveness() {
-        val events = mutableListOf<Pair<Int, Boolean>>()
+        val events = mutableListOf<Pair<Int, TalkState>>()
         val jb = buffer(prerollFrames = 1)
-        jb.onTalking = { id, on -> events += id to on }
+        jb.onTalking = { id, state -> events += id to state }
         jb.push(3, ShortArray(4) { 10 })
         val out = ShortArray(4)
         jb.mix(out)
-        assertEquals(listOf(3 to true), events)
+        assertEquals(listOf(3 to TalkState.TALKING), events)
 
         repeat(10) { jb.mix(out) }
-        assertEquals(listOf(3 to true), events)
+        assertEquals(listOf(3 to TalkState.TALKING), events)
 
         jb.mix(out)
-        assertEquals(listOf(3 to true, 3 to false), events)
+        assertEquals(listOf(3 to TalkState.TALKING, 3 to TalkState.PASSIVE), events)
+    }
+
+    @Test
+    fun talking_reportsTheReceivedContext() {
+        val events = mutableListOf<Pair<Int, TalkState>>()
+        val jb = buffer(prerollFrames = 1)
+        jb.onTalking = { id, state -> events += id to state }
+        jb.pushTimed(
+            session = 3,
+            frameNumber = 0L,
+            pcm = ShortArray(4) { 10 },
+            spanFrames = 2,
+            context = AudioContext.WHISPER,
+        )
+        val out = ShortArray(4)
+        jb.mix(out)
+        assertEquals(listOf(3 to TalkState.WHISPERING), events)
+    }
+
+    @Test
+    fun talking_reportsAContextSwitchMidSpurt() {
+        val events = mutableListOf<Pair<Int, TalkState>>()
+        val jb = buffer(prerollFrames = 1)
+        jb.onTalking = { id, state -> events += id to state }
+        jb.pushTimed(3, 0L, ShortArray(4) { 10 }, spanFrames = 2)
+        val out = ShortArray(4)
+        jb.mix(out)
+        // The same speaker switches from regular speech to a shout.
+        jb.pushTimed(
+            3,
+            2L,
+            ShortArray(4) { 11 },
+            spanFrames = 2,
+            context = AudioContext.SHOUT,
+        )
+        repeat(3) { jb.mix(out) }
+        assertEquals(TalkState.TALKING, events.first().second)
+        assertTrue(events.any { it == 3 to TalkState.SHOUTING })
     }
 
     @Test

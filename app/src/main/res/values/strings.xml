@@ -522,4 +522,30 @@
     <string name="tamper_warning_message">The signature of this APK does not match the one used when it was compiled. It may have been modified or repackaged by a third party. For your safety please obtain the original build. To build it yourself, please compile from the source code.</string>
     <string name="tamper_warning_about">About</string>
     <string name="tamper_warning_dismiss">Dismiss</string>
+
+    <!-- Whisper / shout (voice targets) -->
+    <string name="shout_to_channel">Shout to this channel</string>
+    <string name="shout_dialog_title">Shout to %1$s</string>
+    <string name="shout_include_links">Follow channel links</string>
+    <string name="shout_include_children">Include subchannels</string>
+    <string name="shout_advanced_group">Restrict to ACL group</string>
+    <string name="whisper_to_user">Whisper to %1$s</string>
+    <string name="stop_voice_target">Stop whispering/shouting</string>
+    <string name="voice_target_chip_shout">Shouting to #%1$s</string>
+    <string name="voice_target_chip_shout_children">Shouting to #%1$s + subchannels</string>
+    <string name="voice_target_chip_shout_links">Shouting to #%1$s + links</string>
+    <string name="voice_target_chip_shout_links_children">Shouting to #%1$s + links &amp; subchannels</string>
+    <string name="voice_target_chip_whisper_many">Whispering to %1$s</string>
+    <string name="voice_target_unavailable">Target has no receivers left — nothing is being sent</string>
+    <string name="voice_target_clear">Switch back to normal speech</string>
+    <string name="talking_whisper">Whispering</string>
+    <string name="talking_shout">Shouting</string>
+    <string name="voice_target_label">Speaking target</string>
+    <string name="whisper_to_ellipsis">Whisper to…</string>
+    <string name="shout_to_channel_ellipsis">Shout to a channel…</string>
+    <string name="loopback_self_test">Audio self-test</string>
+    <string name="loopback_use_server">Loop back through the server</string>
+    <string name="loopback_chip_local">Audio self-test (local) — others cannot hear you</string>
+    <string name="loopback_chip_server">Audio self-test (server) — others cannot hear you</string>
+    <string name="loopback_disable">Stop the audio self-test</string>
 </resources>

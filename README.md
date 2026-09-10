@@ -47,6 +47,8 @@
 | Echo cancellation | Off / System / Speex (software, speaker reference) |
 | Output | Headset, Bluetooth, loudspeaker, earpiece — user-ranked order; communication or media path |
 | Extras | Half duplex, incoming volume, soft limiter, jitter buffer with packet-loss concealment |
+| Whisper / shout | Register a voice target with the server (protocol `VoiceTarget`, ids 1-30) and tag outgoing audio with it: whisper to one or more users, or shout to a channel with optional link/child traversal and an ACL group. Started from the long press menu of the user or channel it addresses (your own row also offers the multi-select and channel pickers) — there is no separate button, and the active target is shown above the voice bar and is always one tap away from being cleared; a target with no receivers left withholds audio instead of falling back to a channel broadcast |
+| Audio self-test | Loop the microphone back to this device instead of transmitting it, to check mic, headset and codec chain. Starts local (no network, works offline) and can be moved to the server (protocol target 31, echoed back by murmur) with a switch. Session-scoped, warned about above the voice bar, and never heard by other users |
 | Transport | UDP with automatic TCP fallback, forced TCP mode, QoS (DSCP) tagging |
 
 ### Connectivity
@@ -59,9 +61,9 @@
 
 ### Channels, users & admin
 
-- Collapsible **channel / user tree** with join, link/unlink, listen/unlisten, per-channel user counts and talking states.
+- Collapsible **channel / user tree** with join, link/unlink, listen/unlisten, shout-to-channel and whisper-to-user long-press actions, per-channel user counts and talking states (plain talking / whispering / shouting are drawn in different colours).
 - Create, edit, remove and reposition channels — including temporary channels, max-user limits, descriptions and passwords (remembered as access tokens per address). Channel access control is limited to passwords, which are translated into server ACL rules; fine-grained ACL editing (groups, per-user grants) is not implemented.
-- User context actions: information (versions, address, certificate, Opus support, ping statistics), mute, deafen, move, kick, ban, register, rename, unregister, priority speaker, ignore messages, local block.
+- User context actions: information (versions, address, certificate, Opus support, ping statistics), whisper, mute, deafen, move, kick, ban, register, rename, unregister, priority speaker, ignore messages, local block.
 - **Registered-user list** and **ban list** with search; timed or permanent bans by certificate or IP.
 - **Text chat** to channels and users with history, system notices (joins, leaves, moves, kicks, bans) and notifications with inline reply.
 

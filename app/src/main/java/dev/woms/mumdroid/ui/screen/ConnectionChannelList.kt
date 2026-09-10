@@ -40,6 +40,7 @@ import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelLinks
 import dev.woms.mumdroid.core.model.ChannelPick
 import dev.woms.mumdroid.core.model.ChannelTree
+import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.User
 
 /** Recursive channel list with users. */
@@ -92,6 +93,16 @@ internal fun ChannelList(
     permissionEpoch: Int,
     showUserCount: Boolean,
     onUserInformation: (Int, String) -> Unit,
+    onShoutToChannel: (Int, Boolean, Boolean, String) -> Unit,
+    onWhisperToUser: (Int) -> Unit,
+    onStopVoiceTarget: () -> Unit,
+    activeShoutChannelId: Int?,
+    whisperSessions: Set<Int>,
+    mayWhisper: (Int) -> Boolean,
+    loopback: LoopbackMode,
+    onSetLoopback: (LoopbackMode) -> Unit,
+    onWhisperToUsers: () -> Unit,
+    onShoutToChannelPicker: () -> Unit,
 ) {
     var collapsedIds by rememberSaveable { mutableStateOf(listOf<Int>()) }
     val collapsed = collapsedIds.toSet()
@@ -148,6 +159,16 @@ internal fun ChannelList(
         onUserInformation = onUserInformation,
         homeAllLinks = homeAllLinks,
         homeDirectLinks = homeDirectLinks,
+        onShoutToChannel = onShoutToChannel,
+        onWhisperToUser = onWhisperToUser,
+        onStopVoiceTarget = onStopVoiceTarget,
+        activeShoutChannelId = activeShoutChannelId,
+        whisperSessions = whisperSessions,
+        mayWhisper = mayWhisper,
+        loopback = loopback,
+        onSetLoopback = onSetLoopback,
+        onWhisperToUsers = onWhisperToUsers,
+        onShoutToChannelPicker = onShoutToChannelPicker,
     )
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -176,6 +197,7 @@ private fun ChannelNode(
     actions: ChannelTreeActions,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var shoutDialog by remember { mutableStateOf(false) }
     var sendDialog by remember { mutableStateOf(false) }
     var addDialog by remember { mutableStateOf(false) }
     var editDialog by remember { mutableStateOf(false) }
@@ -183,6 +205,10 @@ private fun ChannelNode(
     val listening = channel.id in actions.listeningChannels
     val showJoin = channel.id != actions.localChannelId
     val showSend = actions.canTextMessage(channel.id)
+    // Shout to a channel requires Whisper on it (official `ChanACL::Whisper`,
+    // checked by murmur again when the target is registered).
+    val shoutActive = actions.activeShoutChannelId == channel.id
+    val showShout = shoutActive || actions.mayWhisper(channel.id)
     val showListen = actions.supportsChannelListen() &&
         (actions.canListen(channel.id) || listening)
     val showAdd = !channel.temporary && actions.canAddChannel(channel.id)
@@ -299,6 +325,10 @@ private fun ChannelNode(
                 showJoin = showJoin,
                 showListen = showListen,
                 listening = listening,
+                showShout = showShout,
+                shoutActive = shoutActive,
+                onShout = { shoutDialog = true },
+                onStopShout = actions.onStopVoiceTarget,
                 showAdd = showAdd,
                 showEdit = showEdit,
                 showRemove = showRemove,
@@ -316,6 +346,16 @@ private fun ChannelNode(
                 onUnlinkAll = actions.onUnlinkAllChannels,
                 onSend = { sendDialog = true },
             )
+            if (shoutDialog) {
+                ShoutToChannelDialog(
+                    channelName = channel.name,
+                    onConfirm = { links, children, group ->
+                        shoutDialog = false
+                        actions.onShoutToChannel(channel.id, links, children, group)
+                    },
+                    onDismiss = { shoutDialog = false },
+                )
+            }
             if (sendDialog) {
                 SendTextMessageDialog(
                     title = stringResource(R.string.send_channel_message_title, channel.name),
@@ -374,7 +414,7 @@ private fun ChannelNode(
         }
         if (!collapsed) {
             channel.users.forEach { user ->
-                key(user.session, user.isChannelListener, user.talking) {
+                key(user.session, user.isChannelListener, user.talkState) {
                     UserRow(
                         user = user,
                         indent = indent + 1,
