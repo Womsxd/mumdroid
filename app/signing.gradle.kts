@@ -43,6 +43,13 @@ data class SigningConfigHolder(
     val storePassword: String?,
     val keyAlias: String?,
     val keyPassword: String?,
+    /**
+     * Extra trusted certificate digests supplied by hand, comma / semicolon /
+     * newline separated. Used for certificates that are NOT in the keystore —
+     * e.g. a rotated-away key, or the separate key that signed v3 while v2 was
+     * signed with the keystore key.
+     */
+    val extraSignatures: String = "",
 )
 
 /**
@@ -53,11 +60,15 @@ data class SigningConfigHolder(
  * key password — all nullable when no signing config is available.
  */
 fun loadReleaseSigningConfig(): SigningConfigHolder {
-    // 1) keystore.properties (module dir), e.g. app/keystore.properties
+    // 1) keystore.properties (module dir), e.g. app/keystore.properties.
+    //    Read it first so `extraSignatures` survives even when the file only
+    //    declares extra digests and no keystore at all.
     val propsFile = file("keystore.properties")
+    var fileExtras = ""
     if (propsFile.isFile) {
         val props = Properties()
         FileInputStream(propsFile).use { props.load(it) }
+        fileExtras = props.getProperty("extraSignatures").orEmpty()
         val storeFile = props.getProperty("storeFile")?.takeIf { it.isNotBlank() }
         val storePassword = props.getProperty("storePassword")?.takeIf { it.isNotBlank() }
         if (storeFile != null && storePassword != null) {
@@ -66,6 +77,7 @@ fun loadReleaseSigningConfig(): SigningConfigHolder {
                 storePassword = storePassword,
                 keyAlias = props.getProperty("keyAlias"),
                 keyPassword = props.getProperty("keyPassword"),
+                extraSignatures = fileExtras,
             )
         }
     }
@@ -78,31 +90,64 @@ fun loadReleaseSigningConfig(): SigningConfigHolder {
             storePassword = storePassword,
             keyAlias = System.getenv("KEY_ALIAS"),
             keyPassword = System.getenv("KEY_PASSWORD"),
+            extraSignatures = System.getenv("EXTRA_SIGNATURES")?.takeIf { it.isNotBlank() } ?: fileExtras,
         )
     }
-    return SigningConfigHolder(null, null, null, null)
+    // No keystore, but a hand-written trusted list still makes the check
+    // meaningful (e.g. signing happens outside Gradle). Environment wins over
+    // the properties file so CI can override without editing the file.
+    return SigningConfigHolder(
+        null, null, null, null,
+        extraSignatures = System.getenv("EXTRA_SIGNATURES")?.takeIf { it.isNotBlank() } ?: fileExtras,
+    )
 }
 
 /**
- * Computes the SHA-256 digest (uppercase, hex, colon-separated) of every signing
- * certificate inside the given keystore. Empty string when no keystore is
- * configured, so the tamper check is simply skipped.
+ * Computes a comma-separated list of SHA-256 digests (uppercase, hex,
+ * colon-separated) for the signing certificates the runtime check should trust.
+ *
+ * This is deliberately a **list**, not a single digest:
+ *
+ *  - Every alias present in the keystore is included, so a keystore holding
+ *    both a current and a previous key (rotation) yields two entries.
+ *  - An optional `extraSignatures` property in `keystore.properties` appends
+ *    further digests by hand — for example the certificate of the previous
+ *    release key, or the v3 key when v2 and v3 are signed with different keys
+ *    (see `SignatureVerifier.expectedDigests`).
+ *
+ * Returns an empty string when no keystore is configured, so the runtime
+ * tamper check is simply skipped and normal development is unaffected.
  */
 fun signingCertSha256List(holder: SigningConfigHolder): String {
-    val storeFile = holder.storeFile ?: return ""
-    val storePassword = holder.storePassword ?: return ""
+    val md = MessageDigest.getInstance("SHA-256")
+    fun digestOf(cert: java.security.cert.Certificate): String =
+        md.digest(cert.encoded).joinToString(":") { "%02X".format(it) }
+
+    val extra = holder.extraSignatures
+        .split(',', ';', '\n')
+        .map { it.trim().uppercase() }
+        .filter { it.isNotEmpty() }
+
+    val storeFile = holder.storeFile
+    val storePassword = holder.storePassword
+    if (storeFile == null || storePassword == null) {
+        // No keystore: fall back to the hand-written list only, if any.
+        return extra.joinToString(",")
+    }
+
     return try {
         val ks = KeyStore.getInstance(KeyStore.getDefaultType())
         FileInputStream(storeFile).use { ks.load(it, storePassword.toCharArray()) }
-        val md = MessageDigest.getInstance("SHA-256")
         val list = mutableListOf<String>()
         ks.aliases().toList().forEach { alias ->
             val cert = ks.getCertificate(alias) ?: return@forEach
-            list.add(md.digest(cert.encoded).joinToString(":") { "%02X".format(it) })
+            list.add(digestOf(cert))
         }
-        list.joinToString(",")
+        (list + extra).distinct().joinToString(",")
     } catch (e: Exception) {
-        ""
+        // A broken keystore must not silently disable the check when an
+        // explicit list was configured.
+        extra.joinToString(",")
     }
 }
 
