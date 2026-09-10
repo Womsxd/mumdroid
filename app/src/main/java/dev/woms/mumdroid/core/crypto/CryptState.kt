@@ -17,6 +17,28 @@ import java.util.Arrays
  * This class is the wire-format primitive and stays free of session policy:
  * the armed-time tracking and the official 5-second decryption-failure
  * resync rule live in [UdpVoiceCrypto] (same package).
+ *
+ * ## Locking / thread-safety
+ *
+ * Three locks, and — unlike the earlier two-lock version — a **single, fixed
+ * acquisition order that is never nested in both directions**:
+ *
+ *  - [configurationLock] guards the whole key state: the key material of both
+ *    directions, both IVs, the replay history and the packet statistics. It is
+ *    the outermost lock and is the **only** lock ever acquired while holding
+ *    nothing else. [setKey] and [reset] take it exclusively.
+ *  - [encryptLock] / [decryptLock] guard the per-direction `setNonce` +
+ *    AEAD call of [CryptOCB2], and each direction keeps its own instance, so
+ *    a concurrent encrypt (capture thread) and decrypt (UDP receive thread)
+ *    cannot share OCB2 state.
+ *
+ * Every public method follows the same rule: acquire [configurationLock]
+ * first, then at most **one** direction lock. [setKey]/[reset] need to touch
+ * both directions, so they mutate the shared key state under
+ * [configurationLock] and take the two direction locks only *sequentially* in
+ * a private helper — a nesting order that no other method can produce, which
+ * makes an `encryptLock → decryptLock` / `decryptLock → encryptLock` deadlock
+ * impossible by construction.
  */
 class CryptState {
 
@@ -25,14 +47,16 @@ class CryptState {
     // while the UDP receive thread decrypts (both call setNonce).
     private val encCrypt = CryptOCB2()
     private val decCrypt = CryptOCB2()
+    private val configurationLock = Any()
     private val encryptLock = Any()
     private val decryptLock = Any()
     private val encryptTag = ByteArray(CryptOCB2.BLOCK_SIZE)
 
     /** The current encryption/decryption nonce (16 bytes). */
-    var encryptNonce = ByteArray(CryptOCB2.NONCE_SIZE)
-        private set
+    @Volatile
+    private var encryptNonce = ByteArray(CryptOCB2.NONCE_SIZE)
 
+    @Volatile
     private var decryptNonce = ByteArray(CryptOCB2.NONCE_SIZE)
 
     private val decryptHistory = ByteArray(256)
@@ -41,8 +65,9 @@ class CryptState {
      *  `CryptState::m_statsLocal` so they can be reported to the server in the
      *  TCP Ping message (the PC admin's user info shows them).
      *
-     *  Volatile: decrypt runs on the UDP thread, TCP Ping reads these from
-     *  the control-channel thread to decide UDP→TCP fallback. */
+     *  Volatile: [decrypt] updates them on the UDP thread while the TCP Ping
+     *  reads them from the control-channel thread to decide UDP→TCP fallback
+     *  (they are also published as a consistent snapshot through [stats]). */
     @Volatile
     var goodPackets: Int = 0
         private set
@@ -62,55 +87,92 @@ class CryptState {
      * send-path guards). The direction locks do not cover those reads, so
      * this must be volatile or ARM can keep a stale `false` after CryptSetup
      * (or a stale `true` after teardown) for a long time.
+     *
+     * It is written last (true) / first (false) inside [configurationLock], so
+     * a `true` observation implies the re-armed AEAD contexts and nonces are
+     * already visible to a thread that only reads this flag.
      */
     @Volatile
     var isReady: Boolean = false
         private set
+
+    /** A consistent read of the four packet counters, so the caller cannot
+     *  snapshot a half-updated set (decrypt updates several counters). */
+    data class Stats(val good: Int, val late: Int, val lost: Int, val resync: Int)
+
+    /** @return a consistent snapshot of the packet counters, taken under
+     *  [configurationLock] so a concurrent [setKey]/[reset] zeroing cannot be
+     *  observed half-applied. */
+    fun stats(): Stats = synchronized(configurationLock) {
+        Stats(goodPackets, latePackets, lostPackets, resyncPackets)
+    }
 
     /** Initialises the key and the initial nonces. */
     fun setKey(key: ByteArray, clientNonce: ByteArray, serverNonce: ByteArray): Boolean {
         if (key.size != CryptOCB2.KEY_SIZE) return false
         if (clientNonce.size != CryptOCB2.NONCE_SIZE) return false
         if (serverNonce.size != CryptOCB2.NONCE_SIZE) return false
-        synchronized(encryptLock) {
-            synchronized(decryptLock) {
-                // CryptOCB2.setKey is false when AES/ECB init fails. Swallowing
-                // that would leave isReady true while encrypt() writes 0 bytes.
-                if (!encCrypt.setKey(key) || !decCrypt.setKey(key)) {
-                    encCrypt.clearKeys()
-                    decCrypt.clearKeys()
-                    isReady = false
-                    return false
-                }
-                // A full key delivery starts a fresh crypto context (official
-                // `CryptState::setKey` memsets the replay history): a stale
-                // history from a previous session or key rotation could
-                // otherwise reject valid packets whose IV byte collides with
-                // an old (byte0 -> byte1) entry.
-                Arrays.fill(decryptHistory, 0)
-                goodPackets = 0
-                latePackets = 0
-                lostPackets = 0
-                encryptNonce = clientNonce.copyOf()
-                decryptNonce = serverNonce.copyOf()
-                if (!encCrypt.setNonce(encryptNonce) || !decCrypt.setNonce(decryptNonce)) {
-                    encCrypt.clearKeys()
-                    decCrypt.clearKeys()
-                    isReady = false
-                    return false
-                }
-                isReady = true
+        synchronized(configurationLock) {
+            // CryptOCB2.setKey is false when AES/ECB init fails. Swallowing
+            // that would leave isReady true while encrypt() writes 0 bytes.
+            if (!encCrypt.setKey(key) || !decCrypt.setKey(key)) {
+                encCrypt.clearKeys()
+                decCrypt.clearKeys()
+                isReady = false
+                return false
             }
+            // A full key delivery starts a fresh crypto context (official
+            // `CryptState::setKey` memsets the replay history): a stale
+            // history from a previous session or key rotation could
+            // otherwise reject valid packets whose IV byte collides with
+            // an old (byte0 -> byte1) entry.
+            Arrays.fill(decryptHistory, 0)
+            goodPackets = 0
+            latePackets = 0
+            lostPackets = 0
+            encryptNonce = clientNonce.copyOf()
+            decryptNonce = serverNonce.copyOf()
+            if (!encCrypt.setNonce(encryptNonce) || !decCrypt.setNonce(decryptNonce)) {
+                encCrypt.clearKeys()
+                decCrypt.clearKeys()
+                isReady = false
+                return false
+            }
+            // Fully initialised. Re-arm the direction contexts (the AES
+            // schedules were built above, outside the direction locks) and
+            // only then publish readiness: [decrypt] re-checks `isReady`
+            // under [decryptLock], and that lock is the happens-before edge
+            // that makes the new key schedule visible to the UDP thread.
+            // The two direction locks are taken sequentially, never nested,
+            // so the lock order stays acyclic.
+            rearmDirectionCiphers()
+            isReady = true
         }
         return true
     }
 
     /**
-     * Current encryption IV (client nonce) for CryptSetup resync replies.
-     * Snapshot is taken under [encryptLock] so a concurrent [reset] cannot
-     * hand out a wiped IV after [isReady] has already gone false.
+     * Re-creates the reused AES block ciphers of both directions without
+     * nesting the direction locks (which would re-introduce the
+     * `encryptLock → decryptLock` order that [decrypt]/[encrypt] must stay
+     * independent of). Callers hold [configurationLock] in write mode.
      */
-    fun getEncryptIV(): ByteArray? = synchronized(encryptLock) {
+    private fun rearmDirectionCiphers() {
+        synchronized(decryptLock) {
+            decCrypt.rearmCiphers()
+        }
+        synchronized(encryptLock) {
+            encCrypt.rearmCiphers()
+        }
+    }
+
+    /**
+     * Current encryption IV (client nonce) for CryptSetup resync replies.
+     * The snapshot is taken under [configurationLock], the lock that also
+     * covers [reset]'s wipe, so a concurrent teardown cannot hand out an IV
+     * after [isReady] has already gone false.
+     */
+    fun getEncryptIV(): ByteArray? = synchronized(configurationLock) {
         if (!isReady) null else encryptNonce.copyOf()
     }
 
@@ -121,22 +183,28 @@ class CryptState {
      * not call this.
      */
     fun incrementResync() {
-        synchronized(decryptLock) {
+        synchronized(configurationLock) {
             resyncPackets++
         }
     }
 
     /**
      * Replaces the decryption IV (mirrors `CryptStateOCB2::setDecryptIV`).
+     * Mutates under [configurationLock] first and only then takes
+     * [decryptLock] for the `setNonce` that [decrypt] also needs, so a
+     * concurrent [setKey] can never leave the decryption nonce half-adopted.
      * Official crypto does not count a resync here: the caller
      * (`Messages.cpp` `msgCryptSetup`) increments first. Call [incrementResync]
      * before this for a server-nonce CryptSetup resync.
      */
     fun setDecryptIV(iv: ByteArray): Boolean {
         if (iv.size != CryptOCB2.NONCE_SIZE) return false
-        synchronized(decryptLock) {
-            decryptNonce = iv.copyOf()
-            decCrypt.setNonce(decryptNonce)
+        synchronized(configurationLock) {
+            val newNonce = iv.copyOf()
+            synchronized(decryptLock) {
+                decryptNonce = newNonce
+                decCrypt.setNonce(newNonce)
+            }
         }
         return true
     }
@@ -182,7 +250,10 @@ class CryptState {
         if (length > source.size - sourceOffset) return -1
         if (destOffset < 0 || destOffset > dest.size) return -1
         if (4 + length > dest.size - destOffset) return -1
+        // Serialise this direction only: a concurrent decrypt/teardown must not
+        // pair a nonce of one key generation with the key of another.
         synchronized(encryptLock) {
+            if (!isReady || !encCrypt.isReady) return -1
             incrementNonce(encryptNonce)
             encCrypt.setNonce(encryptNonce)
             val written = encCrypt.encrypt(
@@ -216,6 +287,12 @@ class CryptState {
         if (offset < 0 || offset > packet.size) return null
         if (length > packet.size - offset) return null
         synchronized(decryptLock) {
+            // Re-check under the direction lock: a concurrent [setKey]/[reset]
+            // may have flipped isReady while this packet was in flight, and
+            // the decryption nonce must not be advanced against wiped key
+            // material (outside the lock the volatile read alone cannot
+            // guarantee that the neighbouring checks see the same generation).
+            if (!isReady || !decCrypt.isReady) return null
             val ivByte = packet[offset].toInt() and 0xff
             val cipherLength = length - 4
 
@@ -342,22 +419,27 @@ class CryptState {
     }
 
     fun reset() {
-        synchronized(encryptLock) {
+        synchronized(configurationLock) {
+            // Fail closed: publish "not ready" before wiping, so a concurrent
+            // encrypt/decrypt that is still inside a direction lock bounces off
+            // its re-check instead of running against wiped key material.
+            isReady = false
+            // Wipe the key material and IVs so no stale session state survives
+            // a teardown.
             synchronized(decryptLock) {
-                isReady = false
-                // Fail closed: wipe the key material and IVs so no stale
-                // session state survives a teardown.
-                encCrypt.clearKeys()
                 decCrypt.clearKeys()
-                Arrays.fill(encryptNonce, 0)
-                Arrays.fill(decryptNonce, 0)
-                Arrays.fill(decryptHistory, 0)
-                Arrays.fill(encryptTag, 0)
-                goodPackets = 0
-                latePackets = 0
-                lostPackets = 0
-                resyncPackets = 0
             }
+            synchronized(encryptLock) {
+                encCrypt.clearKeys()
+            }
+            Arrays.fill(encryptNonce, 0)
+            Arrays.fill(decryptNonce, 0)
+            Arrays.fill(decryptHistory, 0)
+            Arrays.fill(encryptTag, 0)
+            goodPackets = 0
+            latePackets = 0
+            lostPackets = 0
+            resyncPackets = 0
         }
     }
 }

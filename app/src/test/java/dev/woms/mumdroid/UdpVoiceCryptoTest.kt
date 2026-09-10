@@ -1,5 +1,6 @@
 package dev.woms.mumdroid
 
+import dev.woms.mumdroid.core.crypto.CryptState
 import dev.woms.mumdroid.core.crypto.UdpVoiceCrypto
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -15,20 +16,33 @@ class UdpVoiceCryptoTest {
     // (cryptoReadyMs == 0 means "not armed") does not swallow the baseline.
     private var nowMs = 100_000L
 
+    private val key = ByteArray(16) { it.toByte() }
+
+    /**
+     * Two *distinct* nonces, like a real CryptSetup handshake. They must not be
+     * equal: `setup` arms the encrypt nonce to `clientNonce` and the decrypt
+     * nonce to `serverNonce`, and a state can never decrypt what it produced
+     * itself (its own encrypt nonce is not its decrypt nonce).
+     */
+    private val clientNonce = ByteArray(16) { 0x11 }
+    private val serverNonce = ByteArray(16) { 0x42 }
+
     private fun armedCrypto(): UdpVoiceCrypto {
         val crypto = UdpVoiceCrypto(clock = { nowMs })
-        crypto.setup(
-            key = ByteArray(16) { it.toByte() },
-            clientNonce = ByteArray(16),
-            serverNonce = ByteArray(16),
-        )
+        crypto.setup(key = key, clientNonce = clientNonce, serverNonce = serverNonce)
         return crypto
     }
 
-    private fun encryptedPacket(crypto: UdpVoiceCrypto, payload: ByteArray): ByteArray {
-        val out = ByteArray(4 + payload.size)
-        assertEquals(4 + payload.size, crypto.encrypt(payload, out))
-        return out
+    /**
+     * Builds a datagram that the test's [UdpVoiceCrypto] will accept on its
+     * decrypt path: a peer state encrypts using *our* decrypt nonce
+     * (`serverNonce`) as its encrypt nonce, which is exactly the CryptSetup
+     * pairing. Encrypting with [UdpVoiceCrypto] itself cannot work — see the
+     * note on [clientNonce]/[serverNonce] above.
+     */
+    private fun peerPacket(payload: ByteArray): ByteArray {
+        val peer = CryptState().apply { assertTrue(setKey(key, serverNonce, clientNonce)) }
+        return peer.encrypt(payload)!!
     }
 
     @Test
@@ -52,7 +66,7 @@ class UdpVoiceCryptoTest {
     fun decrypt_roundTripsAndRejectsTampering() {
         val crypto = armedCrypto()
         val payload = ByteArray(40) { it.toByte() }
-        val packet = encryptedPacket(crypto, payload)
+        val packet = peerPacket(payload)
         val plain = crypto.decrypt(packet, 0, packet.size)
         assertNotNull(plain)
         assertArrayEquals(payload, plain)
@@ -78,7 +92,7 @@ class UdpVoiceCryptoTest {
         var resyncRequests = 0
         crypto.onRequestCryptResync = { resyncRequests++ }
 
-        val packet = encryptedPacket(crypto, ByteArray(40))
+        val packet = peerPacket(ByteArray(40))
         packet[1] = (packet[1].toInt() xor 1).toByte() // break the OCB2 tag
 
         // Within the official 5-second window: failures stay silent.
@@ -97,7 +111,7 @@ class UdpVoiceCryptoTest {
         assertEquals(1, resyncRequests)
 
         // A successful decrypt re-arms the rule.
-        val goodPacket = encryptedPacket(crypto, ByteArray(40))
+        val goodPacket = peerPacket(ByteArray(40))
         nowMs += 1_000
         assertNotNull(crypto.decrypt(goodPacket, 0, goodPacket.size))
         nowMs += 5_001

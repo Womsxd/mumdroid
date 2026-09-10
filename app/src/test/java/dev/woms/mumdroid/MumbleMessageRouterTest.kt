@@ -196,7 +196,7 @@ class MumbleMessageRouterTest {
         router.dispatch(MessageType.UDP_TUNNEL, ByteArray(0))
         assertTrue(listener.tunneled.isEmpty())
 
-        val body = byteArrayOf(0x80, 1, 2, 3)
+        val body = byteArrayOf(0x80.toByte(), 1.toByte(), 2.toByte(), 3.toByte())
         router.dispatch(MessageType.UDP_TUNNEL, body)
         assertEquals(1, listener.tunneled.size)
         assertArrayEquals(body, listener.tunneled[0])
@@ -208,7 +208,7 @@ class MumbleMessageRouterTest {
             .setQuery(true)
             .addBans(
                 BanList.BanEntry.newBuilder()
-                    .setAddress(ByteString.copyFrom(byteArrayOf(1, 2, 3, 4)))
+                    .setAddress(ByteString.copyFrom(byteArrayOf(1.toByte(), 2.toByte(), 3.toByte(), 4.toByte())))
                     .setMask(24)
                     .setName("bad user")
                     .setHash("deadbeef")
@@ -226,13 +226,13 @@ class MumbleMessageRouterTest {
         assertEquals(1, bans.size)
         assertEquals(24, bans[0].mask)
         assertEquals("bad user", bans[0].name)
-        assertArrayEquals(byteArrayOf(1, 2, 3, 4), bans[0].address)
+        assertArrayEquals(byteArrayOf(1.toByte(), 2.toByte(), 3.toByte(), 4.toByte()), bans[0].address)
     }
 
     @Test
     fun unhandledAndPluginData_areReportedAsIgnored() {
-        router.dispatch(999, byteArrayOf(1))
-        router.dispatch(MessageType.PLUGIN_DATA_TRANSMISSION, byteArrayOf(1, 2))
+        router.dispatch(999, byteArrayOf(1.toByte()))
+        router.dispatch(MessageType.PLUGIN_DATA_TRANSMISSION, byteArrayOf(1.toByte(), 2.toByte()))
 
         assertEquals(listOf(999, MessageType.PLUGIN_DATA_TRANSMISSION), ignored)
         assertTrue(listener.texts.isEmpty())

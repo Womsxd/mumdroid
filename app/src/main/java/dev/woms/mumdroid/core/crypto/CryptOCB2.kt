@@ -18,6 +18,12 @@ import javax.crypto.spec.SecretKeySpec
  * [CryptState] keeps separate instances for each direction and serialises
  * every call of one instance under its encrypt/decrypt lock, which is also
  * why the reused [Cipher] objects below need no further synchronisation.
+ *
+ * `isReady` is deliberately **not** `@Volatile`: it is only read/written while
+ * the owning direction lock is held (`CryptState.encrypt`/`decrypt`,
+ * `setKey`/`reset`), and that same lock is what publishes a key change to the
+ * other thread. Cross-thread publication of "crypto usable" is
+ * `CryptState.isReady`, which is volatile.
  */
 class CryptOCB2 {
 
@@ -54,6 +60,29 @@ class CryptOCB2 {
      */
     var isReady: Boolean = false
         private set
+
+    /**
+     * Re-creates the reused AES block ciphers for the current [key] and
+     * preserves [isReady] (`nonceSet` is untouched). Used by
+     * [CryptState.setKey] to give the owning direction lock a happens-before
+     * edge on the freshly built key schedule without nesting the two
+     * direction locks — the cipher fields are plain (non-volatile) fields, so
+     * the re-publication must happen under the lock that serialises the
+     * direction's use of them.
+     *
+     * @return false when AES could not be initialised; the caller then has an
+     *         unusable direction (isReady stays false).
+     */
+    fun rearmCiphers(): Boolean {
+        if (!initCiphers()) {
+            keySet = false
+            isReady = false
+            return false
+        }
+        keySet = true
+        isReady = keySet && nonceSet
+        return true
+    }
 
     fun setKey(newKey: ByteArray): Boolean {
         if (newKey.size != KEY_SIZE) return false

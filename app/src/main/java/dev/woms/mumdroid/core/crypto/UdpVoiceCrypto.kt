@@ -21,6 +21,13 @@ import dev.woms.mumdroid.core.crypto.UdpVoiceCrypto.Companion.RESYNC_AFTER_MS
  * CryptStateOCB2 port) and stays free of session policy; this class is the
  * policy wrapper and deliberately carries no transport (core/net)
  * dependencies.
+ *
+ * Threading: the methods below are called from different threads ([setup] /
+ * [resyncDecryptIV] from the TCP read loop, [decrypt] from the UDP receive
+ * thread, [reset] from the service coroutine) and are all safe to interleave
+ * — [CryptState] guards its key state with a single configuration lock and
+ * keeps the per-direction locks for the AEAD calls, so a CryptSetup can never
+ * be torn across a concurrent decrypt (see [CryptState]'s KDoc).
  */
 class UdpVoiceCrypto(
     /** Monotonic ms source (official `QElapsedTimer`). */
@@ -88,13 +95,15 @@ class UdpVoiceCrypto(
 
     /** @return the legacy OCB2 packet statistics (good/late/lost/resync)
      *          accumulated by the decrypt path, so they can be reported in the
-     *          TCP Ping (the PC admin's user info shows them). */
-    fun packetStats(): CryptStats = CryptStats(
-        good = crypt.goodPackets,
-        late = crypt.latePackets,
-        lost = crypt.lostPackets,
-        resync = crypt.resyncPackets,
-    )
+     *          TCP Ping (the PC admin's user info shows them).
+     *
+     *          Read from the control-channel thread while the UDP thread may be
+     *          updating the counters, so the four values are taken as one
+     *          snapshot from [CryptState.stats] instead of four independent
+     *          volatile reads (which could mix two generations). */
+    fun packetStats(): CryptStats = crypt.stats().let {
+        CryptStats(good = it.good, late = it.late, lost = it.lost, resync = it.resync)
+    }
 
     /**
      * Decrypts a complete voice datagram (`[4-byte OCB2 overhead][ciphertext]`)
