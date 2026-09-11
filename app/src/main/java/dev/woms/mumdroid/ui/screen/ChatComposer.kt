@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.ui.screen
 
+import androidx.compose.ui.text.TextRange
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.User
 
@@ -18,6 +19,15 @@ internal class ChatComposer(
 ) {
     /** The message as the user sees it, including any selected prefix. */
     var text: String = ""
+        private set
+
+    /**
+     * The caret/selection inside [text] as a character range. The field is a
+     * controlled component: it renders exactly the value its owner passes, so
+     * the selection has to travel with the text or the caret snaps back to the
+     * start of the field on every recomposition.
+     */
+    var selection: TextRange = TextRange.Zero
         private set
 
     /** The user selected for a private message, if any. */
@@ -52,7 +62,7 @@ internal class ChatComposer(
     val hasHighlightedPrefix: Boolean
         get() = prefix.isNotEmpty() && text.startsWith(prefix)
 
-    fun onTextChanged(newText: String) {
+    fun onTextChanged(newText: String, newSelection: TextRange = TextRange.Zero) {
         val last = newText.lastOrNull()
         when {
             last == '@' -> picker = Picker.USER
@@ -65,6 +75,7 @@ internal class ChatComposer(
             clearTargets()
         }
         text = newText
+        selection = newSelection.coerceIn(newText)
     }
 
     /** Applies a `@user` selection (mutually exclusive with the channel target). */
@@ -98,6 +109,9 @@ internal class ChatComposer(
             else -> t
         }
         text = newPrefix + rest
+        // A target was picked from the picker: put the caret after the prefix
+        // so the user can keep typing the message body.
+        selection = TextRange(text.length)
     }
 
     /** The destination a [send] would use. */
@@ -121,7 +135,18 @@ internal class ChatComposer(
 
     fun reset() {
         text = ""
+        selection = TextRange.Zero
         clearTargets()
+    }
+
+    /**
+     * Clamps [this] to the valid range of [text] (the field may have been
+     * shortened by an edit, a target switch or a send).
+     */
+    private fun TextRange.coerceIn(text: String): TextRange {
+        val start = start.coerceIn(0, text.length)
+        val end = end.coerceIn(0, text.length)
+        return if (start <= end) TextRange(start, end) else TextRange(end, start)
     }
 
     private fun clearTargets() {

@@ -1,5 +1,6 @@
 package dev.woms.mumdroid
 
+import androidx.compose.ui.text.TextRange
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.ui.screen.ChatComposer
@@ -141,12 +142,63 @@ class ChatComposerTest {
     }
 
     @Test
+    fun typing_keepsTheCaretWhereTheEditorPutIt() {
+        // Regression: the field is a controlled component, so the selection has
+        // to be written back with the text. Dropping it makes the caret jump to
+        // the start of the box after every keystroke.
+        val c = composer()
+        c.onTextChanged("hi", TextRange(2))
+        assertEquals(TextRange(2), c.selection)
+        c.onTextChanged("hi!", TextRange(3))
+        assertEquals(TextRange(3), c.selection)
+    }
+
+    @Test
+    fun editingInTheMiddle_keepsTheCaretPosition() {
+        val c = composer()
+        c.onTextChanged("hlo", TextRange(3))
+        // "l" inserted after the "h": the caret stays between "l" and "o".
+        c.onTextChanged("hllo", TextRange(2))
+        assertEquals(TextRange(2), c.selection)
+        assertEquals("hllo", c.text)
+    }
+
+    @Test
+    fun onTextChanged_withoutASelection_defaultsToTheStart() {
+        val c = composer()
+        c.onTextChanged("hello", TextRange(5))
+        c.onTextChanged("hello")
+        assertEquals(TextRange.Zero, c.selection)
+        assertEquals("hello", c.text)
+    }
+
+    @Test
+    fun selection_isClampedToTheTextLength() {
+        // Switching targets shortens the text; the caret from the longer text
+        // must not survive as an out-of-range selection.
+        val c = composer()
+        c.onTextChanged("@alice a very long body", TextRange(23))
+        c.selectChannel(lobby)
+        assertEquals(TextRange(c.text.length), c.selection)
+    }
+
+    @Test
+    fun selectingTarget_putsTheCaretAfterThePrefix() {
+        val c = composer()
+        c.onTextChanged("@", TextRange(1))
+        c.selectUser(alice)
+        assertEquals("@alice ", c.text)
+        assertEquals(TextRange("@alice ".length), c.selection)
+    }
+
+    @Test
     fun reset_clearsTextAndTargets() {
         val c = composer()
         c.selectUser(alice)
         c.onTextChanged("@alice x")
         c.reset()
         assertEquals("", c.text)
+        assertEquals(TextRange.Zero, c.selection)
         assertNull(c.privateTarget)
         assertNull(c.channelTarget)
         assertEquals(ChatComposer.Picker.NONE, c.picker)

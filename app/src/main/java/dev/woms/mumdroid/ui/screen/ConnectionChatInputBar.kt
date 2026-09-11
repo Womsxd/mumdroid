@@ -50,9 +50,12 @@ internal fun ChatInputBar(
     val composer = remember(channelId) { ChatComposer(defaultChannelId = channelId) }
     // Re-render trigger: the composer is mutable but not observable.
     var revision by remember { mutableStateOf(0) }
-    val text = remember(revision) {
-        TextFieldValue(composer.text)
-    }
+    // A plain (non-observable) revision is enough for *reading* the composer,
+    // but the value handed to BasicTextField must never be memoised on it: the
+    // memo key survives the state reset, which would resurrect a stale
+    // TextFieldValue and reset the caret.
+    revision
+    val text = TextFieldValue(composer.text, selection = composer.selection)
     val prefix = composer.prefix
     val pickerUser = composer.picker == ChatComposer.Picker.USER
     val pickerChannel = composer.picker == ChatComposer.Picker.CHANNEL
@@ -146,7 +149,9 @@ internal fun ChatInputBar(
                     BasicTextField(
                         value = displayed,
                         onValueChange = { new ->
-                            composer.onTextChanged(new.text)
+                            // Keep the caret/selection the platform editor
+                            // reports, otherwise it is reset to the start.
+                            composer.onTextChanged(new.text, new.selection)
                             revision++
                         },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
