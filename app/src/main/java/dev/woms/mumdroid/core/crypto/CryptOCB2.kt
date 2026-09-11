@@ -175,8 +175,8 @@ class CryptOCB2 {
         // Official `ocb_encrypt` treats len=0 as valid (blank tag
         // BF310813… in `TestCrypt::testvectors`). Only negative lengths fail.
         if (inputLength < 0) return 0
-        if (!validSlice(input, inputOffset, inputLength)) return 0
-        if (!validSlice(output, outputOffset, inputLength)) return 0
+        if (!Ocb2Blocks.validSlice(input, inputOffset, inputLength)) return 0
+        if (!Ocb2Blocks.validSlice(output, outputOffset, inputLength)) return 0
 
         val delta = aesBlock(nonce) ?: return 0
         var written = 0
@@ -196,18 +196,18 @@ class CryptOCB2 {
                 if (sum == 0) flipABit = true
             }
 
-            s2(delta)
-            xorBlock(tmp, 0, delta, 0, input, inOffset)
+            Ocb2Blocks.s2(delta)
+            Ocb2Blocks.xorBlock(tmp, 0, delta, 0, input, inOffset)
 
             if (flipABit) {
                 tmp[0] = (tmp[0].toInt() xor 1).toByte()
             }
 
             val enc = aesBlock(tmp) ?: return 0
-            xorBlock(output, outputOffset + written, delta, 0, enc, 0)
+            Ocb2Blocks.xorBlock(output, outputOffset + written, delta, 0, enc, 0)
             written += BLOCK_SIZE
 
-            xorBlock(checksum, 0, input, inOffset)
+            Ocb2Blocks.xorBlock(checksum, 0, input, inOffset)
             if (flipABit) {
                 checksum[0] = (checksum[0].toInt() xor 1).toByte()
             }
@@ -215,12 +215,12 @@ class CryptOCB2 {
             inOffset += BLOCK_SIZE
         }
 
-        s2(delta)
+        Ocb2Blocks.s2(delta)
 
         val len = inputEnd - inOffset
         tmp.fill(0)
         tmp[BLOCK_SIZE - 1] = (len * 8).toByte()
-        xorBlock(tmp, 0, delta, 0)
+        Ocb2Blocks.xorBlock(tmp, 0, delta, 0)
 
         val pad = aesBlock(tmp) ?: return 0
 
@@ -229,16 +229,16 @@ class CryptOCB2 {
         System.arraycopy(input, inOffset, tmp, 0, len)
         System.arraycopy(pad, len, tmp, len, BLOCK_SIZE - len)
         // checksum ^= (plaintext || pad_tail)
-        xorBlock(checksum, 0, tmp, 0)
+        Ocb2Blocks.xorBlock(checksum, 0, tmp, 0)
         // tmp = pad ^ tmpBytes -> (pad[:len]^plain) || 0
-        xorBlock(tmp, 0, pad, 0)
+        Ocb2Blocks.xorBlock(tmp, 0, pad, 0)
 
         System.arraycopy(tmp, 0, output, outputOffset + written, len)
         written += len
 
         if (tag.isNotEmpty()) {
-            s3(delta)
-            xorBlock(tmp, 0, delta, 0, checksum, 0)
+            Ocb2Blocks.s3(delta)
+            Ocb2Blocks.xorBlock(tmp, 0, delta, 0, checksum, 0)
             val computedTag = aesBlock(tmp) ?: return 0
             System.arraycopy(computedTag, 0, tag, 0, BLOCK_SIZE)
         }
@@ -265,8 +265,8 @@ class CryptOCB2 {
         inputLength: Int = input.size - inputOffset,
     ): Int {
         if (!isReady) return -1
-        if (inputLength < 0 || !validSlice(input, inputOffset, inputLength)) return -1
-        if (!validSlice(output, 0, inputLength)) return -1
+        if (inputLength < 0 || !Ocb2Blocks.validSlice(input, inputOffset, inputLength)) return -1
+        if (!Ocb2Blocks.validSlice(output, 0, inputLength)) return -1
 
         val delta = aesBlock(nonce) ?: return -1
         var written = 0
@@ -277,23 +277,23 @@ class CryptOCB2 {
         val inputEnd = inputOffset + inputLength
         var inOffset = inputOffset
         while (inputEnd - inOffset > BLOCK_SIZE) {
-            s2(delta)
-            xorBlock(tmp, 0, delta, 0, input, inOffset)
+            Ocb2Blocks.s2(delta)
+            Ocb2Blocks.xorBlock(tmp, 0, delta, 0, input, inOffset)
             val dec = aesBlockDecrypt(tmp) ?: return -1
-            xorBlock(output, written, delta, 0, dec, 0)
+            Ocb2Blocks.xorBlock(output, written, delta, 0, dec, 0)
             written += BLOCK_SIZE
 
-            xorBlock(checksum, 0, output, written - BLOCK_SIZE)
+            Ocb2Blocks.xorBlock(checksum, 0, output, written - BLOCK_SIZE)
 
             inOffset += BLOCK_SIZE
         }
 
-        s2(delta)
+        Ocb2Blocks.s2(delta)
 
         val len = inputEnd - inOffset
         tmp.fill(0)
         tmp[BLOCK_SIZE - 1] = (len * 8).toByte()
-        xorBlock(tmp, 0, delta, 0)
+        Ocb2Blocks.xorBlock(tmp, 0, delta, 0)
 
         val pad = aesBlock(tmp) ?: return -1
 
@@ -301,7 +301,7 @@ class CryptOCB2 {
         tmp.fill(0)
         System.arraycopy(input, inOffset, tmp, 0, len)
         // tmp = pad ^ tmpBytes -> plaintext || pad_tail
-        xorBlock(tmp, 0, pad, 0)
+        Ocb2Blocks.xorBlock(tmp, 0, pad, 0)
 
         // Counter-cryptanalysis described in section 9 of https://eprint.iacr.org/2019/311
         // In an attack, the decrypted last block would need to equal `delta ^ len(128)`.
@@ -317,14 +317,14 @@ class CryptOCB2 {
         if (equal) return -1
 
         // checksum ^= (plaintext || pad_tail)
-        xorBlock(checksum, 0, tmp, 0)
+        Ocb2Blocks.xorBlock(checksum, 0, tmp, 0)
 
         System.arraycopy(tmp, 0, output, written, len)
         written += len
 
         if (tag.isNotEmpty()) {
-            s3(delta)
-            xorBlock(tmp, 0, delta, 0, checksum, 0)
+            Ocb2Blocks.s3(delta)
+            Ocb2Blocks.xorBlock(tmp, 0, delta, 0, checksum, 0)
             val computedTag = aesBlock(tmp) ?: return -1
             // libmumble `std::equal(tag.begin(), tag.end(), retrievedTag)`:
             // the wire header only carries 3 tag bytes (`CryptStateOCB2`).
@@ -337,13 +337,8 @@ class CryptOCB2 {
         return written
     }
 
-    /** True when `[offset, offset+length)` lies inside [buf] (overflow-safe). */
-    private fun validSlice(buf: ByteArray, offset: Int, length: Int): Boolean {
-        if (offset < 0 || length < 0 || offset > buf.size) return false
-        return length <= buf.size - offset
-    }
 
-    // ---- helpers ----
+    // ---- AES block helpers ----
 
     /**
      * One AES block. Returns null instead of throwing when the cipher was
@@ -366,47 +361,5 @@ class CryptOCB2 {
         } catch (_: GeneralSecurityException) {
             null
         }
-    }
-
-    private fun xorBlock(dst: ByteArray, dstOffset: Int, a: ByteArray, aOffset: Int) {
-        for (i in 0 until BLOCK_SIZE) {
-            dst[dstOffset + i] = (dst[dstOffset + i].toInt() xor a[aOffset + i].toInt()).toByte()
-        }
-    }
-
-    private fun xorBlock(dst: ByteArray, dstOffset: Int, a: ByteArray, aOffset: Int, b: ByteArray, bOffset: Int) {
-        for (i in 0 until BLOCK_SIZE) {
-            dst[dstOffset + i] = (a[aOffset + i].toInt() xor b[bOffset + i].toInt()).toByte()
-        }
-    }
-
-    /**
-     * Official `S2`: in-place GF(2^128) double (left shift + 0x87 reduction).
-     * Walks low-to-high so `block[i+1]` is still unread when `block[i]` is
-     * overwritten; no scratch copy. Instance is serial (see class KDoc).
-     */
-    private fun s2(block: ByteArray) {
-        val carry = (block[0].toInt() and 0xff) ushr 7
-        for (i in 0 until BLOCK_SIZE - 1) {
-            block[i] = (((block[i].toInt() and 0xff) shl 1) or ((block[i + 1].toInt() and 0xff) ushr 7)).toByte()
-        }
-        block[BLOCK_SIZE - 1] =
-            (((block[BLOCK_SIZE - 1].toInt() and 0xff) shl 1) xor (carry * 0x87)).toByte()
-    }
-
-    /**
-     * Official `S3`: in-place `block ^= s2(block)`. Same low-to-high walk as
-     * [s2]; the XOR keeps the original byte while the shift still needs it.
-     */
-    private fun s3(block: ByteArray) {
-        val carry = (block[0].toInt() and 0xff) ushr 7
-        for (i in 0 until BLOCK_SIZE - 1) {
-            val shifted =
-                ((block[i].toInt() and 0xff) shl 1) or ((block[i + 1].toInt() and 0xff) ushr 7)
-            block[i] = (block[i].toInt() xor shifted).toByte()
-        }
-        val shiftedLast =
-            ((block[BLOCK_SIZE - 1].toInt() and 0xff) shl 1) xor (carry * 0x87)
-        block[BLOCK_SIZE - 1] = (block[BLOCK_SIZE - 1].toInt() xor shiftedLast).toByte()
     }
 }

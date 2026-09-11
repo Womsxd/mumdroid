@@ -59,7 +59,10 @@ class CryptState {
     @Volatile
     private var decryptNonce = ByteArray(CryptOCB2.NONCE_SIZE)
 
-    private val decryptHistory = ByteArray(256)
+    private val replayHistory = CryptReplayHistory()
+
+    /** good / late / lost / resync counters of [decrypt] and the CryptSetup resync. */
+    private val packetStats = CryptPacketStats()
 
     /** Packet statistics (good / late / lost / resync), mirroring the official
      *  `CryptState::m_statsLocal` so they can be reported to the server in the
@@ -80,6 +83,14 @@ class CryptState {
     @Volatile
     var resyncPackets: Int = 0
         private set
+
+    /** Copies the counter bag into the volatile fields the readers watch. */
+    private fun publishStats() {
+        goodPackets = packetStats.good
+        latePackets = packetStats.late
+        lostPackets = packetStats.lost
+        resyncPackets = packetStats.resync
+    }
 
     /**
      * Published readiness. [setKey]/[reset] write it on the control thread;
@@ -104,6 +115,7 @@ class CryptState {
      *  [configurationLock] so a concurrent [setKey]/[reset] zeroing cannot be
      *  observed half-applied. */
     fun stats(): Stats = synchronized(configurationLock) {
+        publishStats()
         Stats(goodPackets, latePackets, lostPackets, resyncPackets)
     }
 
@@ -126,10 +138,9 @@ class CryptState {
             // history from a previous session or key rotation could
             // otherwise reject valid packets whose IV byte collides with
             // an old (byte0 -> byte1) entry.
-            Arrays.fill(decryptHistory, 0)
-            goodPackets = 0
-            latePackets = 0
-            lostPackets = 0
+            replayHistory.clear()
+            packetStats.reset()
+            publishStats()
             encryptNonce = clientNonce.copyOf()
             decryptNonce = serverNonce.copyOf()
             if (!encCrypt.setNonce(encryptNonce) || !decCrypt.setNonce(decryptNonce)) {
@@ -184,7 +195,8 @@ class CryptState {
      */
     fun incrementResync() {
         synchronized(configurationLock) {
-            resyncPackets++
+            packetStats.onResync()
+            publishStats()
         }
     }
 
@@ -254,7 +266,7 @@ class CryptState {
         // pair a nonce of one key generation with the key of another.
         synchronized(encryptLock) {
             if (!isReady || !encCrypt.isReady) return -1
-            incrementNonce(encryptNonce)
+            CryptNonce.increment(encryptNonce)
             encCrypt.setNonce(encryptNonce)
             val written = encCrypt.encrypt(
                 dest, source, encryptTag,
@@ -297,69 +309,16 @@ class CryptState {
             val cipherLength = length - 4
 
             val saveIv = decryptNonce.copyOf()
-            var restore = false
-            var lost = 0
-            var late = 0
-
-            // Advance the decryption nonce based on the received IV byte.
-            if (((decryptNonce[0].toInt() + 1) and 0xff) == ivByte) {
-                if (ivByte > (decryptNonce[0].toInt() and 0xff)) {
-                    decryptNonce[0] = ivByte.toByte()
-                } else if (ivByte < (decryptNonce[0].toInt() and 0xff)) {
-                    decryptNonce[0] = ivByte.toByte()
-                    for (i in 1 until decryptNonce.size) {
-                        val v = (decryptNonce[i].toInt() and 0xff) + 1
-                        decryptNonce[i] = (v and 0xff).toByte()
-                        if (v != 0x100) break
-                    }
-                } else {
-                    return null
-                }
-            } else {
-                var diff = ivByte - (decryptNonce[0].toInt() and 0xff)
-                if (diff > 128) diff -= 256
-                else if (diff < -128) diff += 256
-
-                when {
-                    ivByte < (decryptNonce[0].toInt() and 0xff) && diff > -30 && diff < 0 -> {
-                        // Late packet, but no wraparound.
-                        late = 1
-                        lost = -1
-                        restore = true
-                        decryptNonce[0] = ivByte.toByte()
-                    }
-                    ivByte > (decryptNonce[0].toInt() and 0xff) && diff > -30 && diff < 0 -> {
-                        // Late packet from the previous round (wraparound).
-                        late = 1
-                        lost = -1
-                        restore = true
-                        decryptNonce[0] = ivByte.toByte()
-                        for (i in 1 until decryptNonce.size) {
-                            val v = (decryptNonce[i].toInt() and 0xff) - 1
-                            decryptNonce[i] = (v and 0xff).toByte()
-                            if (v != -1) break
-                        }
-                    }
-                    ivByte > (decryptNonce[0].toInt() and 0xff) && diff > 0 -> {
-                        lost = ivByte - (decryptNonce[0].toInt() and 0xff) - 1
-                        decryptNonce[0] = ivByte.toByte()
-                    }
-                    ivByte < (decryptNonce[0].toInt() and 0xff) && diff > 0 -> {
-                        lost = 256 - (decryptNonce[0].toInt() and 0xff) + ivByte - 1
-                        decryptNonce[0] = ivByte.toByte()
-                        for (i in 1 until decryptNonce.size) {
-                            val v = (decryptNonce[i].toInt() and 0xff) + 1
-                            decryptNonce[i] = (v and 0xff).toByte()
-                            if (v != 0x100) break
-                        }
-                    }
-                    else -> return null
-                }
-
-                if (decryptHistory[decryptNonce[0].toInt() and 0xff] == decryptNonce[1]) {
-                    decryptNonce = saveIv
-                    return null
-                }
+            val plan = CryptNonce.plan(decryptNonce, ivByte)
+            if (plan.advance == CryptNonce.Advance.UNKNOWN) return null
+            if (plan.advance == CryptNonce.Advance.DUPLICATE) return null
+            plan.apply(decryptNonce)
+            val replayChecked = plan.advance != CryptNonce.Advance.IN_ORDER
+            if (replayChecked &&
+                replayHistory.isReplay(decryptNonce[0].toInt() and 0xff, decryptNonce[1])
+            ) {
+                decryptNonce = saveIv
+                return null
             }
 
             decCrypt.setNonce(decryptNonce)
@@ -380,41 +339,18 @@ class CryptState {
                 return null
             }
 
-            decryptHistory[decryptNonce[0].toInt() and 0xff] = decryptNonce[1]
-            updateStats(lost, late)
+            replayHistory.remember(decryptNonce[0].toInt() and 0xff, decryptNonce[1])
+            packetStats.onDecrypted(plan.lost, plan.late)
+            publishStats()
 
             // For late packets we must not persist the temporarily advanced nonce:
             // restore it so subsequently arriving in-order packets still decrypt
             // correctly (mirrors the official `CryptStateOCB2::decrypt`).
-            if (restore) {
+            if (plan.restore) {
                 decryptNonce = saveIv
             }
 
             return plain
-        }
-    }
-
-    /** Updates the good/late/lost packet counters (mirrors the official
-     *  `CryptStateOCB2::decrypt` bookkeeping). */
-    private fun updateStats(lost: Int, late: Int) {
-        goodPackets++
-        if (late > 0) {
-            latePackets += late
-        } else if (latePackets > Math.abs(late)) {
-            latePackets += late
-        }
-        if (lost > 0) {
-            lostPackets += lost
-        } else if (lostPackets > Math.abs(lost)) {
-            lostPackets += lost
-        }
-    }
-
-    private fun incrementNonce(nonce: ByteArray) {
-        for (i in nonce.indices) {
-            val v = (nonce[i].toInt() and 0xff) + 1
-            nonce[i] = (v and 0xff).toByte()
-            if (v != 0x100) break
         }
     }
 
@@ -434,12 +370,10 @@ class CryptState {
             }
             Arrays.fill(encryptNonce, 0)
             Arrays.fill(decryptNonce, 0)
-            Arrays.fill(decryptHistory, 0)
+            replayHistory.clear()
             Arrays.fill(encryptTag, 0)
-            goodPackets = 0
-            latePackets = 0
-            lostPackets = 0
-            resyncPackets = 0
+            packetStats.reset()
+            publishStats()
         }
     }
 }
