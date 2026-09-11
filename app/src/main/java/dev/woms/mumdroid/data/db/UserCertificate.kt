@@ -1,9 +1,13 @@
 package dev.woms.mumdroid.data.db
 
 import androidx.room.ColumnInfo
+import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Index
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
+import androidx.room.Query
 import dev.woms.mumdroid.core.model.UserCertificate
 
 /**
@@ -64,3 +68,55 @@ fun UserCertificate.toEntity(createdAt: Long = System.currentTimeMillis()): User
         pem = pem,
         createdAt = createdAt,
     )
+
+/**
+ * Single-row configuration for the user certificate store, persisted with Room.
+ *
+ * Replaces the leftover SharedPreferences keys: which certificate is active and
+ * the password protecting the PKCS#12 keystore files. There is always at most
+ * one row, pinned to [id] = 0 so it can be upserted.
+ *
+ * @property id fixed primary key (always 0) so the row can be upserted.
+ * @property selectedFingerprint fingerprint of the active certificate, if any.
+ * @property keystorePassword random password encrypting the on-disk PKCS#12
+ *   files; generated lazily on first use.
+ */
+@Entity(tableName = "user_certificate_config")
+data class UserCertificateConfigEntity(
+    @PrimaryKey
+    val id: Int = 0,
+    @ColumnInfo(name = "selected_fingerprint")
+    val selectedFingerprint: String? = null,
+    @ColumnInfo(name = "keystore_password")
+    val keystorePassword: String = "",
+)
+
+/**
+ * DAO for the user (client) certificate store: the certificate metadata rows
+ * plus the single-row [UserCertificateConfigEntity].
+ */
+@Dao
+interface UserCertificateDao {
+
+    /** All stored user certificates, newest first. */
+    @Query("SELECT * FROM user_certificates ORDER BY created_at DESC")
+    suspend fun getAll(): List<UserCertificateEntity>
+
+    @Query("SELECT * FROM user_certificates WHERE fingerprint = :fingerprint LIMIT 1")
+    suspend fun findByFingerprint(fingerprint: String): UserCertificateEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(certificate: UserCertificateEntity)
+
+    @Query("DELETE FROM user_certificates WHERE fingerprint = :fingerprint")
+    suspend fun deleteByFingerprint(fingerprint: String)
+
+    @Query("DELETE FROM user_certificates")
+    suspend fun deleteAll()
+
+    @Query("SELECT * FROM user_certificate_config WHERE id = 0 LIMIT 1")
+    suspend fun getConfig(): UserCertificateConfigEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertConfig(config: UserCertificateConfigEntity)
+}
