@@ -120,6 +120,17 @@ class MumbleService : Service() {
      */
     internal lateinit var facade: SessionFacade
 
+    /**
+     * The facade, or null while [onCreate] has not finished wiring it.
+     *
+     * `onServiceConnected` can fire from the main thread before `onCreate`
+     * returns when the binder is handed out right after `bindService`; reading
+     * the `lateinit` field from there throws [UninitializedPropertyAccessException].
+     * Callers outside the service must go through this accessor.
+     */
+    internal val facadeOrNull: SessionFacade?
+        get() = if (::facade.isInitialized) facade else null
+
     internal lateinit var settingsStore: SettingsStore
     internal lateinit var certificateStore: CertificateStore
     private lateinit var userCertificateStore: UserCertificateStore
@@ -133,7 +144,7 @@ class MumbleService : Service() {
 
     private val binder = LocalBinder()
 
-    fun favoriteId(): Long = facade.favoriteId()
+    fun favoriteId(): Long = facadeOrNull?.favoriteId() ?: 0L
 
     private val privateReplyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -252,6 +263,19 @@ class MumbleService : Service() {
         moderationCommands = UserModerationCommands(scope, state, roster)
         voiceCommands = VoiceCommands(scope, state, roster, voice)
         chatCommands = ChatCommands(state, roster, chat)
+        // Publish the read surface before the remaining wiring: a binding
+        // handed out between here and the end of onCreate must never observe
+        // the lateinit field unset.
+        facade = SessionFacade(
+            state = state,
+            roster = roster,
+            admin = admin,
+            voice = voice,
+            chat = chat,
+            reconnect = reconnect,
+            cert = cert,
+            tcpPing = tcpPing,
+        )
         state.status.value = getString(R.string.status_not_connected)
         notifications.createChannels()
         ContextCompat.registerReceiver(
@@ -450,7 +474,7 @@ class MumbleService : Service() {
         respond(decision)
     }
 
-    fun connectionInfo(): ServerConnectionInfo = facade.connectionInfo()
+    fun connectionInfo(): ServerConnectionInfo? = facadeOrNull?.connectionInfo()
 
     override fun onBind(intent: Intent?): IBinder = binder
 

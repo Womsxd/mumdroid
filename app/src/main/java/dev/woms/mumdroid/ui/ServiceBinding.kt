@@ -7,7 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import dev.woms.mumdroid.service.MumbleService
 
@@ -19,6 +21,9 @@ import dev.woms.mumdroid.service.MumbleService
  * session-command forwarding while the platform plumbing (bind flags, receiver
  * registration, disconnect races) lives here.
  */
+private const val FACADE_READY_RETRY_MS = 16L
+private const val FACADE_READY_MAX_RETRIES = 100
+
 internal class ServiceBinding(
     private val app: Application,
     /** The voice service became available. */
@@ -32,11 +37,24 @@ internal class ServiceBinding(
 
     private var serviceBound = false
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Retries left before a not-yet-wired service instance is given up on. */
+    private var readyRetries = 0
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val svc = (binder as MumbleService.LocalBinder).service()
             service = svc
-            onServiceReady(svc)
+            // The binder can be handed out while MumbleService.onCreate is
+            // still running, so `facade` may not exist yet. Poll a few frames
+            // instead of touching the lateinit field and crashing.
+            if (svc.facadeOrNull != null) {
+                readyRetries = 0
+                onServiceReady(svc)
+            } else {
+                awaitFacadeReady(svc)
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -59,6 +77,32 @@ internal class ServiceBinding(
             unbindService()
             onServiceLost()
         }
+    }
+
+    /**
+     * Waits for [MumbleService.onCreate] to publish its facade, then reports
+     * the service as ready. Bounded so a service that dies mid-init does not
+     * leave the caller spinning forever.
+     */
+    private fun awaitFacadeReady(svc: MumbleService) {
+        if (readyRetries++ >= FACADE_READY_MAX_RETRIES) {
+            // The service never finished its own onCreate: treat the binding as
+            // dead so the UI falls back to the disconnected state.
+            readyRetries = 0
+            unbindService()
+            onServiceLost()
+            return
+        }
+        mainHandler.postDelayed({
+            // A disconnect (or a rebind) invalidates this wait.
+            if (!serviceBound || service !== svc) return@postDelayed
+            if (svc.facadeOrNull != null) {
+                readyRetries = 0
+                onServiceReady(svc)
+            } else {
+                awaitFacadeReady(svc)
+            }
+        }, FACADE_READY_RETRY_MS)
     }
 
     init {
