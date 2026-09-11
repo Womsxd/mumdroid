@@ -129,6 +129,7 @@ class UdpVoiceManager(
     private val crypto = UdpVoiceCrypto(clock)
     private val framing = VoiceFraming(clock)
     private val pingTracker = UdpPingTracker()
+    private val pingCadence = UdpPingTracker.Cadence(PING_INTERVAL_MS)
     private val sendLock = Any()
     private val encryptPacket = ByteArray(MAX_PACKET)
     private val opus = OpusCodec(opusImplementation)
@@ -141,9 +142,6 @@ class UdpVoiceManager(
     private val callbacks = TransportCallbacks()
     @Volatile
     private var listener: Listener? = null
-
-    /** Last UDP ping send; 0 until the receive loop has entered `receive()`. */
-    private var lastPingSentMs = 0L
 
     /** Opus encode bitrate in bits-per-second (0 = codec default). */
     @Volatile
@@ -297,17 +295,7 @@ class UdpVoiceManager(
 
     private fun maybeSendPing() {
         if (!crypto.isReady || !transport.isRunning) return
-        val now = clock()
-        // Prime the clock on the first pass so the first ping waits a full
-        // interval (official TCP ticker). Sending immediately after bind
-        // still races a fast reply into the gap before the next receive().
-        if (lastPingSentMs == 0L) {
-            lastPingSentMs = now
-            return
-        }
-        if (now - lastPingSentMs < PING_INTERVAL_MS) return
-        lastPingSentMs = now
-        sendPing()
+        if (pingCadence.due(clock())) sendPing()
     }
 
     private fun handlePacket(data: ByteArray, length: Int) {
@@ -456,7 +444,8 @@ class UdpVoiceManager(
      * voice can continue over TCP tunnel (force-TCP / UDP fallback).
      */
     fun stopDatagram() {
-        lastPingSentMs = 0L
+        // A later start() must prime the clock again, not fire immediately.
+        pingCadence.reset()
         transport.close()
     }
 

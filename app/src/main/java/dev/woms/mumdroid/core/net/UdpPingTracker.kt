@@ -73,4 +73,42 @@ class UdpPingTracker {
             sumSq = 0.0
         }
     }
+
+
+    /**
+     * The official client's ping cadence: the first tick only primes the clock
+     * so the first ping waits a full [intervalMs] after the socket was bound.
+     * Sending immediately after bind races a fast reply into the gap before
+     * the next `receive()`, which the receive loop would then discard.
+     *
+     * Owned by [UdpVoiceManager]; extracted here so the cadence (and the
+     * primed-clock rule) can be tested with an injectable clock.
+     */
+    class Cadence(private val intervalMs: Long) {
+        private var lastSentMs = 0L
+
+        /**
+         * Explicit rather than a zero sentinel: a monotonic clock *can* read 0
+         * (and tests certainly can), and `lastSentMs == 0L` would then re-prime
+         * on every tick and never send anything.
+         */
+        private var primed = false
+
+        /** Whether a ping is due now, updating the last-send stamp if so. */
+        fun due(now: Long): Boolean {
+            if (!primed) {
+                primed = true
+                lastSentMs = now
+                return false
+            }
+            if (now - lastSentMs < intervalMs) return false
+            lastSentMs = now
+            return true
+        }
+
+        fun reset() {
+            primed = false
+            lastSentMs = 0L
+        }
+    }
 }

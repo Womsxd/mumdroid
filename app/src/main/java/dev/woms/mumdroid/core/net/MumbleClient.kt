@@ -1,6 +1,5 @@
 package dev.woms.mumdroid.core.net
 
-import android.os.SystemClock
 import android.util.Log
 import com.google.protobuf.MessageLite
 import dev.woms.mumdroid.BuildConfig
@@ -12,10 +11,7 @@ import java.io.DataOutputStream
 import java.net.InetSocketAddress
 import java.security.cert.X509Certificate
 import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SSLSocket
 
 /**
@@ -134,12 +130,19 @@ class MumbleClient internal constructor(
         },
     )
 
-    private var pingExecutor: ScheduledExecutorService? = null
+    /** Keep-alive pings and their in-flight budget / RTT accounting. */
+    private val pingLoop = TcpPingLoop(
+        tag = TAG,
+        intervalSeconds = PING_INTERVAL_SECONDS,
+        maxInFlight = MAX_IN_FLIGHT_TCP_PINGS,
+        sendPing = { timestamp -> sendMessage(MessageType.PING, buildPingWithStats(timestamp)) },
+        onTimeout = { disconnect("Server is not responding to TCP pings") },
+        onRtt = { rtt -> tcpPingListener?.onTcpPingReply(rtt) },
+    )
     /** Serializes TCP writes so UI-thread callers never touch the SSL socket. */
     private val writeExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "mumble-tcp-write").apply { isDaemon = true }
     }
-    private val inFlightTcpPings = AtomicInteger(0)
 
     /**
      * Supplies live voice/stats information (crypt packet counters and the
@@ -297,7 +300,6 @@ class MumbleClient internal constructor(
 
             connected.set(true)
             rawSocket.soTimeout = 0
-            inFlightTcpPings.set(0)
 
             startPingLoop()
 
@@ -383,26 +385,7 @@ class MumbleClient internal constructor(
         }
     }
 
-    private fun startPingLoop() {
-        pingExecutor = Executors.newSingleThreadScheduledExecutor()
-        pingExecutor?.scheduleWithFixedDelay(
-            {
-                try {
-                    if (inFlightTcpPings.get() >= MAX_IN_FLIGHT_TCP_PINGS) {
-                        disconnect("Server is not responding to TCP pings")
-                        return@scheduleWithFixedDelay
-                    }
-                    sendMessage(MessageType.PING, buildPingWithStats(SystemClock.elapsedRealtime()))
-                    inFlightTcpPings.incrementAndGet()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Ping failed", e)
-                }
-            },
-            PING_INTERVAL_SECONDS,
-            PING_INTERVAL_SECONDS,
-            TimeUnit.SECONDS,
-        )
-    }
+    private fun startPingLoop() = pingLoop.start()
 
     /**
      * Builds a TCP Ping message carrying the given [timestamp] together with
@@ -456,17 +439,9 @@ class MumbleClient internal constructor(
     }
 
     override fun onPing(timestampMs: Long, good: Int, late: Int, lost: Int, resync: Int) {
-        inFlightTcpPings.set(0)
-        // Official `tTimestamp` is a QElapsedTimer (monotonic). Wall
-        // time would let NTP steps land inside the 60 s window and
-        // pollute tcpPingAvg / tcpPingVar.
-        val now = SystemClock.elapsedRealtime()
-        if (timestampMs in 1 until now) {
-            val rtt = now - timestampMs
-            if (rtt < 60_000) {
-                tcpPingListener?.onTcpPingReply(rtt)
-            }
-        }
+        // Official `tTimestamp` is a QElapsedTimer (monotonic); the clock and
+        // the 60 s staleness window live in [TcpPingLoop].
+        pingLoop.onReply(timestampMs)
         // Surface the server-reported crypt statistics (its view of the
         // UDP packets we sent). The official client uses exactly these
         // counters to decide whether to fall back to TCP mode.
@@ -543,12 +518,10 @@ class MumbleClient internal constructor(
     fun close() {
         running.set(false)
         connected.set(false)
-        inFlightTcpPings.set(0)
         // Release a pending certificate prompt so the handshake thread cannot
         // block forever on a dialog nobody will answer any more.
         tls.abort()
-        pingExecutor?.shutdownNow()
-        pingExecutor = null
+        pingLoop.stop()
         writeExecutor.shutdownNow()
         try {
             socket?.close()

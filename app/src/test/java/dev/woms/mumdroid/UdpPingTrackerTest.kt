@@ -43,4 +43,47 @@ class UdpPingTrackerTest {
         assertEquals(0L, tracker.meanMillis)
         assertEquals(0f, tracker.varianceMillisSquared, 0f)
     }
+
+
+    @Test
+    fun cadence_primesTheClockOnTheFirstTick() {
+        val cadence = UdpPingTracker.Cadence(5_000L)
+        // The first tick only starts the clock: a ping right after bind would
+        // race a fast reply into the gap before the next receive().
+        assertFalse(cadence.due(1_000L))
+        assertFalse(cadence.due(1_001L))
+        assertFalse(cadence.due(5_999L))
+        // A full interval after the priming tick is due.
+        assertTrue(cadence.due(6_000L))
+    }
+
+    @Test
+    fun cadence_sendsAtMostOnePerInterval() {
+        val cadence = UdpPingTracker.Cadence(5_000L)
+        cadence.due(0L)
+        assertTrue(cadence.due(5_000L))
+        assertFalse(cadence.due(5_001L))
+        assertFalse(cadence.due(9_999L))
+        assertTrue(cadence.due(10_000L))
+    }
+
+    @Test
+    fun cadence_resetMakesTheNextTickPrimeAgain() {
+        val cadence = UdpPingTracker.Cadence(5_000L)
+        cadence.due(0L)
+        assertTrue(cadence.due(5_000L))
+        cadence.reset()
+        // Stopping and starting the datagram socket must not fire immediately.
+        assertFalse(cadence.due(5_100L))
+        assertTrue(cadence.due(10_100L))
+    }
+
+    @Test
+    fun cadence_isUnchangedByATickThatIsNotDue() {
+        val cadence = UdpPingTracker.Cadence(5_000L)
+        cadence.due(1_000L)
+        // A not-due tick must not push the next send further out.
+        assertFalse(cadence.due(3_000L))
+        assertTrue(cadence.due(6_000L))
+    }
 }
