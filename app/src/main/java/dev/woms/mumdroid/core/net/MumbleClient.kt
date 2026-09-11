@@ -2,25 +2,10 @@ package dev.woms.mumdroid.core.net
 
 import android.os.SystemClock
 import android.util.Log
-import com.google.protobuf.ByteString
 import com.google.protobuf.MessageLite
 import dev.woms.mumdroid.BuildConfig
-import dev.woms.mumdroid.core.model.BanEntry
-import dev.woms.mumdroid.core.model.ChanACL
-import dev.woms.mumdroid.core.model.RegisteredUser
-import dev.woms.mumdroid.core.proto.ACL
 import dev.woms.mumdroid.core.proto.Authenticate
-import dev.woms.mumdroid.core.proto.BanList
-import dev.woms.mumdroid.core.proto.ChannelState
-import dev.woms.mumdroid.core.proto.CryptSetup
-import dev.woms.mumdroid.core.proto.PermissionQuery
 import dev.woms.mumdroid.core.proto.Ping
-import dev.woms.mumdroid.core.proto.QueryUsers
-import dev.woms.mumdroid.core.proto.RequestBlob
-import dev.woms.mumdroid.core.proto.TextMessage
-import dev.woms.mumdroid.core.proto.UserList
-import dev.woms.mumdroid.core.proto.UserState
-import dev.woms.mumdroid.core.proto.UserStats
 import dev.woms.mumdroid.core.proto.Version
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -36,20 +21,22 @@ import javax.net.ssl.SSLSocket
 /**
  * The Mumble protocol client. Owns the TCP/TLS control connection: the
  * connect / teardown lifecycle, message framing with the serialized write
- * path, the TCP ping heartbeat, and the typed sender API (the official
- * `ServerHandler` surface).
+ * path, and the TCP ping heartbeat.
  *
  * Focused collaborators own the individual policies:
  *  - [ClientTlsPolicy] — trust / certificate-pinning policy, the
  *    certificate-mismatch gate, and fingerprint / TLS-session capture,
  *  - [MumbleMessageRouter] — inbound message parsing and listener fan-out
  *    (this class implements its [MumbleMessageRouter.Host] to receive the
- *    stateful Version / ServerSync / Ping values).
+ *    stateful Version / ServerSync / Ping values),
+ *  - [MumbleControlSenders] — outbound typed message assembly, mixed in by
+ *    delegation so the typed sender API (official `ServerHandler` surface)
+ *    stays reachable as `client.kickUser(...)`.
  *
  * The client itself has no voice-channel crypt state: the OCB2 counters and
  * UDP RTT statistics reported in the TCP Ping come from [statsProvider].
  */
-class MumbleClient(
+class MumbleClient internal constructor(
     private val host: String,
     private val port: Int,
     private val username: String,
@@ -60,7 +47,29 @@ class MumbleClient(
     initialAccessTokens: List<String> = emptyList(),
     private val certificatePinning: Boolean = true,
     private val pinnedFingerprint: String? = null,
-) : MumbleMessageRouter.Host {
+    /**
+     * Message assembly for the typed sender API (official `ServerHandler`),
+     * mixed into this class by delegation. Must be a constructor parameter: a
+     * delegating supertype is initialized before the class body, so it cannot
+     * read a property declared further down.
+     */
+    private val controlSenders: MumbleControlSenders = MumbleControlSenders(),
+) : MumbleMessageRouter.Host, MumbleControlSender by controlSenders {
+
+    init {
+        controlSenders.attach(object : MumbleControlSenders.Host {
+            override fun writeMessage(type: Int, message: MessageLite) =
+                this@MumbleClient.sendMessage(type, message)
+
+            override fun writeBytes(type: Int, body: ByteArray) =
+                this@MumbleClient.sendBytes(type, body)
+
+            override fun localSession(): Int = this@MumbleClient.currentSession
+
+            override fun accessTokens(): MutableList<String> = this@MumbleClient.accessTokens
+        })
+    }
+
     companion object {
         private const val TAG = "MumbleClient"
         private const val TIMEOUT_MS = 15000
@@ -489,300 +498,6 @@ class MumbleClient(
             .setClientType(0)
         accessTokens.forEach { auth.addTokens(it) }
         sendMessage(MessageType.AUTHENTICATE, auth.build())
-    }
-
-    // ---- Typed senders (official ServerHandler surface) ----
-
-    /** Sends a text message to a channel. */
-    fun sendTextToChannel(channelId: Int, text: String) {
-        val msg = TextMessage.newBuilder()
-            .setMessage(text)
-            .addChannelId(channelId)
-            .build()
-        sendMessage(MessageType.TEXT_MESSAGE, msg)
-    }
-
-    /** Sends a private (direct) text message to a specific user session. */
-    fun sendTextToUser(session: Int, text: String) {
-        val msg = TextMessage.newBuilder()
-            .setMessage(text)
-            .addSession(session)
-            .build()
-        sendMessage(MessageType.TEXT_MESSAGE, msg)
-    }
-
-    /**
-     * Desktop `ServerHandler::kickUser`: `UserRemove` with `ban = false`.
-     */
-    fun kickUser(session: Int, reason: String) {
-        sendMessage(
-            MessageType.USER_REMOVE,
-            UserModeration.kick(session, reason),
-        )
-    }
-
-    /**
-     * Desktop `ServerHandler::banUser`: `UserRemove` with `ban = true` and
-     * the 1.6+ certificate/IP flags. Duration is not on this message;
-     * Murmur always stores 0, so timed user-menu bans patch BanList after.
-     */
-    fun banUser(
-        session: Int,
-        reason: String,
-        banCertificate: Boolean,
-        banIp: Boolean,
-    ) {
-        sendMessage(
-            MessageType.USER_REMOVE,
-            UserModeration.ban(session, reason, banCertificate, banIp),
-        )
-    }
-
-    /**
-     * Desktop `ServerHandler::registerUser`: `UserState` with `user_id = 0`.
-     */
-    fun registerUser(session: Int) {
-        sendMessage(MessageType.USER_STATE, UserModeration.register(session))
-    }
-
-    /**
-     * Moves the local user to [channelId]. [temporaryAccessTokens] are official
-     * channel passwords applied only for this UserState (murmur
-     * `TemporaryAccessTokenHelper`).
-     */
-    fun joinChannel(channelId: Int, temporaryAccessTokens: List<String> = emptyList()) {
-        val us = UserState.newBuilder()
-            .setSession(localSession)
-            .setChannelId(channelId)
-        temporaryAccessTokens.forEach { us.addTemporaryAccessTokens(it) }
-        sendMessage(MessageType.USER_STATE, us.build())
-    }
-
-    /**
-     * Desktop `ServerHandler::joinChannel` targeting another user's session.
-     * The server requires Move on their current channel, and Move on the
-     * destination or Enter for the target.
-     */
-    fun moveUser(session: Int, channelId: Int) {
-        sendMessage(MessageType.USER_STATE, UserModeration.moveToChannel(session, channelId))
-    }
-
-    /**
-     * Desktop `ServerHandler::startListeningToChannel` /
-     * `stopListeningToChannel`.
-     */
-    fun setChannelListening(channelId: Int, listen: Boolean) {
-        sendMessage(
-            MessageType.USER_STATE,
-            UserModeration.setChannelListening(localSession, channelId, listen),
-        )
-    }
-
-    /**
-     * Desktop `ServerHandler::createChannel`: ChannelState without `channel_id`.
-     */
-    fun createChannel(
-        parentId: Int,
-        name: String,
-        description: String,
-        position: Int,
-        temporary: Boolean,
-        maxUsers: Int,
-    ) {
-        sendMessage(
-            MessageType.CHANNEL_STATE,
-            ChannelModeration.create(parentId, name, description, position, temporary, maxUsers),
-        )
-    }
-
-    /**
-     * Desktop `ACLEditor::accept` update path: ChannelState with only
-     * changed fields. No-op when [msg] is null.
-     */
-    fun updateChannel(msg: ChannelState?) {
-        if (msg == null) return
-        sendMessage(MessageType.CHANNEL_STATE, msg)
-    }
-
-    /** Desktop `ServerHandler::removeChannel`. */
-    fun removeChannel(channelId: Int) {
-        sendMessage(MessageType.CHANNEL_REMOVE, ChannelModeration.remove(channelId))
-    }
-
-    /**
-     * Desktop `RequestBlob.channel_description` when the tree only has a
-     * description hash.
-     */
-    fun requestChannelDescription(channelId: Int) {
-        sendMessage(
-            MessageType.REQUEST_BLOB,
-            RequestBlob.newBuilder().addChannelDescription(channelId).build(),
-        )
-    }
-
-    /**
-     * Replaces the session access-token list (desktop `ServerHandler::setTokens`).
-     * Sent as Authenticate with only `tokens` while already connected.
-     */
-    fun setTokens(tokens: List<String>) {
-        accessTokens.clear()
-        accessTokens.addAll(tokens)
-        val auth = Authenticate.newBuilder()
-        tokens.forEach { auth.addTokens(it) }
-        sendMessage(MessageType.AUTHENTICATE, auth.build())
-    }
-
-    /**
-     * Requests [UserStats] for [session]. The first open of the desktop
-     * Information dialog uses [statsOnly] = false so certificates/version/IP
-     * are included when the server allows them; later refreshes pass true.
-     */
-    fun requestUserStats(session: Int, statsOnly: Boolean = false) {
-        val msg = UserStats.newBuilder()
-            .setSession(session)
-            .setStatsOnly(statsOnly)
-            .build()
-        sendMessage(MessageType.USER_STATS, msg)
-    }
-
-    /**
-     * Requests the local user's permissions in [channelId] from the server.
-     * The server replies with a PermissionQuery carrying the permission bit
-     * flags, which the service uses to decide whether server-side mute/deafen
-     * actions are allowed.
-     */
-    fun queryPermissions(channelId: Int) {
-        val pq = PermissionQuery.newBuilder()
-            .setChannelId(channelId)
-            .build()
-        sendMessage(MessageType.PERMISSION_QUERY, pq)
-    }
-
-    /** Desktop `ServerHandler::requestACL`: query=true. */
-    fun requestAcl(channelId: Int) {
-        sendMessage(MessageType.ACL, ChanAclWrite.query(channelId))
-    }
-
-    /** Desktop `ACLEditor::accept` ACL write (query unset). */
-    fun sendAcl(msg: ACL) {
-        sendMessage(MessageType.ACL, msg)
-    }
-
-    /** Desktop `ACLEditor::accept` from a structured snapshot. */
-    fun sendAcl(snapshot: ChanAclSnapshot) {
-        sendAcl(ChanAclWrite.toWriteMessage(snapshot))
-    }
-
-    /**
-     * Desktop `ACLEditor::id` / name refresh: server fills the missing
-     * id↔name side and replies with QueryUsers.
-     */
-    fun queryUsers(ids: List<Int> = emptyList(), names: List<String> = emptyList()) {
-        val builder = QueryUsers.newBuilder()
-        ids.filter { it >= ChanACL.UserId.SUPERUSER }.forEach { builder.addIds(it) }
-        names.forEach { builder.addNames(it) }
-        sendMessage(MessageType.QUERY_USERS, builder.build())
-    }
-
-    /** Desktop `ServerHandler::setUserComment`. */
-    fun setUserComment(session: Int, comment: String) {
-        sendMessage(MessageType.USER_STATE, UserModeration.setComment(session, comment))
-    }
-
-    /** Desktop `on_qaUserCommentReset_triggered`. */
-    fun resetUserComment(session: Int) {
-        setUserComment(session, "")
-    }
-
-    /** Desktop `ServerHandler::setUserTexture`. */
-    fun setUserTexture(session: Int, texture: ByteArray) {
-        sendMessage(MessageType.USER_STATE, UserModeration.setTexture(session, texture))
-    }
-
-    /** Desktop `on_qaUserTextureReset_triggered`. */
-    fun resetUserTexture(session: Int) {
-        setUserTexture(session, ByteArray(0))
-    }
-
-    /** Desktop `ServerHandler::requestUserList`. */
-    fun requestUserList() {
-        sendMessage(MessageType.USER_LIST, UserList.newBuilder().build())
-    }
-
-    /**
-     * Desktop `UserEdit::accept`: only changed users. Omit `name` to
-     * unregister (`clear_name()` / `!has_name()`); murmur treats an empty
-     * name as a rename, not a delete.
-     */
-    fun sendUserList(users: List<RegisteredUser>) {
-        val msg = UserList.newBuilder()
-        for (user in users) {
-            val entry = UserList.User.newBuilder().setUserId(user.userId)
-            if (user.name.isNotEmpty()) {
-                entry.setName(user.name)
-            }
-            msg.addUsers(entry)
-        }
-        sendMessage(MessageType.USER_LIST, msg.build())
-    }
-
-    /** Desktop `ServerHandler::requestBanList`. */
-    fun requestBanList() {
-        sendMessage(MessageType.BAN_LIST, BanList.newBuilder().setQuery(true).build())
-    }
-
-    /** Desktop `BanEditor::accept`: full replacement list, query unset. */
-    fun sendBanList(bans: List<BanEntry>) {
-        val msg = BanList.newBuilder()
-        for (ban in bans) {
-            val entry = BanList.BanEntry.newBuilder()
-                .setMask(ban.mask)
-                .setName(ban.name)
-                .setHash(ban.hash)
-                .setReason(ban.reason)
-                .setStart(ban.start)
-                .setDuration(ban.duration)
-            if (ban.address.isNotEmpty()) {
-                entry.setAddress(ByteString.copyFrom(ban.address))
-            }
-            msg.addBans(entry)
-        }
-        sendMessage(MessageType.BAN_LIST, msg.build())
-    }
-
-    /**
-     * Sends a voice packet over the TCP control channel (force-TCP mode). The
-     * payload is the plaintext voice packet in the negotiated framing
-     * (TCP is already TLS-encrypted, so voice is not OCB2-encrypted in tunnel
-     * mode).
-     *
-     * @param body the plaintext UDPTunnel body.
-     */
-    fun sendTunneledVoice(body: ByteArray) {
-        sendBytes(MessageType.UDP_TUNNEL, body)
-    }
-
-    /**
-     * Requests a crypt-nonce resync by sending an empty CryptSetup message
-     * (mirrors the official client's behaviour when UDP decryption keeps
-     * failing). The server replies with its current encrypt IV.
-     */
-    fun requestCryptResync() {
-        sendMessage(MessageType.CRYPT_SETUP, CryptSetup.newBuilder().build())
-    }
-
-    /**
-     * Reports our current encryption IV to the server so it can resync its
-     * decryption IV (mirrors the official client's reply to a CryptSetup that
-     * only carries our client nonce).
-     */
-    fun sendCryptClientNonce(nonce: ByteArray) {
-        sendMessage(
-            MessageType.CRYPT_SETUP,
-            CryptSetup.newBuilder()
-                .setClientNonce(com.google.protobuf.ByteString.copyFrom(nonce))
-                .build(),
-        )
     }
 
     /**

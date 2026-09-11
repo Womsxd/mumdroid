@@ -1,7 +1,7 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.net.UdpAvailability
-import dev.woms.mumdroid.core.net.UdpVoiceManager
+import dev.woms.mumdroid.core.net.UdpVoiceTransport
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -121,8 +121,8 @@ class UdpAvailabilityTest {
     fun peerMatchesTreatsIpv4MappedAsIpv4() {
         val v4 = InetAddress.getByName("192.0.2.10")
         val mapped = InetAddress.getByName("::ffff:192.0.2.10")
-        assertTrue(UdpVoiceManager.peerMatches(mapped, 64738, v4, 64738))
-        assertFalse(UdpVoiceManager.peerMatches(mapped, 64738, v4, 64739))
-        assertFalse(UdpVoiceManager.peerMatches(InetAddress.getByName("192.0.2.11"), 64738, v4, 64738))
+        assertTrue(UdpVoiceTransport.peerMatches(mapped, 64738, v4, 64738))
+        assertFalse(UdpVoiceTransport.peerMatches(mapped, 64738, v4, 64739))
+        assertFalse(UdpVoiceTransport.peerMatches(InetAddress.getByName("192.0.2.11"), 64738, v4, 64738))
     }
 }

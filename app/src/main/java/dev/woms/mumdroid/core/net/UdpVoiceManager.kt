@@ -6,14 +6,7 @@ import dev.woms.mumdroid.core.audio.OpusCodec
 import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.crypto.UdpVoiceCrypto
 import dev.woms.mumdroid.core.model.AudioContext
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.Inet4Address
-import java.net.Inet6Address
 import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.net.SocketTimeoutException
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The send-side surface of the voice channel: encode helpers, plaintext body
@@ -74,14 +67,17 @@ interface VoiceSendChannel {
  * Manages the UDP voice channel used to send and receive encrypted voice and
  * ping traffic, mirroring the official Mumble client's transport behaviour.
  *
- * This class owns the transport concerns only: socket lifecycle, the receive
- * loop with peer filtering, and the send path with its OCB2 send buffer. The
- * protocol policy lives in dedicated collaborators:
+ * The socket itself lives in [UdpVoiceTransport] (socket lifecycle, the
+ * peer-filtered receive loop, the datagram write path); the protocol policy
+ * lives in dedicated collaborators:
  *  - [VoiceFraming] — legacy/protobuf body build and decode (both protocol
  *    generations; see its KDoc for the framing layouts),
  *  - [UdpVoiceCrypto] — the OCB2 state plus the official 5-second
  *    decryption-failure resync rule,
  *  - [UdpPingTracker] — UDP round-trip-time statistics.
+ *
+ * This class keeps the codec, the OCB2 send buffer, the ping cadence and the
+ * decode/record decisions.
  *
  * As in the official client, only Opus audio is decoded; the obsolete CELT /
  * Speex codecs are dropped. Pings are sent periodically to detect UDP
@@ -94,49 +90,14 @@ class UdpVoiceManager(
 ) : VoiceSendChannel {
     companion object {
         private const val TAG = "UdpVoiceManager"
-        // Matches the official `MAX_UDP_PACKET_SIZE` (murmur/MumbleProtocol.h):
-        // 1024. A larger bound would let a spoofed oversized datagram be read
-        // in full and pushed through OCB2, which costs one AES block op per
-        // 16-byte block (256 AES for 4096 B vs. 64 for 1024 B). Aligning with
-        // the server also keeps behaviour identical: murmur drops any packet
-        // with `len > MAX_UDP_PACKET_SIZE`.
-        private const val MAX_PACKET = 1024
+
+        /** Largest datagram we accept or emit (see [UdpVoiceTransport.MAX_PACKET]). */
+        private const val MAX_PACKET = UdpVoiceTransport.MAX_PACKET
+
         // Mirror the official client's ping cadence: the desktop `iPingIntervalMsec`
         // defaults to 5000 ms. Sending every second only wastes bandwidth on the
         // voice channel, so we align with the official 5-second interval.
         private const val PING_INTERVAL_MS = 5_000L
-        private const val RECEIVE_POLL_MS = 250
-
-        /**
-         * Official `udpReady` drops datagrams whose source is not the TCP
-         * peer (`HostAddress` equality, which treats IPv4-mapped IPv6 as IPv4).
-         */
-        internal fun peerMatches(
-            packetAddr: InetAddress,
-            packetPort: Int,
-            peerAddr: InetAddress,
-            peerPort: Int,
-        ): Boolean {
-            if (packetPort != peerPort) return false
-            if (packetAddr == peerAddr) return true
-            val a = ipv4Bytes(packetAddr) ?: return false
-            val b = ipv4Bytes(peerAddr) ?: return false
-            return a.contentEquals(b)
-        }
-
-        private fun ipv4Bytes(addr: InetAddress): ByteArray? {
-            when (addr) {
-                is Inet4Address -> return addr.address
-                is Inet6Address -> {
-                    val bytes = addr.address
-                    if (bytes.size != 16) return null
-                    for (i in 0..9) if (bytes[i] != 0.toByte()) return null
-                    if (bytes[10] != 0xff.toByte() || bytes[11] != 0xff.toByte()) return null
-                    return bytes.copyOfRange(12, 16)
-                }
-            }
-            return null
-        }
     }
 
     interface Listener {
@@ -171,20 +132,18 @@ class UdpVoiceManager(
     private val sendLock = Any()
     private val encryptPacket = ByteArray(MAX_PACKET)
     private val opus = OpusCodec(opusImplementation)
-    private var socket: DatagramSocket? = null
-    private val running = AtomicBoolean(false)
-    private var receiveThread: Thread? = null
+
+    /**
+     * Datagram transport: socket lifecycle, the peer-filtered receive loop and
+     * the write path. This class keeps the voice protocol policy only.
+     */
+    private val transport = UdpVoiceTransport(host, port)
+    private val callbacks = TransportCallbacks()
     @Volatile
     private var listener: Listener? = null
 
     /** Last UDP ping send; 0 until the receive loop has entered `receive()`. */
     private var lastPingSentMs = 0L
-
-    /** TCP peer used for `sendto` / source filtering. Official does not `connect()`. */
-    @Volatile
-    private var peerAddress: InetAddress? = null
-    @Volatile
-    private var peerPort: Int = 0
 
     /** Opus encode bitrate in bits-per-second (0 = codec default). */
     @Volatile
@@ -202,7 +161,11 @@ class UdpVoiceManager(
     var lowLatency: Boolean = false
 
     /** Marks the voice socket for low-latency prioritisation (QoS). */
-    var qualityOfService: Boolean = false
+    var qualityOfService: Boolean
+        get() = transport.qualityOfService
+        set(value) {
+            transport.qualityOfService = value
+        }
 
     /**
      * The UDP framing negotiated with the server: `true` for the protobuf
@@ -227,7 +190,7 @@ class UdpVoiceManager(
         }
 
     /** Whether the UDP voice channel has been started. */
-    override val isRunning: Boolean get() = running.get()
+    override val isRunning: Boolean get() = transport.isRunning
 
     /** Average UDP ping round-trip time in milliseconds (0 when no ping yet). */
     val averageUdpPing: Long
@@ -309,94 +272,31 @@ class UdpVoiceManager(
         remoteAddress: InetAddress? = null,
     ) {
         if (listener != null) this.listener = listener
-        val callback = this.listener
-        if (!running.compareAndSet(false, true)) return
-        try {
-            val sock = DatagramSocket(null)
-            if (bindAddress != null && !bindAddress.isAnyLocalAddress) {
-                sock.bind(InetSocketAddress(bindAddress, 0))
-            } else {
-                sock.bind(InetSocketAddress(0))
-            }
-            // Official `QUdpSocket::writeDatagram` — never connect(). A
-            // connected DatagramSocket turns ICMP errors into receive()
-            // exceptions and drops replies that are IPv4-mapped.
-            val dest = if (remoteAddress != null) {
-                InetSocketAddress(remoteAddress, port)
-            } else {
-                InetSocketAddress(host, port)
-            }
-            val resolved = dest.address ?: throw IllegalStateException("UDP peer unresolved")
-            peerAddress = resolved
-            peerPort = dest.port
-            socket = sock
-            applyBitrate()
-            if (qualityOfService) {
-                try {
-                    sock.trafficClass = 0xE0
-                } catch (_: Exception) {
-                    try {
-                        sock.trafficClass = 0x80
-                    } catch (_: Exception) {
-                    }
-                }
-            }
-            receiveThread = Thread({ receiveLoop() }, "udp-voice").apply { start() }
-            callback?.onUdpConnected()
-        } catch (e: Exception) {
-            running.set(false)
-            peerAddress = null
-            peerPort = 0
-            try {
-                socket?.close()
-            } catch (_: Exception) {
-            }
-            socket = null
-            callback?.onUdpError(e.message ?: "UDP connect failed")
-        }
+        applyBitrate()
+        transport.start(bindAddress, remoteAddress, callbacks)
     }
 
-    private fun receiveLoop() {
-        val sock = socket ?: return
-        try {
-            sock.soTimeout = RECEIVE_POLL_MS
-        } catch (_: Exception) {
+    /**
+     * Receive-loop hooks. The loop itself lives in [UdpVoiceTransport]; this
+     * side keeps the protocol work (ping cadence, OCB2 decrypt, framing decode).
+     */
+    private inner class TransportCallbacks : UdpVoiceTransport.Callbacks {
+        override fun onDatagram(data: ByteArray, length: Int) = handlePacket(data, length)
+
+        /** Pings are only sent once the loop is primed (see [maybeSendPing]). */
+        override fun onTick() = maybeSendPing()
+
+        override fun onConnected() {
+            listener?.onUdpConnected()
         }
-        val buffer = ByteArray(MAX_PACKET)
-        // Do not ping until `receive()` has run: a reply that lands before
-        // that is dropped by the kernel and desyncs OCB2.
-        var receivePrimed = false
-        while (running.get()) {
-            if (receivePrimed) maybeSendPing()
-            try {
-                val packet = DatagramPacket(buffer, buffer.size)
-                sock.receive(packet)
-                receivePrimed = true
-                val from = packet.address ?: continue
-                val expected = peerAddress
-                if (expected == null || !peerMatches(from, packet.port, expected, peerPort)) {
-                    continue
-                }
-                try {
-                    handlePacket(packet.data, packet.length)
-                } catch (e: Exception) {
-                    Log.e(TAG, "UDP packet processing error", e)
-                }
-            } catch (_: SocketTimeoutException) {
-                receivePrimed = true
-            } catch (e: Exception) {
-                if (!running.get()) break
-                Log.e(TAG, "UDP receive error", e)
-                if (sock.isClosed) {
-                    listener?.onUdpError(e.message ?: "UDP socket closed")
-                    break
-                }
-            }
+
+        override fun onError(message: String) {
+            listener?.onUdpError(message)
         }
     }
 
     private fun maybeSendPing() {
-        if (!crypto.isReady || !running.get()) return
+        if (!crypto.isReady || !transport.isRunning) return
         val now = clock()
         // Prime the clock on the first pass so the first ping waits a full
         // interval (official TCP ticker). Sending immediately after bind
@@ -498,7 +398,7 @@ class UdpVoiceManager(
      * `[header][varint timestamp]` framing otherwise.
      */
     private fun sendPing() {
-        if (!crypto.isReady || !running.get()) return
+        if (!crypto.isReady || !transport.isRunning) return
         encryptAndSend(framing.pingBody())
     }
 
@@ -508,7 +408,7 @@ class UdpVoiceManager(
      * (and sequence number) without encoding twice.
      */
     override fun sendPlaintextUdp(body: ByteArray): Boolean {
-        if (!crypto.isReady || socket == null) return false
+        if (!crypto.isReady || !transport.isRunning) return false
         return encryptAndSend(body)
     }
 
@@ -520,20 +420,7 @@ class UdpVoiceManager(
         synchronized(sendLock) {
             val n = crypto.encrypt(plain, encryptPacket)
             if (n < 0) return false
-            return sendDatagram(encryptPacket, n)
-        }
-    }
-
-    /** Writes an already-encrypted datagram. UDP pings use this (`force` in official). */
-    private fun sendDatagram(packetData: ByteArray, length: Int = packetData.size): Boolean {
-        val sock = socket ?: return false
-        val dest = peerAddress ?: return false
-        return try {
-            sock.send(DatagramPacket(packetData, length, dest, peerPort))
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "UDP send error", e)
-            false
+            return transport.send(encryptPacket, n)
         }
     }
 
@@ -569,23 +456,8 @@ class UdpVoiceManager(
      * voice can continue over TCP tunnel (force-TCP / UDP fallback).
      */
     fun stopDatagram() {
-        running.set(false)
         lastPingSentMs = 0L
-        peerAddress = null
-        peerPort = 0
-        val thread = receiveThread
-        try {
-            socket?.close()
-        } catch (_: Exception) {
-        }
-        socket = null
-        receiveThread = null
-        if (thread != null && thread != Thread.currentThread()) {
-            try {
-                thread.join(500)
-            } catch (_: Exception) {
-            }
-        }
+        transport.close()
     }
 
     fun close() {
