@@ -18,6 +18,10 @@ import kotlinx.coroutines.launch
  * notice collaborators in sync. Session state lives in [SessionState] and the
  * few service-side operations it needs arrive through [SessionHost], so this
  * handler never reaches into the owning service.
+ *
+ * The bundle it reads lives at the bottom of this file: [SessionContext] exists
+ * only as this handler's constructor input, so keeping it next to the class it
+ * feeds is one hop shorter than a file of its own.
  */
 internal class MumbleServiceEvents(
     private val context: SessionContext,
@@ -370,3 +374,28 @@ internal class MumbleServiceEvents(
         context.cert.present(fingerprint, pinnedFingerprint, context.state.host, context.state.port, respond)
     }
 }
+
+/**
+ * The collaborators a session's protocol event handler needs, bundled so
+ * [MumbleServiceEvents] does not grow a constructor parameter per collaborator
+ * (it reached fourteen before this).
+ *
+ * Assembled by [MumbleService] in `onCreate`, once every member exists; the
+ * host callbacks (strings, persistence, connect, stopSelf) stay separate
+ * because they go back into the owning Service.
+ */
+internal class SessionContext(
+    val state: SessionState,
+    val scope: CoroutineScope,
+    val roster: SessionRoster,
+    val admin: ServerAdminSession,
+    val voice: VoiceSession,
+    val chat: SessionChat,
+    val notices: SessionNotices,
+    val reconnect: ReconnectController,
+    val cert: CertificatePromptController,
+    val lastChannel: LastChannelSession,
+    val sessionChannels: SessionChannels,
+    val tcpPing: TcpPingStats,
+    val notifications: ConnectionNotifications,
+)
