@@ -10,6 +10,7 @@ import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.net.ClientTlsPolicy
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.MumbleListener
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
