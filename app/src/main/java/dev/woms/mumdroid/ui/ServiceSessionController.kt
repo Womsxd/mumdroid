@@ -1,15 +1,11 @@
 package dev.woms.mumdroid.ui
 
 import android.app.Application
-import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.IBinder
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import dev.woms.mumdroid.R
@@ -24,32 +20,24 @@ import dev.woms.mumdroid.core.net.AclUserNames
 import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.service.MumbleService
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
  * Binds [MumbleService], mirrors [ConnectionState], and forwards session
  * commands. [MainViewModel] owns settings and the server list separately.
+ *
+ * The platform binding lives in [ServiceBinding] and the state mirroring in
+ * [SessionStateMirror]; this class keeps the command surface and the connect
+ * lifecycle.
  */
 internal class ServiceSessionController(
     private val app: Application,
     private val scope: CoroutineScope,
     private val onConnected: suspend (MumbleServer) -> Unit,
 ) : SessionCommands {
-    private val _connectionState = MutableStateFlow(ConnectionState())
-    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
-
-    @Volatile
-    private var service: MumbleService? = null
-    private var serviceBound = false
-    private var attachJob: Job? = null
+    private val mirror = SessionStateMirror(scope)
+    val connectionState: StateFlow<ConnectionState> = mirror.state
 
     /**
      * Grace window (ms) during which the optimistic "connecting" flag set by
@@ -61,80 +49,37 @@ internal class ServiceSessionController(
     @Volatile
     private var optimisticConnectAtMs = 0L
 
-    private val serviceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            val svc = (binder as MumbleService.LocalBinder).service()
-            service = svc
-            attachToService(svc)
-        }
-
-        override fun onServiceDisconnected(name: ComponentName) {
-            detachFromService()
-            service = null
-            serviceBound = false
+    private val binding: ServiceBinding = ServiceBinding(
+        app = app,
+        onServiceReady = { svc -> mirror.attachTo(svc) { binding.service === svc } },
+        onServiceLost = {
+            mirror.detach()
             clearStaleConnectionState()
-        }
+        },
+    )
 
-        override fun onBindingDied(name: ComponentName) {
-            detachFromService()
-            service = null
-            serviceBound = false
-            clearStaleConnectionState()
-            bindToRunningService()
-        }
-    }
-
-    private val sessionLeftReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != MumbleService.ACTION_SESSION_LEFT) return
-            detachFromService()
-            unbindService()
-            clearStaleConnectionState()
-        }
-    }
+    /** The bound service, or null while unbound. */
+    private val service: MumbleService? get() = binding.service
 
     init {
-        ContextCompat.registerReceiver(
-            app,
-            sessionLeftReceiver,
-            IntentFilter(MumbleService.ACTION_SESSION_LEFT),
-            ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
-        bindToRunningService()
+        binding.bindToRunningService()
     }
 
     fun release() {
-        try {
-            app.unregisterReceiver(sessionLeftReceiver)
-        } catch (_: IllegalArgumentException) {
-        }
-        detachFromService()
-        unbindService()
+        binding.release()
+        mirror.detach()
     }
 
     override fun applySettings(settings: AppSettings) {
         service?.applySettings(settings)
     }
 
-    /**
-     * Attaches if the voice service is already running. Does not start it —
-     * BIND_AUTO_CREATE would spawn an empty background service.
-     */
-    fun bindToRunningService(autoCreate: Boolean = false) {
-        if (serviceBound) return
-        val flags = if (autoCreate) Context.BIND_AUTO_CREATE else 0
-        serviceBound = app.bindService(
-            Intent(app, MumbleService::class.java),
-            serviceConnection,
-            flags,
-        )
-    }
+    fun bindToRunningService(autoCreate: Boolean = false) =
+        binding.bindToRunningService(autoCreate)
 
     override fun connectTo(server: MumbleServer) {
         if (!hasMicrophonePermission()) {
-            _connectionState.value = _connectionState.value.copy(
-                status = app.getString(R.string.status_mic_permission),
-            )
+            mirror.patch { it.copy(status = app.getString(R.string.status_mic_permission)) }
             return
         }
         val intent = MumbleService.connectIntent(
@@ -146,13 +91,15 @@ internal class ServiceSessionController(
         // screen shows the spinner immediately; the service poll reconciles
         // with the real state shortly after.
         optimisticConnectAtMs = SystemClock.elapsedRealtime()
-        _connectionState.value = _connectionState.value.copy(
-            connecting = true,
-            serverName = server.name.ifEmpty { server.host },
-            serverRemoval = null,
-        )
+        mirror.patch {
+            it.copy(
+                connecting = true,
+                serverName = server.name.ifEmpty { server.host },
+                serverRemoval = null,
+            )
+        }
         app.startForegroundServiceCompat(intent)
-        bindToRunningService(autoCreate = true)
+        binding.bindToRunningService(autoCreate = true)
         scope.launch { onConnected(server) }
     }
 
@@ -163,7 +110,7 @@ internal class ServiceSessionController(
         // still in flight, otherwise tapping a server again would just open
         // the session screen without actually connecting.
         optimisticConnectAtMs = 0L
-        _connectionState.value = _connectionState.value.copy(connecting = false)
+        mirror.patch { it.copy(connecting = false) }
     }
 
     override fun reconnectNow() {
@@ -172,7 +119,7 @@ internal class ServiceSessionController(
 
     /** Dismisses a kick/ban/ghost dialog after the service has already stopped. */
     override fun acknowledgeServerRemoval() {
-        _connectionState.value = _connectionState.value.copy(serverRemoval = null)
+        mirror.patch { it.copy(serverRemoval = null) }
     }
 
     override fun setOutputTarget(target: VoiceOutputTarget) {
@@ -390,146 +337,26 @@ internal class ServiceSessionController(
             PackageManager.PERMISSION_GRANTED
     }
 
-    private fun unbindService() {
-        if (!serviceBound) return
-        try {
-            app.unbindService(serviceConnection)
-        } catch (_: IllegalArgumentException) {
-        }
-        serviceBound = false
-        service = null
-    }
-
-    private fun attachToService(svc: MumbleService) {
-        attachJob?.cancel()
-        attachJob = scope.launch {
-            _connectionState.value = snapshotFrom(svc)
-            coroutineScope {
-                val collectors = bindServiceFlows(svc)
-                while (isActive && service === svc) {
-                    delay(1000)
-                    // Latency and UDP crypt counters change without a
-                    // StateFlow emission; patch only serverInfo so the
-                    // info dialog stays live without rebuilding the rest
-                    // of the session snapshot.
-                    if (svc.connected.value) {
-                        val info = svc.connectionInfo()
-                        _connectionState.update { current ->
-                            if (current.serverInfo == info) current
-                            else current.copy(serverInfo = info)
-                        }
-                    }
-                }
-                collectors.forEach { it.cancel() }
-            }
-        }
-    }
-
-    private fun detachFromService() {
-        attachJob?.cancel()
-        attachJob = null
-    }
-
-    /**
-     * Mirrors each low-frequency service flow into a single field of
-     * [ConnectionState]. High-frequency audio meters (`vadLevel`, local
-     * `talking`) stay off this snapshot: they fire from the capture callback
-     * and would otherwise rebuild the whole session UI on every frame.
-     * Talking indicators in the roster come from [MumbleService.users].
-     */
-    private fun CoroutineScope.bindServiceFlows(svc: MumbleService): List<Job> = listOf(
-        bind(svc.channels) { copy(channels = it) },
-        bind(svc.users) { copy(users = it) },
-        bind(svc.connected) { connected ->
-            copy(
-                connected = connected,
-                serverInfo = svc.connectionInfo(),
-                favoriteId = svc.favoriteId(),
-            )
-        },
-        bind(svc.connecting) { copy(connecting = it) },
-        bind(svc.status) { copy(status = it) },
-        bind(svc.serverName) { copy(serverName = it) },
-        bind(svc.selfMuted) { copy(selfMuted = it) },
-        bind(svc.selfDeafened) { copy(selfDeafened = it) },
-        bind(svc.chatMessages) { copy(chatMessages = it) },
-        bind(svc.reconnectCountdown) { copy(reconnectCountdown = it) },
-        bind(svc.reconnecting) { copy(reconnecting = it) },
-        bind(svc.userStats) { copy(userInfo = it) },
-        bind(svc.channelPasswordPrompt) { copy(channelPasswordPrompt = it) },
-        bind(svc.certificatePrompt) { copy(certificatePrompt = it) },
-        bind(svc.accessTokens) { copy(accessTokens = it) },
-        bind(svc.registeredUsers) { copy(registeredUsers = it) },
-        bind(svc.banList) { copy(banList = it) },
-        bind(svc.userListRefreshing) { copy(userListRefreshing = it) },
-        bind(svc.banListRefreshing) { copy(banListRefreshing = it) },
-        bind(svc.serverRemoval) { copy(serverRemoval = it) },
-        bind(svc.outputTarget) { copy(outputTarget = it) },
-        bind(svc.voiceTarget) { copy(voiceTarget = it) },
-        bind(svc.loopbackMode) { copy(loopbackMode = it) },
-        bind(svc.permissionEpoch) { copy(permissionEpoch = it) },
-        bind(svc.listeningChannels) { copy(listeningChannels = it) },
-        bind(svc.channelAclPassword) { copy(channelAclPassword = it) },
-    )
-
-    private fun <T> CoroutineScope.bind(
-        flow: StateFlow<T>,
-        transform: ConnectionState.(T) -> ConnectionState,
-    ): Job = launch {
-        flow.collect { value ->
-            _connectionState.update { current -> current.transform(value) }
-        }
-    }
-
-    private fun snapshotFrom(svc: MumbleService): ConnectionState = ConnectionState(
-        connected = svc.connected.value,
-        connecting = svc.connecting.value,
-        status = svc.status.value,
-        serverName = svc.serverName.value,
-        channels = svc.channels.value,
-        users = svc.users.value,
-        selfMuted = svc.selfMuted.value,
-        selfDeafened = svc.selfDeafened.value,
-        chatMessages = svc.chatMessages.value,
-        reconnectCountdown = svc.reconnectCountdown.value,
-        reconnecting = svc.reconnecting.value,
-        serverInfo = svc.connectionInfo(),
-        userInfo = svc.userStats.value,
-        channelPasswordPrompt = svc.channelPasswordPrompt.value,
-        certificatePrompt = svc.certificatePrompt.value,
-        accessTokens = svc.accessTokens.value,
-        registeredUsers = svc.registeredUsers.value,
-        banList = svc.banList.value,
-        userListRefreshing = svc.userListRefreshing.value,
-        banListRefreshing = svc.banListRefreshing.value,
-        permissionEpoch = svc.permissionEpoch.value,
-        serverRemoval = svc.serverRemoval.value,
-        outputTarget = svc.outputTarget.value,
-        voiceTarget = svc.voiceTarget.value,
-        loopbackMode = svc.loopbackMode.value,
-        listeningChannels = svc.listeningChannels.value,
-        channelAclPassword = svc.channelAclPassword.value,
-        favoriteId = svc.favoriteId(),
-    )
-
     /** Resets the UI connection state once no service is running, so a stale
      *  "connecting"/"connected" snapshot cannot block or fake a new session. */
     private fun clearStaleConnectionState() {
         if (SystemClock.elapsedRealtime() - optimisticConnectAtMs < optimisticConnectGraceMs) return
-        val current = _connectionState.value
+        val current = mirror.value
         if (current == ConnectionState()) return
         // Keep the kick/ban notice after the service stops so the session
         // screen can still show why the server closed us.
         if (current.serverRemoval != null) {
-            _connectionState.value = ConnectionState(
-                status = current.status,
-                serverName = current.serverName,
-                chatMessages = current.chatMessages,
-                serverRemoval = current.serverRemoval,
+            mirror.set(
+                ConnectionState(
+                    status = current.status,
+                    serverName = current.serverName,
+                    chatMessages = current.chatMessages,
+                    serverRemoval = current.serverRemoval,
+                ),
             )
             return
         }
-        _connectionState.value = ConnectionState()
+        mirror.set(ConnectionState())
     }
 }
 
