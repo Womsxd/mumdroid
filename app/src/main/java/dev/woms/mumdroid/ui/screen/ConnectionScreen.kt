@@ -1,6 +1,5 @@
 package dev.woms.mumdroid.ui.screen
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -10,47 +9,33 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.HowToReg
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
-import dev.woms.mumdroid.core.model.ChannelPick
 import dev.woms.mumdroid.core.model.ChannelTree
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceTargetSpec
 import dev.woms.mumdroid.ui.ConnectionState
 import dev.woms.mumdroid.ui.SessionCommands
-import kotlinx.coroutines.delay
 
 /**
  * The in-connection screen showing channels/users, voice controls and chat.
+ *
+ * The screen is an orchestration: the app bar, the two panels and the dialogs
+ * each live in their own file, the transient surface state in
+ * [ConnectionScreenState], and the pure decisions (local channel, chat
+ * destination, voice-bar visibility) in [ConnectionScreenLogic].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,25 +47,17 @@ fun ConnectionScreen(
     showUserCount: Boolean = false,
     voiceMode: VoiceMode = VoiceMode.CONTINUOUS,
 ) {
-    var tab by remember { mutableIntStateOf(0) }
-    var showServerInfo by remember { mutableStateOf(false) }
-    var showAccessTokens by remember { mutableStateOf(false) }
-    var adminPage by remember { mutableStateOf<AdminPage?>(null) }
-    var infoSession by remember { mutableStateOf<Int?>(null) }
-    var infoUserName by remember { mutableStateOf("") }
-    var localPasswordPrompt by remember { mutableStateOf<ChannelPasswordPrompt?>(null) }
-    var whisperPicker by remember { mutableStateOf(false) }
-    var shoutPicker by remember { mutableStateOf(false) }
-    var pendingShoutChannel by remember { mutableStateOf<ChannelPick?>(null) }
+    val screen = rememberConnectionScreenState()
     val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    val showVoiceControls = tab != 1 || !keyboardOpen
-    val localChannelId = state.users.firstOrNull { it.isLocalUser }?.channelId ?: 0
+    val showVoiceControls = ConnectionScreenLogic.showVoiceControls(screen.tab, keyboardOpen)
+    val localChannelId = ConnectionScreenLogic.localChannelId(state.users)
+    val chatChannelId = ConnectionScreenLogic.chatChannelId(state.users, state.channels)
     val moveChannels = ChannelTree.flattenForPicker(state.channels)
     val joinById = remember(state.channels, commands) {
         { channelId: Int ->
             val channel = ChannelTree.find(state.channels, channelId)
             if (channel != null && channel.isEnterRestricted && !channel.canEnter) {
-                localPasswordPrompt = ChannelPasswordPrompt(channel.id, channel.name)
+                screen.localPasswordPrompt = ChannelPasswordPrompt(channel.id, channel.name)
             } else {
                 commands.joinChannel(channelId)
             }
@@ -89,26 +66,25 @@ fun ConnectionScreen(
     val onJoinChannelFromList = remember(joinById) {
         { channel: Channel -> joinById(channel.id) }
     }
-    val onUserInformation = remember(commands) {
+    val onUserInformation = remember(commands, screen) {
         { userSession: Int, name: String ->
-            if (infoSession != userSession) commands.clearUserStats()
-            infoUserName = name
-            infoSession = userSession
+            if (screen.infoSession != userSession) commands.clearUserStats()
+            screen.openUserInformation(userSession, name)
             commands.requestUserStats(userSession, false)
         }
     }
-    val onShowServerInfo = remember { { showServerInfo = true } }
-    val onShowAccessTokens = remember { { showAccessTokens = true } }
-    val onOpenRegisteredUsers = remember(commands) {
+    val onShowServerInfo = remember { { screen.showServerInfo = true } }
+    val onShowAccessTokens = remember { { screen.showAccessTokens = true } }
+    val onOpenRegisteredUsers = remember(commands, screen) {
         {
             commands.requestUserList()
-            adminPage = AdminPage.RegisteredUsers
+            screen.adminPage = AdminPage.RegisteredUsers
         }
     }
-    val onOpenBanList = remember(commands) {
+    val onOpenBanList = remember(commands, screen) {
         {
             commands.requestBanList()
-            adminPage = AdminPage.BanList
+            screen.adminPage = AdminPage.BanList
         }
     }
 
@@ -123,13 +99,13 @@ fun ConnectionScreen(
         { session: Int -> commands.setVoiceTarget(VoiceTargetSpec.Users(listOf(session))) }
     }
 
-    when (adminPage) {
+    when (screen.adminPage) {
         AdminPage.RegisteredUsers -> {
             RegisteredUsersScreen(
                 users = state.registeredUsers,
                 channels = state.channels,
                 isRefreshing = state.userListRefreshing,
-                onBack = { adminPage = null },
+                onBack = { screen.adminPage = null },
                 onRename = commands::renameRegisteredUser,
                 onRemove = commands::unregisterUser,
                 onRefresh = { commands.requestUserList(clear = false) },
@@ -140,7 +116,7 @@ fun ConnectionScreen(
             BanListScreen(
                 bans = state.banList,
                 isRefreshing = state.banListRefreshing,
-                onBack = { adminPage = null },
+                onBack = { screen.adminPage = null },
                 onReplace = commands::replaceBanList,
                 onRefresh = { commands.requestBanList(clear = false) },
             )
@@ -149,97 +125,12 @@ fun ConnectionScreen(
         null -> Unit
     }
 
-    val passwordPrompt = state.channelPasswordPrompt ?: localPasswordPrompt
-    if (passwordPrompt != null) {
-        ChannelPasswordDialog(
-            prompt = passwordPrompt,
-            onSubmit = { token ->
-                localPasswordPrompt = null
-                commands.joinChannel(passwordPrompt.channelId, token)
-            },
-            onDismiss = {
-                localPasswordPrompt = null
-                commands.clearChannelPasswordPrompt()
-            },
-        )
-    }
-
-    // Certificate pinning mismatch: the TLS handshake is paused until the
-    // user updates the pin, trusts the certificate once, or rejects.
-    state.certificatePrompt?.let { prompt ->
-        CertificatePromptDialog(
-            prompt = prompt,
-            onUpdatePin = commands::updatePinnedCertificate,
-            onTrustOnce = commands::trustCertificateOnce,
-            onReject = commands::rejectCertificate,
-        )
-    }
-
-    if (showServerInfo && state.connected) {
-        ServerInformationDialog(
-            info = state.serverInfo,
-            onDismiss = { showServerInfo = false },
-        )
-    }
-
-    if (showAccessTokens && state.connected) {
-        AccessTokensDialog(
-            tokens = state.accessTokens,
-            onReplace = commands::replaceAccessTokens,
-            onDismiss = { showAccessTokens = false },
-        )
-    }
-
-    val viewingSession = infoSession
-    if (viewingSession != null) {
-        LaunchedEffect(viewingSession) {
-            while (true) {
-                delay(6_000)
-                commands.requestUserStats(viewingSession, true)
-            }
-        }
-        UserInformationDialog(
-            userName = infoUserName,
-            info = state.userInfo?.takeIf { it.session == viewingSession },
-            onDismiss = {
-                infoSession = null
-                infoUserName = ""
-                commands.clearUserStats()
-            },
-        )
-    }
-
-    // Whisper / shout pickers, reached from the local user's long-press menu.
-    if (whisperPicker) {
-        WhisperToUsersDialog(
-            users = state.users,
-            onConfirm = { sessions ->
-                whisperPicker = false
-                if (sessions.isNotEmpty()) commands.setVoiceTarget(VoiceTargetSpec.Users(sessions))
-            },
-            onDismiss = { whisperPicker = false },
-        )
-    }
-    if (shoutPicker) {
-        ShoutChannelPickerDialog(
-            channels = moveChannels,
-            onSelect = { pick ->
-                shoutPicker = false
-                pendingShoutChannel = pick
-            },
-            onDismiss = { shoutPicker = false },
-        )
-    }
-    pendingShoutChannel?.let { pick ->
-        ShoutToChannelDialog(
-            channelName = pick.name,
-            onConfirm = { links, children, group ->
-                pendingShoutChannel = null
-                commands.setVoiceTarget(VoiceTargetSpec.Channel(pick.id, links, children, group))
-            },
-            onDismiss = { pendingShoutChannel = null },
-        )
-    }
+    ConnectionScreenDialogs(
+        state = state,
+        commands = commands,
+        screen = screen,
+        moveChannels = moveChannels,
+    )
 
     Scaffold(
         modifier = Modifier.imePadding(),
@@ -281,13 +172,21 @@ fun ConnectionScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            PrimaryTabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.channels)) })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.chat)) })
+            PrimaryTabRow(selectedTabIndex = screen.tab) {
+                Tab(
+                    selected = screen.tab == ConnectionScreenLogic.TAB_CHANNELS,
+                    onClick = { screen.tab = ConnectionScreenLogic.TAB_CHANNELS },
+                    text = { Text(stringResource(R.string.channels)) },
+                )
+                Tab(
+                    selected = screen.tab == ConnectionScreenLogic.TAB_CHAT,
+                    onClick = { screen.tab = ConnectionScreenLogic.TAB_CHAT },
+                    text = { Text(stringResource(R.string.chat)) },
+                )
             }
 
-            when (tab) {
-                0 -> ChannelList(
+            when (screen.tab) {
+                ConnectionScreenLogic.TAB_CHANNELS -> ChannelList(
                     channels = state.channels,
                     users = state.users,
                     onJoinChannel = onJoinChannelFromList,
@@ -347,18 +246,14 @@ fun ConnectionScreen(
                     activeShoutChannelId = activeShoutChannelId,
                     loopback = state.loopbackMode,
                     onSetLoopback = commands::setLoopback,
-                    onWhisperToUsers = { whisperPicker = true },
-                    onShoutToChannelPicker = { shoutPicker = true },
+                    onWhisperToUsers = { screen.whisperPicker = true },
+                    onShoutToChannelPicker = { screen.shoutPicker = true },
                 )
-                1 -> ChatPanel(
+                ConnectionScreenLogic.TAB_CHAT -> ChatPanel(
                     messages = state.chatMessages,
                     users = state.users,
                     channels = state.channels,
-                    // Send to the channel the local user is currently in, not
-                    // merely the first channel in the tree. Otherwise messages
-                    // go to the wrong channel and appear to never be sent.
-                    channelId = state.users.firstOrNull { it.isLocalUser }?.channelId
-                        ?: state.channels.firstOrNull()?.id ?: 0,
+                    channelId = chatChannelId,
                     onSend = commands::sendChat,
                     onSendPrivate = commands::sendPrivateChat,
                 )
@@ -366,102 +261,3 @@ fun ConnectionScreen(
         }
     }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ConnectionTopBar(
-    serverName: String,
-    connected: Boolean,
-    canEditRegisteredUsers: Boolean,
-    canBan: Boolean,
-    onBack: () -> Unit,
-    onDisconnect: () -> Unit,
-    onShowServerInfo: () -> Unit,
-    onShowAccessTokens: () -> Unit,
-    onOpenRegisteredUsers: () -> Unit,
-    onOpenBanList: () -> Unit,
-) {
-    var showServerMenu by remember { mutableStateOf(false) }
-    TopAppBar(
-        title = { Text(serverName.ifEmpty { stringResource(R.string.connection) }) },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.back),
-                )
-            }
-        },
-        actions = {
-            IconButton(
-                onClick = onShowServerInfo,
-                enabled = connected,
-            ) {
-                Icon(
-                    Icons.Filled.Info,
-                    contentDescription = stringResource(R.string.server_information),
-                )
-            }
-            IconButton(onClick = onDisconnect) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ExitToApp,
-                    contentDescription = stringResource(R.string.disconnect),
-                )
-            }
-            Box {
-                IconButton(
-                    onClick = { showServerMenu = true },
-                    enabled = connected,
-                ) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = stringResource(R.string.server_menu),
-                    )
-                }
-                DropdownMenu(
-                    expanded = showServerMenu,
-                    onDismissRequest = { showServerMenu = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.access_tokens)) },
-                        leadingIcon = {
-                            Icon(Icons.Filled.Key, contentDescription = null)
-                        },
-                        onClick = {
-                            showServerMenu = false
-                            onShowAccessTokens()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.registered_users)) },
-                        leadingIcon = {
-                            Icon(Icons.Filled.HowToReg, contentDescription = null)
-                        },
-                        enabled = canEditRegisteredUsers,
-                        onClick = {
-                            showServerMenu = false
-                            onOpenRegisteredUsers()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.ban_list)) },
-                        leadingIcon = {
-                            Icon(Icons.Filled.Block, contentDescription = null)
-                        },
-                        enabled = canBan,
-                        onClick = {
-                            showServerMenu = false
-                            onOpenBanList()
-                        },
-                    )
-                }
-            }
-        },
-    )
-}
-
-private enum class AdminPage {
-    RegisteredUsers,
-    BanList,
-}
-
