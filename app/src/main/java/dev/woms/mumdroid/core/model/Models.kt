@@ -154,3 +154,16 @@ data class ChatMessage(
     val targetName: String = "",
     val timestamp: Long = System.currentTimeMillis(),
 )
+
+/** A registered (database) user reported by the server. */
+data class RegisteredUser(
+    val userId: Int = 0,
+    val name: String = "",
+    val lastSeen: String = "",
+    val lastChannel: Int = 0,
+)
+
+/** Normalizes a saved-server address the way token lookups compare them. */
+object ServerAddress {
+    fun normalizeHost(host: String): String = host.trim().lowercase()
+}
