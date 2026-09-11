@@ -39,6 +39,19 @@ import javax.crypto.BadPaddingException
 import javax.crypto.IllegalBlockSizeException
 
 /**
+ * Thrown when a PKCS#12 file cannot be opened with the supplied password,
+ * indicating that the caller should ask the user for the correct password.
+ */
+class WrongPasswordException(message: String = "Wrong password") : Exception(message)
+
+/**
+ * Thrown when a PKCS#12 file is truncated, corrupted or not a PKCS#12 file at
+ * all. Re-entering the password cannot help; the caller should tell the user
+ * to pick another file instead of prompting for a password again.
+ */
+class CertificateFileCorruptException(message: String) : Exception(message)
+
+/**
  * Manages the app's user (client) certificates.
  *
  * Multiple user certificates can be imported/generated and stored. Each
@@ -55,19 +68,6 @@ import javax.crypto.IllegalBlockSizeException
  * PKCS#12 key material stays on disk. The previous SharedPreferences JSON array
  * is migrated in once, lazily, and then cleared.
  */
-/**
- * Thrown when a PKCS#12 file cannot be opened with the supplied password,
- * indicating that the caller should ask the user for the correct password.
- */
-class WrongPasswordException(message: String = "Wrong password") : Exception(message)
-
-/**
- * Thrown when a PKCS#12 file is truncated, corrupted or not a PKCS#12 file at
- * all. Re-entering the password cannot help; the caller should tell the user
- * to pick another file instead of prompting for a password again.
- */
-class CertificateFileCorruptException(message: String) : Exception(message)
-
 class UserCertificateStore(private val context: Context) {
 
     companion object {
