@@ -9,6 +9,7 @@ import dev.woms.mumdroid.data.db.MumdroidDatabase
 import dev.woms.mumdroid.data.db.UserCertificateConfigEntity
 import dev.woms.mumdroid.data.db.toEntity
 import dev.woms.mumdroid.data.db.toModel
+import java.io.File
 import java.io.OutputStream
 import java.security.KeyStore
 import java.security.PrivateKey
@@ -32,9 +33,11 @@ import java.security.cert.X509Certificate
  * is migrated in once, lazily, and then cleared.
  *
  * This class is the storage façade only; the pieces it coordinates are
- * [UserCertificatePkcs12] (crypto), [UserCertificateKeyStoreFiles] (the .p12
- * files), [UserCertificateCodec] (naming/encoding rules) and
- * [UserCertificateLegacyMigration] (the one-time prefs import).
+ * [UserCertificatePkcs12] (crypto), [UserCertificateCodec] (naming/encoding
+ * rules) and [UserCertificateLegacyMigration] (the one-time prefs import). The
+ * two pieces that belong to the façade itself — the `.p12` file access and the
+ * import exceptions this class throws — live at the bottom of this file rather
+ * than in files of their own.
  */
 class UserCertificateStore(private val context: Context) {
 
@@ -246,3 +249,56 @@ class UserCertificateStore(private val context: Context) {
         private const val TAG = "UserCertificateStore"
     }
 }
+
+/**
+ * The on-disk half of the user-certificate store: each certificate (with its
+ * private key) lives in its own PKCS#12 file in app-private storage. Metadata
+ * and the selection live in Room, only the key material stays here.
+ */
+internal class UserCertificateKeyStoreFiles(private val filesDir: File) {
+
+    /** The PKCS#12 file backing the given fingerprint. */
+    fun fileFor(fingerprint: String): File =
+        File(filesDir, UserCertificateCodec.certFileName(fingerprint))
+
+    /** Opens the PKCS#12 file of [fingerprint], or null if it does not exist. */
+    fun load(fingerprint: String, password: CharArray): KeyStore? {
+        val file = fileFor(fingerprint)
+        if (!file.exists()) return null
+        val ks = KeyStore.getInstance("PKCS12")
+        file.inputStream().use { input ->
+            ks.load(input, password)
+        }
+        return ks
+    }
+
+    /** Writes [ks] to the PKCS#12 file of [fingerprint]. */
+    fun save(fingerprint: String, ks: KeyStore, password: CharArray) {
+        fileFor(fingerprint).outputStream().use { output ->
+            ks.store(output, password)
+        }
+    }
+
+    /** Writes [ks] to an arbitrary [out] stream (export). */
+    fun storeTo(ks: KeyStore, out: OutputStream, password: CharArray) {
+        ks.store(out, password)
+    }
+
+    /** Removes the PKCS#12 file of [fingerprint] if present. */
+    fun delete(fingerprint: String) {
+        fileFor(fingerprint).delete()
+    }
+}
+
+/**
+ * Thrown when a PKCS#12 file cannot be opened with the supplied password,
+ * indicating that the caller should ask the user for the correct password.
+ */
+class WrongPasswordException(message: String = "Wrong password") : Exception(message)
+
+/**
+ * Thrown when a PKCS#12 file is truncated, corrupted or not a PKCS#12 file at
+ * all. Re-entering the password cannot help; the caller should tell the user
+ * to pick another file instead of prompting for a password again.
+ */
+class CertificateFileCorruptException(message: String) : Exception(message)
