@@ -5,7 +5,6 @@ import dev.woms.mumdroid.core.model.AudioContext
 import dev.woms.mumdroid.core.model.TalkState
 import java.util.TreeMap
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 /**
  * Per-speaker playback jitter buffer with mix-down, mirroring the role of
@@ -41,75 +40,21 @@ class VoiceJitterBuffer(
     }
 
     private val lock = Any()
-    private val sessions = LinkedHashMap<Int, Session>()
+    private val sessions = LinkedHashMap<Int, JitterSession>()
 
-    /**
-     * Official `fFadeIn` / `fFadeOut`: 10 ms sine window
-     * (`sin(i * π / (2 * iFrameSizePerChannel))`).
-     */
-    private val fadeIn = FloatArray(OpusCodec.FRAME_SIZE_10MS) { i ->
-        sin(i * Math.PI / (2.0 * OpusCodec.FRAME_SIZE_10MS)).toFloat()
-    }
-    private val fadeOut = FloatArray(OpusCodec.FRAME_SIZE_10MS) { i ->
-        fadeIn[OpusCodec.FRAME_SIZE_10MS - 1 - i]
-    }
+    /** Time-axis playback (reorder / conceal / advance the play head). */
+    private val timed = JitterTimedPlayback(
+        minPreroll = minTimedPreroll,
+        maxPreroll = maxTimedPreroll,
+    )
 
-    private enum class Pull { None, Real, Conceal }
+
 
     @Volatile
     var decoder: Decoder? = null
 
-    private class Packet(
-        val frameNumber: Long,
-        val pcm: ShortArray?,
-        val opus: ByteArray?,
-        val isLast: Boolean,
-        var spanSamples: Int,
-        /**
-         * Audio context of this packet (normal / shout / whisper / listener).
-         * Server→client metadata, so it is decided per packet at receive time
-         * and carried to playback, where the talk state is derived from it.
-         */
-        val context: AudioContext = AudioContext.NORMAL,
-    ) {
-        val spanFrames: Int
-            get() = OpusCodec.tenMsFrames(spanSamples).coerceAtLeast(1)
-    }
-
-    private class Session(initialPreroll: Int) {
-        val queued = ArrayDeque<ShortArray>()
-        val timed = TreeMap<Long, Packet>()
-        var leftover: ShortArray? = null
-        var leftoverPos = 0
-        var started = false
-        var lastPushMs = 0L
-        var missCount = 0
-        var talking = false
-        /** Context of the last real (non-concealed) packet pulled. */
-        var context = AudioContext.NORMAL
-        /** Last talk state reported through [onTalking] for this session. */
-        var reportedState = TalkState.PASSIVE
-        var timedMode = false
-        var playHead: Long? = null
-        var targetPreroll = initialPreroll
-        var lastDecodedSamples = OpusCodec.FRAME_SIZE_10MS * 2
-        var needFadeIn = true
-        var ending = false
-        var leftoverConceal = false
-        /** Extra 10 ms PLC holds to grow delay in the current utterance. */
-        var delayBoostRemaining = 0
-
-        fun leftoverRemaining(): Int {
-            val left = leftover ?: return 0
-            return (left.size - leftoverPos).coerceAtLeast(0)
-        }
-    }
-
-    /**
-     * Official AudioOutputSpeech: after this many empty mix quantums the
-     * stream is no longer alive (`iMissCount > 10` → Passive).
-     */
-    private val missLimit = 10
+    /** Official `AudioOutputSpeech`: miss count at which a speaker goes passive. */
+    private val missLimit = JitterPrerollPolicy.MISS_LIMIT
 
     /** Invoked when a speaker is reaped after [idleTimeoutMs] of silence. */
     @Volatile
@@ -136,14 +81,14 @@ class VoiceJitterBuffer(
         if (pcm.isEmpty()) return
         val copy = pcm.copyOf()
         synchronized(lock) {
-            val s = sessions.getOrPut(session) { Session(minTimedPreroll) }
+            val s = sessions.getOrPut(session) { JitterSession(minTimedPreroll) }
             s.context = context
             if (s.timedMode) {
                 val head = s.playHead ?: 0L
                 val guessed = s.timed.lastEntry()?.let { last ->
                     last.key + last.value.spanFrames
                 } ?: head
-                ingestTimed(s, Packet(guessed, copy, null, false, copy.size, context))
+                ingestTimed(s, JitterPacket(guessed, copy, null, false, copy.size, context))
                 return
             }
             while (s.queued.size >= maxQueuedFrames) {
@@ -172,10 +117,10 @@ class VoiceJitterBuffer(
         if (pcm.isEmpty()) return
         val samples = spanFrames.coerceAtLeast(1) * OpusCodec.FRAME_SIZE_10MS
         synchronized(lock) {
-            val s = sessions.getOrPut(session) { Session(minTimedPreroll) }
+            val s = sessions.getOrPut(session) { JitterSession(minTimedPreroll) }
             ingestTimed(
                 s,
-                Packet(frameNumber, pcm.copyOf(), null, isLast, samples, context),
+                JitterPacket(frameNumber, pcm.copyOf(), null, isLast, samples, context),
             )
         }
     }
@@ -194,15 +139,15 @@ class VoiceJitterBuffer(
         if (opus.isEmpty()) return
         val samples = OpusCodec.packetSampleCount(opus)
         synchronized(lock) {
-            val s = sessions.getOrPut(session) { Session(minTimedPreroll) }
+            val s = sessions.getOrPut(session) { JitterSession(minTimedPreroll) }
             ingestTimed(
                 s,
-                Packet(frameNumber, null, opus.copyOf(), isLast, samples, context),
+                JitterPacket(frameNumber, null, opus.copyOf(), isLast, samples, context),
             )
         }
     }
 
-    private fun ingestTimed(s: Session, packet: Packet) {
+    private fun ingestTimed(s: JitterSession, packet: JitterPacket) {
         s.timedMode = true
         s.lastPushMs = clock()
         val head = s.playHead
@@ -216,12 +161,17 @@ class VoiceJitterBuffer(
         maybeStartTimed(s)
     }
 
-    private fun maybeStartTimed(s: Session) {
+    private fun maybeStartTimed(s: JitterSession) {
         if (s.started || s.timed.isEmpty()) return
         val first = s.timed.firstKey()
         val last = s.timed.lastEntry() ?: return
-        val buffered = (last.key - first).toInt() + last.value.spanFrames
-        if (s.timed.size >= prerollFrames || buffered >= s.targetPreroll) {
+        // No play head yet: the preroll decision is about the span we hold.
+        val buffered = JitterPrerollPolicy.queuedSpan(
+            firstFrame = first,
+            lastFrame = last.key,
+            lastSpanFrames = last.value.spanFrames,
+        )
+        if (JitterPrerollPolicy.shouldStart(s.timed.size, prerollFrames, buffered, s.targetPreroll)) {
             s.started = true
             s.needFadeIn = true
             if (s.playHead == null) s.playHead = first
@@ -244,10 +194,7 @@ class VoiceJitterBuffer(
             val it = sessions.entries.iterator()
             while (it.hasNext()) {
                 val (id, s) = it.next()
-                val idle = now - s.lastPushMs > idleTimeoutMs &&
-                    s.queued.isEmpty() &&
-                    s.timed.isEmpty() &&
-                    s.leftoverRemaining() == 0
+                val idle = now - s.lastPushMs > idleTimeoutMs && s.isDrained()
                 if (idle) {
                     if (s.talking) {
                         s.talking = false
@@ -260,11 +207,11 @@ class VoiceJitterBuffer(
                     continue
                 }
                 if (!s.started) continue
-                val pulled = if (s.timedMode) pullTimed(id, s, acc) else {
-                    if (pullInto(s, acc)) Pull.Real else Pull.None
+                val pulled = if (s.timedMode) timed.pull(id, s, acc, decoder) else {
+                    if (pullInto(s, acc)) JitterPull.REAL else JitterPull.NONE
                 }
                 when (pulled) {
-                    Pull.Real -> {
+                    JitterPull.REAL -> {
                         had = true
                         s.missCount = 0
                         val state = TalkState.fromContext(s.context)
@@ -274,7 +221,7 @@ class VoiceJitterBuffer(
                             talkOn.add(id to state)
                         }
                     }
-                    Pull.Conceal -> {
+                    JitterPull.CONCEAL -> {
                         had = true
                         s.missCount++
                         if (s.talking && s.missCount > missLimit) {
@@ -283,7 +230,7 @@ class VoiceJitterBuffer(
                             talkOff.add(id)
                         }
                     }
-                    Pull.None -> {
+                    JitterPull.NONE -> {
                         s.missCount++
                         if (s.talking && s.missCount > missLimit) {
                             s.talking = false
@@ -314,7 +261,8 @@ class VoiceJitterBuffer(
         synchronized(lock) { sessions.clear() }
     }
 
-    private fun pullInto(s: Session, acc: IntArray): Boolean {
+    /** Arrival-order playback path: straight FIFO, silence on underrun. */
+    private fun pullInto(s: JitterSession, acc: IntArray): Boolean {
         var produced = false
         var i = 0
         while (i < acc.size) {
@@ -334,145 +282,66 @@ class VoiceJitterBuffer(
         }
         return produced
     }
+}
 
-    private fun pullTimed(session: Int, s: Session, acc: IntArray): Pull {
-        var produced = Pull.None
-        var i = 0
-        while (i < acc.size) {
-            val left = s.leftover
-            if (left != null && s.leftoverPos < left.size) {
-                acc[i] += left[s.leftoverPos].toInt()
-                s.leftoverPos++
-                if (produced == Pull.None) {
-                    produced = if (s.leftoverConceal) Pull.Conceal else Pull.Real
-                }
-                i++
-                continue
-            }
-            s.leftover = null
-            s.leftoverPos = 0
+/** What one playback quantum managed to pull out of a session. */
+internal enum class JitterPull { NONE, REAL, CONCEAL }
 
-            val head = s.playHead ?: break
-            if (s.delayBoostRemaining > 0 && bufferedAhead(s) < s.targetPreroll &&
-                s.timed.containsKey(head)
-            ) {
-                // Official jitter_buffer_update_delay: insert one concealment
-                // without consuming the next real packet so this utterance
-                // grows its buffer instead of waiting for the next talk spurt.
-                s.delayBoostRemaining--
-                val plc = (decoder?.conceal(session, OpusCodec.FRAME_SIZE_10MS)
-                    ?: ShortArray(OpusCodec.FRAME_SIZE_10MS)).copyOf()
-                s.leftover = plc
-                s.leftoverPos = 0
-                s.leftoverConceal = true
-                produced = if (produced == Pull.Real) Pull.Real else Pull.Conceal
-                continue
-            }
-            val exact = s.timed.remove(head)
-            if (exact != null) {
-                val pcm = resolvePcm(session, exact) ?: run {
-                    s.playHead = head + exact.spanFrames
-                    continue
-                }
-                if (pcm.size >= OpusCodec.FRAME_SIZE_10MS) {
-                    exact.spanSamples = pcm.size
-                }
-                s.lastDecodedSamples = pcm.size
-                s.context = exact.context
-                s.playHead = head + exact.spanFrames
-                if (s.needFadeIn) {
-                    if (pcm.size >= OpusCodec.FRAME_SIZE_10MS) applyFadeIn(pcm)
-                    s.needFadeIn = false
-                }
-                if (exact.isLast) {
-                    if (pcm.size >= OpusCodec.FRAME_SIZE_10MS) applyFadeOut(pcm)
-                    s.ending = true
-                    decoder?.reset(session)
-                }
-                s.leftover = pcm
-                s.leftoverPos = 0
-                s.leftoverConceal = false
-                produced = Pull.Real
-                adaptPreroll(s, concealed = false)
-                continue
-            }
-
-            val next = s.timed.firstEntry()
-            if (next != null && next.key < head) {
-                s.timed.pollFirstEntry()
-                continue
-            }
-            if (next != null && next.key > head) {
-                val gap = (next.key - head).toInt()
-                if (gap > 10) {
-                    s.playHead = next.key
-                    s.needFadeIn = true
-                    continue
-                }
-            }
-            // Official prepareSampleBuffer: while still alive, a miss is
-            // opus_decode(null) so the decoder clock keeps moving. Hard
-            // silence with a frozen playHead is what sounded like crackle.
-            if (s.ending || s.missCount > missLimit) break
-            val plcSamples = OpusCodec.FRAME_SIZE_10MS
-            val plc = (decoder?.conceal(session, plcSamples) ?: ShortArray(plcSamples)).copyOf()
-            if (s.missCount + 1 > missLimit) applyFadeOut(plc)
-            s.playHead = head + 1
-            s.leftover = plc
-            s.leftoverPos = 0
-            s.leftoverConceal = true
-            produced = if (produced == Pull.Real) Pull.Real else Pull.Conceal
-            adaptPreroll(s, concealed = true)
-        }
-        return produced
-    }
-
-    private fun applyFadeIn(pcm: ShortArray) {
-        val n = minOf(pcm.size, fadeIn.size)
-        for (i in 0 until n) {
-            pcm[i] = (pcm[i] * fadeIn[i]).toInt().toShort()
-        }
-    }
-
-    private fun applyFadeOut(pcm: ShortArray) {
-        val n = minOf(pcm.size, fadeOut.size)
-        val start = pcm.size - n
-        for (i in 0 until n) {
-            pcm[start + i] = (pcm[start + i] * fadeOut[i]).toInt().toShort()
-        }
-    }
-
-    private fun resolvePcm(session: Int, packet: Packet): ShortArray? {
-        packet.pcm?.let { return it }
-        val opus = packet.opus ?: return null
-        return decoder?.decode(session, opus, packet.isLast)
-    }
-
+/** One queued voice packet, on either the arrival-order or the timed path. */
+internal class JitterPacket(
+    val frameNumber: Long,
+    val pcm: ShortArray?,
+    val opus: ByteArray?,
+    val isLast: Boolean,
+    var spanSamples: Int,
     /**
-     * Coarse stand-in for official `jitter_buffer_update_delay`: grow the
-     * preroll after concealment, shrink it when the queue is comfortably full.
+     * Audio context of this packet (normal / shout / whisper / listener).
+     * Server→client metadata, so it is decided per packet at receive time and
+     * carried to playback, where the talk state is derived from it.
      */
-    private fun bufferedAhead(s: Session): Int {
-        val head = s.playHead ?: return 0
-        if (s.timed.isEmpty()) return 0
-        val last = s.timed.lastEntry() ?: return 0
-        return ((last.key - head).toInt() + last.value.spanFrames).coerceAtLeast(0)
+    val context: AudioContext = AudioContext.NORMAL,
+) {
+    val spanFrames: Int
+        get() = OpusCodec.tenMsFrames(spanSamples).coerceAtLeast(1)
+}
+
+/**
+ * The per-speaker playback state of [VoiceJitterBuffer]: the packet queues,
+ * the play head, and the "is this speaker talking" bookkeeping. Mutable by
+ * design — the buffer mutates it under its own lock.
+ */
+internal class JitterSession(initialPreroll: Int) {
+    val queued = ArrayDeque<ShortArray>()
+    val timed = TreeMap<Long, JitterPacket>()
+    var leftover: ShortArray? = null
+    var leftoverPos = 0
+    var started = false
+    var lastPushMs = 0L
+    var missCount = 0
+    var talking = false
+
+    /** Context of the last real (non-concealed) packet pulled. */
+    var context = AudioContext.NORMAL
+
+    /** Last talk state reported through `onTalking` for this session. */
+    var reportedState = TalkState.PASSIVE
+    var timedMode = false
+    var playHead: Long? = null
+    var targetPreroll = initialPreroll
+    var lastDecodedSamples = OpusCodec.FRAME_SIZE_10MS * 2
+    var needFadeIn = true
+    var ending = false
+    var leftoverConceal = false
+
+    /** Extra 10 ms PLC holds to grow delay in the current utterance. */
+    var delayBoostRemaining = 0
+
+    /** Samples still unread in [leftover]. */
+    fun leftoverRemaining(): Int {
+        val left = leftover ?: return 0
+        return (left.size - leftoverPos).coerceAtLeast(0)
     }
 
-    private fun adaptPreroll(s: Session, concealed: Boolean) {
-        if (concealed) {
-            s.targetPreroll = (s.targetPreroll + 1).coerceAtMost(maxTimedPreroll)
-            if (s.timed.isNotEmpty() && bufferedAhead(s) < s.targetPreroll) {
-                s.delayBoostRemaining = 1
-            }
-            return
-        }
-        if (s.timed.isEmpty()) return
-        val first = s.timed.firstKey()
-        val last = s.timed.lastEntry() ?: return
-        val buffered = (last.key - first).toInt() + last.value.spanFrames
-        if (buffered > s.targetPreroll + 4) {
-            s.targetPreroll = (s.targetPreroll - 1).coerceAtLeast(minTimedPreroll)
-        }
-    }
+    /** True when nothing is queued and no partial frame is left to play. */
+    fun isDrained(): Boolean = queued.isEmpty() && timed.isEmpty() && leftoverRemaining() == 0
 }
