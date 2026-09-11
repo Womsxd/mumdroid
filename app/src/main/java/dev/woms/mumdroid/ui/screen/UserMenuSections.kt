@@ -1,8 +1,11 @@
 package dev.woms.mumdroid.ui.screen
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Block
@@ -12,12 +15,20 @@ import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
+import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.User
 
 /**
@@ -29,6 +40,11 @@ import dev.woms.mumdroid.core.model.User
  * visibility comes from [UserMenuVisibility], instead of one long list of menu
  * items; each group is a private composable that only receives the callbacks it
  * renders.
+ *
+ * The audio self-test entries and the nested-submenu primitive live here as
+ * well: the self-test is offered on the local user's own row, and
+ * [NestedDropdownMenu] exists only to hold these groups' submenus open, so
+ * neither needs a file of its own.
  */
 
 /** "Move" submenu: move the user here, or into a channel picked from a list. */
@@ -256,4 +272,92 @@ internal fun SendMessageItem(
             onOpenSendDialog()
         },
     )
+}
+
+/**
+ * Audio self-test ("loopback") entries. Both are switches rather than a single
+ * item, because the two halves of the feature are independently worth knowing
+ * about: the self-test itself (the microphone becomes audible to nobody else)
+ * and where the audio is looped back, which starts local — offline, no server
+ * round trip — and can be moved to the server to exercise the whole uplink.
+ *
+ * The self-test is not persisted, so turning it on always means "local, right
+ * now", and the row is also the only place it can be switched off again.
+ */
+@Composable
+internal fun LoopbackMenuItems(
+    loopback: LoopbackMode,
+    enabled: Boolean,
+    onSetLoopback: (LoopbackMode) -> Unit,
+) {
+    val active = loopback.isActive
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.loopback_self_test)) },
+        leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+        trailingIcon = {
+            Switch(
+                checked = active,
+                enabled = enabled,
+                onCheckedChange = { on -> onSetLoopback(LoopbackMode.of(enabled = on, server = false)) },
+            )
+        },
+        onClick = { onSetLoopback(LoopbackMode.of(enabled = !active, server = false)) },
+    )
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.loopback_use_server)) },
+        leadingIcon = { Icon(Icons.Filled.SwapVert, contentDescription = null) },
+        trailingIcon = {
+            Switch(
+                checked = loopback.isServer,
+                enabled = enabled && active,
+                onCheckedChange = { server ->
+                    onSetLoopback(LoopbackMode.of(enabled = true, server = server))
+                },
+            )
+        },
+        // The switch already expresses both states; the row only matters while
+        // the self-test runs, so a tap on it is a no-op when nothing loops.
+        enabled = enabled && active,
+        onClick = {
+            onSetLoopback(LoopbackMode.of(enabled = true, server = !loopback.isServer))
+        },
+    )
+}
+
+/**
+ * One level of the context menus: a row that opens a second menu next to itself.
+ *
+ * Both the user and the channel long-press menus nest their long lists (move,
+ * moderation, voice targets) behind an entry like this so the phone-sized menu
+ * stays short. The submenu is a plain [DropdownMenu] anchored inside a [Box]:
+ * Material has no first-class nested menu, and positioning it at a fixed
+ * [DpOffset] keeps the submenu from covering its own parent entry.
+ */
+@Composable
+internal fun NestedDropdownMenu(
+    label: String,
+    icon: ImageVector,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Box {
+        DropdownMenuItem(
+            text = { Text(label) },
+            leadingIcon = { Icon(icon, contentDescription = null) },
+            trailingIcon = {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                )
+            },
+            onClick = { onExpandedChange(true) },
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { onExpandedChange(false) },
+            offset = DpOffset(168.dp, 0.dp),
+            content = content,
+        )
+    }
 }
