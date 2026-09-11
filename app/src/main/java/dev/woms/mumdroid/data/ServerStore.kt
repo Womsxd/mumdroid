@@ -11,7 +11,9 @@ import kotlinx.coroutines.flow.map
  * Repository for the saved Mumble server list, backed by Room.
  *
  * Replaces the previous DataStore+JSON storage with a typed SQLite table so the
- * list can be queried, sorted and scaled cleanly.
+ * list can be queried, sorted and scaled cleanly. The insert-vs-update decision
+ * that keeps a favorite's Room identity ([ServerSave]) lives at the bottom of
+ * this file: it is the store's own save rule.
  */
 class ServerStore(private val context: Context) {
 
@@ -106,5 +108,25 @@ class ServerStore(private val context: Context) {
             if (server.lastChannelId != null) continue
             dao.setLastChannel(server.id, entry.id, entry.name)
         }
+    }
+}
+
+/**
+ * How to persist a favorite without dropping its Room identity.
+ *
+ * Desktop `servers` has no unique on hostname+port, so two cards may share an
+ * address and differ only by local name/username. Editing updates that row;
+ * adding always inserts. Access tokens are stored by address, not by this id.
+ */
+object ServerSave {
+    data class Plan(
+        /** Existing row to UPDATE; 0 means INSERT a new favorite. */
+        val updateId: Long = 0,
+    ) {
+        val isInsert: Boolean get() = updateId <= 0L
+    }
+
+    fun plan(editingId: Long): Plan {
+        return if (editingId > 0L) Plan(updateId = editingId) else Plan()
     }
 }
