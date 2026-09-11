@@ -1,6 +1,6 @@
 package dev.woms.mumdroid.ui
 
-import dev.woms.mumdroid.service.MumbleService
+import dev.woms.mumdroid.service.SessionFacade
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -35,20 +35,20 @@ internal class SessionStateMirror(private val scope: CoroutineScope) {
 
     private var attachJob: Job? = null
 
-    fun attachTo(svc: MumbleService, stillAttached: () -> Boolean) {
+    fun attachTo(facade: SessionFacade, stillAttached: () -> Boolean) {
         attachJob?.cancel()
         attachJob = scope.launch {
-            _state.value = snapshotFrom(svc)
+            _state.value = snapshotFrom(facade)
             coroutineScope {
-                val collectors = bindServiceFlows(svc)
+                val collectors = bindServiceFlows(facade)
                 while (isActive && stillAttached()) {
                     delay(1000)
                     // Latency and UDP crypt counters change without a
                     // StateFlow emission; patch only serverInfo so the
                     // info dialog stays live without rebuilding the rest
                     // of the session snapshot.
-                    if (svc.connected.value) {
-                        val info = svc.connectionInfo()
+                    if (facade.connected.value) {
+                        val info = facade.connectionInfo()
                         _state.update { current ->
                             if (current.serverInfo == info) current
                             else current.copy(serverInfo = info)
@@ -72,39 +72,39 @@ internal class SessionStateMirror(private val scope: CoroutineScope) {
      * and would otherwise rebuild the whole session UI on every frame.
      * Talking indicators in the roster come from [MumbleService.users].
      */
-    private fun CoroutineScope.bindServiceFlows(svc: MumbleService): List<Job> = listOf(
-        bind(svc.channels) { copy(channels = it) },
-        bind(svc.users) { copy(users = it) },
-        bind(svc.connected) { connected ->
+    private fun CoroutineScope.bindServiceFlows(facade: SessionFacade): List<Job> = listOf(
+        bind(facade.channels) { copy(channels = it) },
+        bind(facade.users) { copy(users = it) },
+        bind(facade.connected) { connected ->
             copy(
                 connected = connected,
-                serverInfo = svc.connectionInfo(),
-                favoriteId = svc.favoriteId(),
+                serverInfo = facade.connectionInfo(),
+                favoriteId = facade.favoriteId(),
             )
         },
-        bind(svc.connecting) { copy(connecting = it) },
-        bind(svc.status) { copy(status = it) },
-        bind(svc.serverName) { copy(serverName = it) },
-        bind(svc.selfMuted) { copy(selfMuted = it) },
-        bind(svc.selfDeafened) { copy(selfDeafened = it) },
-        bind(svc.chatMessages) { copy(chatMessages = it) },
-        bind(svc.reconnectCountdown) { copy(reconnectCountdown = it) },
-        bind(svc.reconnecting) { copy(reconnecting = it) },
-        bind(svc.userStats) { copy(userInfo = it) },
-        bind(svc.channelPasswordPrompt) { copy(channelPasswordPrompt = it) },
-        bind(svc.certificatePrompt) { copy(certificatePrompt = it) },
-        bind(svc.accessTokens) { copy(accessTokens = it) },
-        bind(svc.registeredUsers) { copy(registeredUsers = it) },
-        bind(svc.banList) { copy(banList = it) },
-        bind(svc.userListRefreshing) { copy(userListRefreshing = it) },
-        bind(svc.banListRefreshing) { copy(banListRefreshing = it) },
-        bind(svc.serverRemoval) { copy(serverRemoval = it) },
-        bind(svc.outputTarget) { copy(outputTarget = it) },
-        bind(svc.voiceTarget) { copy(voiceTarget = it) },
-        bind(svc.loopbackMode) { copy(loopbackMode = it) },
-        bind(svc.permissionEpoch) { copy(permissionEpoch = it) },
-        bind(svc.listeningChannels) { copy(listeningChannels = it) },
-        bind(svc.channelAclPassword) { copy(channelAclPassword = it) },
+        bind(facade.connecting) { copy(connecting = it) },
+        bind(facade.status) { copy(status = it) },
+        bind(facade.serverName) { copy(serverName = it) },
+        bind(facade.selfMuted) { copy(selfMuted = it) },
+        bind(facade.selfDeafened) { copy(selfDeafened = it) },
+        bind(facade.chatMessages) { copy(chatMessages = it) },
+        bind(facade.reconnectCountdown) { copy(reconnectCountdown = it) },
+        bind(facade.reconnecting) { copy(reconnecting = it) },
+        bind(facade.userStats) { copy(userInfo = it) },
+        bind(facade.channelPasswordPrompt) { copy(channelPasswordPrompt = it) },
+        bind(facade.certificatePrompt) { copy(certificatePrompt = it) },
+        bind(facade.accessTokens) { copy(accessTokens = it) },
+        bind(facade.registeredUsers) { copy(registeredUsers = it) },
+        bind(facade.banList) { copy(banList = it) },
+        bind(facade.userListRefreshing) { copy(userListRefreshing = it) },
+        bind(facade.banListRefreshing) { copy(banListRefreshing = it) },
+        bind(facade.serverRemoval) { copy(serverRemoval = it) },
+        bind(facade.outputTarget) { copy(outputTarget = it) },
+        bind(facade.voiceTarget) { copy(voiceTarget = it) },
+        bind(facade.loopbackMode) { copy(loopbackMode = it) },
+        bind(facade.permissionEpoch) { copy(permissionEpoch = it) },
+        bind(facade.listeningChannels) { copy(listeningChannels = it) },
+        bind(facade.channelAclPassword) { copy(channelAclPassword = it) },
     )
 
     private fun <T> CoroutineScope.bind(
@@ -116,34 +116,34 @@ internal class SessionStateMirror(private val scope: CoroutineScope) {
         }
     }
 
-    private fun snapshotFrom(svc: MumbleService): ConnectionState = ConnectionState(
-        connected = svc.connected.value,
-        connecting = svc.connecting.value,
-        status = svc.status.value,
-        serverName = svc.serverName.value,
-        channels = svc.channels.value,
-        users = svc.users.value,
-        selfMuted = svc.selfMuted.value,
-        selfDeafened = svc.selfDeafened.value,
-        chatMessages = svc.chatMessages.value,
-        reconnectCountdown = svc.reconnectCountdown.value,
-        reconnecting = svc.reconnecting.value,
-        serverInfo = svc.connectionInfo(),
-        userInfo = svc.userStats.value,
-        channelPasswordPrompt = svc.channelPasswordPrompt.value,
-        certificatePrompt = svc.certificatePrompt.value,
-        accessTokens = svc.accessTokens.value,
-        registeredUsers = svc.registeredUsers.value,
-        banList = svc.banList.value,
-        userListRefreshing = svc.userListRefreshing.value,
-        banListRefreshing = svc.banListRefreshing.value,
-        permissionEpoch = svc.permissionEpoch.value,
-        serverRemoval = svc.serverRemoval.value,
-        outputTarget = svc.outputTarget.value,
-        voiceTarget = svc.voiceTarget.value,
-        loopbackMode = svc.loopbackMode.value,
-        listeningChannels = svc.listeningChannels.value,
-        channelAclPassword = svc.channelAclPassword.value,
-        favoriteId = svc.favoriteId(),
+    private fun snapshotFrom(facade: SessionFacade): ConnectionState = ConnectionState(
+        connected = facade.connected.value,
+        connecting = facade.connecting.value,
+        status = facade.status.value,
+        serverName = facade.serverName.value,
+        channels = facade.channels.value,
+        users = facade.users.value,
+        selfMuted = facade.selfMuted.value,
+        selfDeafened = facade.selfDeafened.value,
+        chatMessages = facade.chatMessages.value,
+        reconnectCountdown = facade.reconnectCountdown.value,
+        reconnecting = facade.reconnecting.value,
+        serverInfo = facade.connectionInfo(),
+        userInfo = facade.userStats.value,
+        channelPasswordPrompt = facade.channelPasswordPrompt.value,
+        certificatePrompt = facade.certificatePrompt.value,
+        accessTokens = facade.accessTokens.value,
+        registeredUsers = facade.registeredUsers.value,
+        banList = facade.banList.value,
+        userListRefreshing = facade.userListRefreshing.value,
+        banListRefreshing = facade.banListRefreshing.value,
+        permissionEpoch = facade.permissionEpoch.value,
+        serverRemoval = facade.serverRemoval.value,
+        outputTarget = facade.outputTarget.value,
+        voiceTarget = facade.voiceTarget.value,
+        loopbackMode = facade.loopbackMode.value,
+        listeningChannels = facade.listeningChannels.value,
+        channelAclPassword = facade.channelAclPassword.value,
+        favoriteId = facade.favoriteId(),
     )
 }

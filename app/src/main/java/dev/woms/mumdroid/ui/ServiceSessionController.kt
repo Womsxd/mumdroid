@@ -51,7 +51,7 @@ internal class ServiceSessionController(
 
     private val binding: ServiceBinding = ServiceBinding(
         app = app,
-        onServiceReady = { svc -> mirror.attachTo(svc) { binding.service === svc } },
+        onServiceReady = { svc -> mirror.attachTo(svc.facade) { binding.service === svc } },
         onServiceLost = {
             mirror.detach()
             clearStaleConnectionState()
@@ -312,9 +312,9 @@ internal class ServiceSessionController(
         service?.adminCommands?.sendChannelAcl(snapshot)
     }
 
-    override fun channelAclSnapshot(): ChanAclSnapshot? = service?.channelAcl?.value
+    override fun channelAclSnapshot(): ChanAclSnapshot? = service?.facade?.channelAcl?.value
 
-    override fun aclUserNames(): AclUserNames = service?.aclUserNames?.value ?: AclUserNames()
+    override fun aclUserNames(): AclUserNames = service?.facade?.aclUserNames?.value ?: AclUserNames()
 
     override fun queryAclUsersByName(names: List<String>) { service?.adminCommands?.queryAclUsersByName(names) }
 

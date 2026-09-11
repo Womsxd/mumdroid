@@ -1,41 +1,28 @@
 package dev.woms.mumdroid.service
 
-import dev.woms.mumdroid.core.model.AccessTokens
 import dev.woms.mumdroid.core.model.BanEntry
-import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.Channel
-import dev.woms.mumdroid.core.model.ChannelAclPassword
-import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
 import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.core.net.AclUserNames
 import dev.woms.mumdroid.core.net.ChanAclSnapshot
-import dev.woms.mumdroid.core.net.ChanAclWrite
-import dev.woms.mumdroid.core.net.ChannelPasswordAcl
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.UserConnectionInfo
 import dev.woms.mumdroid.data.ChannelAccessTokenStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicBoolean
-
-private data class PendingTimedBan(
-    val session: Int,
-    val name: String,
-    val hash: String,
-    val reason: String,
-    val duration: Int,
-    val banCertificate: Boolean,
-    val banIp: Boolean,
-    val banListSnapshot: List<BanEntry>?,
-)
 
 /**
- * Access tokens, ACL password apply, registered-user list, ban list, and
- * timed-ban orchestration, including the TCP sends those flows need.
+ * Server administration: the sends behind the registered-user list, ban list,
+ * channel ACL / password flows and user moderation, plus the state machines
+ * those flows are built on.
+ *
+ * The state lives in focused collaborators so it can be unit tested without a
+ * socket ([AccessTokenState], [AdminListState], [ChannelAclState],
+ * [TimedBanState], [AdminUserStats]); this class only wires them to the client
+ * and exposes their flows. Every send is a no-op when [client] is null, so a
+ * dropped session degrades to "nothing happens" instead of a crash.
  */
 internal class ServerAdminSession(private val scope: CoroutineScope) {
 
@@ -43,159 +30,128 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
         private const val TIMED_BAN_STATS_WAIT_MS = 3000L
     }
 
-    private val _accessTokens = MutableStateFlow<List<String>>(emptyList())
-    val accessTokens: StateFlow<List<String>> = _accessTokens
+    private val tokensState = AccessTokenState(scope)
+    private val lists = AdminListState()
+    private val acl = ChannelAclState()
+    private val timedBans = TimedBanState()
+    private val stats = AdminUserStats()
 
-    private val _registeredUsers = MutableStateFlow<List<RegisteredUser>?>(null)
-    val registeredUsers: StateFlow<List<RegisteredUser>?> = _registeredUsers
+    // ---- flows ----
 
-    private val _banList = MutableStateFlow<List<BanEntry>?>(null)
-    val banList: StateFlow<List<BanEntry>?> = _banList
+    val accessTokens: StateFlow<List<String>> = tokensState.accessTokens
+    val registeredUsers: StateFlow<List<RegisteredUser>?> = lists.registeredUsers
+    val banList: StateFlow<List<BanEntry>?> = lists.banList
+    val userListRefreshing: StateFlow<Boolean> = lists.userListRefreshing
+    val banListRefreshing: StateFlow<Boolean> = lists.banListRefreshing
+    val channelAclPassword = acl.channelAclPassword
+    val channelAcl = acl.channelAcl
+    val aclUserNames = acl.aclUserNames
+    val channelPasswordPrompt = acl.channelPasswordPrompt
+    val userStats: StateFlow<UserConnectionInfo?> = stats.userStats
 
-    private val _userListRefreshing = MutableStateFlow(false)
-    val userListRefreshing: StateFlow<Boolean> = _userListRefreshing
+    // ---- access tokens ----
 
-    private val _banListRefreshing = MutableStateFlow(false)
-    val banListRefreshing: StateFlow<Boolean> = _banListRefreshing
+    fun setTokens(tokens: List<String>) = tokensState.setTokens(tokens)
 
-    private val _channelAclPassword = MutableStateFlow<ChannelAclPassword?>(null)
-    val channelAclPassword: StateFlow<ChannelAclPassword?> = _channelAclPassword
+    fun tokens(): List<String> = tokensState.tokens()
 
-    private val _channelAcl = MutableStateFlow<ChanAclSnapshot?>(null)
-    val channelAcl: StateFlow<ChanAclSnapshot?> = _channelAcl
+    fun clearTokens() = tokensState.clearTokens()
 
-    private val _aclUserNames = MutableStateFlow(AclUserNames())
-    val aclUserNames: StateFlow<AclUserNames> = _aclUserNames
-
-    private val _channelPasswordPrompt = MutableStateFlow<ChannelPasswordPrompt?>(null)
-    val channelPasswordPrompt: StateFlow<ChannelPasswordPrompt?> = _channelPasswordPrompt
-
-    private val _userStats = MutableStateFlow<UserConnectionInfo?>(null)
-    val userStats: StateFlow<UserConnectionInfo?> = _userStats
-
-    private var lastAclQuery: dev.woms.mumdroid.core.proto.ACL? = null
-    private var pendingPasswordApply: Pair<Int, String>? = null
-    private var pendingCreatePassword: Triple<Int, String, String>? = null
-    private var pendingTimedBan: PendingTimedBan? = null
-    @Volatile
-    private var pendingBanAddress: ByteArray? = null
-    private val pendingKickSent = AtomicBoolean(false)
-    var passwordJoinChannelId: Int? = null
-
-    fun setTokens(tokens: List<String>) {
-        _accessTokens.value = tokens
+    fun replaceAccessTokens(
+        tokens: List<String>,
+        store: ChannelAccessTokenStore,
+        host: String,
+        port: Int,
+        client: MumbleClient?,
+    ) {
+        val c = client
+        tokensState.replace(tokens, persistence(store, host, port)) { stored -> c?.setTokens(stored) }
     }
 
-    fun tokens(): List<String> = _accessTokens.value
-
-    fun clearTokens() {
-        _accessTokens.value = emptyList()
+    suspend fun persistAccessToken(
+        channelId: Int,
+        token: String,
+        store: ChannelAccessTokenStore,
+        host: String,
+        port: Int,
+    ) {
+        tokensState.persistChannelToken(channelId, token, persistence(store, host, port))
     }
 
-    fun beginUserListRequest(clear: Boolean, connected: Boolean): Boolean {
-        if (!connected) {
-            _userListRefreshing.value = false
-            return false
-        }
-        if (clear) {
-            _registeredUsers.value = null
-            _userListRefreshing.value = false
-        } else {
-            _userListRefreshing.value = true
-        }
-        return true
+    /** Binds the token bag to one server address. */
+    private fun persistence(
+        store: ChannelAccessTokenStore,
+        host: String,
+        port: Int,
+    ): AccessTokenPersistence = object : AccessTokenPersistence {
+        override suspend fun replaceServerTokens(tokens: List<String>): List<String> =
+            store.replaceTokens(host, port, tokens)
+
+        override suspend fun upsertChannelToken(channelId: Int, token: String) =
+            store.upsert(host, port, channelId, token)
     }
 
-    fun onUserList(users: List<RegisteredUser>) {
-        _registeredUsers.value = users.sortedBy { it.name.lowercase() }
-        _userListRefreshing.value = false
+    // ---- registered users ----
+
+    fun onUserList(users: List<RegisteredUser>) = lists.onUserList(users)
+
+    fun requestUserList(client: MumbleClient?, clear: Boolean = true) {
+        if (!lists.beginUserListRequest(clear, client != null)) return
+        val c = client ?: return
+        scope.launch { c.requestUserList() }
     }
 
-    fun renameRegisteredUser(userId: Int, newName: String): RegisteredUser? {
-        val name = newName.trim()
-        if (name.isEmpty()) return null
-        val current = _registeredUsers.value ?: return null
-        if (current.any { it.userId != userId && it.name == name }) return null
-        _registeredUsers.value = current.map { if (it.userId == userId) it.copy(name = name) else it }
-        return RegisteredUser(userId, name)
+    /** Renames locally and echoes the change back to the server. */
+    fun renameRegisteredUser(client: MumbleClient?, userId: Int, newName: String) {
+        val entry = lists.renameRegisteredUser(userId, newName) ?: return
+        val c = client ?: return
+        scope.launch { c.sendUserList(listOf(entry)) }
     }
 
-    fun unregisterUser(userId: Int): RegisteredUser? {
-        if (userId == 0) return null
-        val current = _registeredUsers.value ?: return null
-        _registeredUsers.value = current.filter { it.userId != userId }
-        return RegisteredUser(userId)
+    /** Unregisters locally and echoes the removal back to the server. */
+    fun unregisterUser(client: MumbleClient?, userId: Int) {
+        val entry = lists.unregisterUser(userId) ?: return
+        val c = client ?: return
+        scope.launch { c.sendUserList(listOf(entry)) }
     }
 
-    fun beginBanListRequest(clear: Boolean, connected: Boolean): Boolean {
-        if (!connected) {
-            _banListRefreshing.value = false
-            return false
-        }
-        if (clear) {
-            _banList.value = null
-            _banListRefreshing.value = false
-        } else {
-            _banListRefreshing.value = true
-        }
-        return true
+    // ---- ban list ----
+
+    fun setBanList(bans: List<BanEntry>) = lists.setBanList(bans)
+
+    fun requestBanList(client: MumbleClient?, clear: Boolean = true) {
+        if (!lists.beginBanListRequest(clear, client != null)) return
+        val c = client ?: return
+        scope.launch { c.requestBanList() }
     }
 
-    fun setBanList(bans: List<BanEntry>) {
-        _banList.value = bans
-    }
-
-    fun queueCreatePassword(parentId: Int, name: String, password: String) {
-        val token = password.trim()
-        pendingCreatePassword = if (token.isEmpty()) null else Triple(parentId, name, token)
-    }
-
-    fun maybeCreatePassword(isNew: Boolean, channel: Channel): Pair<Int, String>? {
-        if (!isNew) return null
-        val pending = pendingCreatePassword ?: return null
-        if (channel.parentId != pending.first || channel.name != pending.second) return null
-        pendingCreatePassword = null
-        return channel.id to pending.third
-    }
-
-    fun onAcl(acl: dev.woms.mumdroid.core.proto.ACL): Pair<dev.woms.mumdroid.core.proto.ACL, String>? {
-        lastAclQuery = acl
-        _channelAcl.value = ChanAclWrite.fromProto(acl)
-        _channelAclPassword.value = ChannelAclPassword(
-            acl.channelId,
-            ChannelPasswordAcl.extractPassword(acl),
-        )
-        val pending = pendingPasswordApply
-        if (pending != null && pending.first == acl.channelId) {
-            pendingPasswordApply = null
-            return acl to pending.second
-        }
-        return null
+    fun replaceBanList(client: MumbleClient?, bans: List<BanEntry>) {
+        lists.setBanList(bans)
+        val c = client ?: return
+        scope.launch { c.sendBanList(bans) }
     }
 
     /**
-     * @return ACL snapshot + password to send now, or the channel id to query,
-     *   or null if nothing to do (empty password with no snapshot).
+     * Handles a ban-list reply: a pending timed ban patches its duration into
+     * the entry the server appended, and the result is written back.
      */
-    fun preparePasswordApply(channelId: Int, password: String): PasswordApply? {
-        val token = password.trim()
-        val snap = lastAclQuery
-        if (snap != null && snap.channelId == channelId) {
-            return PasswordApply.Send(snap, token)
+    fun handleBanList(client: MumbleClient?, bans: List<BanEntry>) {
+        lists.endBanListRequest()
+        val patched = timedBans.patchBanList(bans)
+        if (patched != null) {
+            replaceBanList(client, patched)
+        } else {
+            lists.setBanList(bans)
         }
-        if (token.isEmpty()) return null
-        pendingPasswordApply = channelId to token
-        return PasswordApply.Query(channelId)
     }
 
-    fun passwordAclMessage(
-        snap: dev.woms.mumdroid.core.proto.ACL,
-        password: String,
-    ): dev.woms.mumdroid.core.proto.ACL? {
-        val msg = ChannelPasswordAcl.apply(snap, password) ?: return null
-        _channelAclPassword.value = ChannelAclPassword(snap.channelId, password)
-        return msg
-    }
+    // ---- channel ACL / password ----
+
+    fun queueCreatePassword(parentId: Int, name: String, password: String) =
+        acl.queueCreatePassword(parentId, name, password)
+
+    fun maybeCreatePassword(isNew: Boolean, channel: Channel): Pair<Int, String>? =
+        acl.maybeCreatePassword(isNew, channel)
 
     fun promptForChannelPassword(
         denied: dev.woms.mumdroid.core.proto.PermissionDenied,
@@ -203,158 +159,13 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
         enterPermission: Long,
         onDenied: (String) -> Unit,
         passwordDeniedMessage: (String) -> String,
-    ): Boolean {
-        if (denied.type != dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.Permission) {
-            return false
-        }
-        if ((ChanACL.fromProtoUInt32(denied.permission) and enterPermission) == 0L) return false
-        if (channel == null || !channel.isEnterRestricted) return false
-        val retry = passwordJoinChannelId == channel.id
-        passwordJoinChannelId = null
-        _channelPasswordPrompt.value = ChannelPasswordPrompt(channel.id, channel.name, retry)
-        onDenied(passwordDeniedMessage(channel.name))
-        return true
-    }
+    ): Boolean = acl.promptForChannelPassword(denied, channel, enterPermission, onDenied, passwordDeniedMessage)
 
-    fun clearPasswordPrompt() {
-        _channelPasswordPrompt.value = null
-    }
+    fun clearPasswordPrompt() = acl.clearPasswordPrompt()
 
-    fun notePasswordJoin(channelId: Int?) {
-        passwordJoinChannelId = channelId
-    }
+    fun notePasswordJoin(channelId: Int?) = acl.notePasswordJoin(channelId)
 
-    fun consumePasswordJoin(channelId: Int): Boolean {
-        if (passwordJoinChannelId != channelId) return false
-        passwordJoinChannelId = null
-        return true
-    }
-
-    fun beginTimedBan(session: Int, user: User?, reason: String, duration: Int, banCertificate: Boolean, banIp: Boolean): Boolean {
-        pendingTimedBan = if (duration > 0 && user != null) {
-            pendingBanAddress = null
-            pendingKickSent.set(false)
-            PendingTimedBan(
-                session = session,
-                name = user.name,
-                hash = user.hash,
-                reason = reason.trim(),
-                duration = duration,
-                banCertificate = banCertificate,
-                banIp = banIp,
-                banListSnapshot = _banList.value,
-            )
-        } else {
-            pendingBanAddress = null
-            null
-        }
-        return pendingTimedBan != null
-    }
-
-    fun sendPendingTimedBanKick(): PendingKick? {
-        if (!pendingKickSent.compareAndSet(false, true)) return null
-        val pending = pendingTimedBan ?: return null
-        return PendingKick(pending.session, pending.reason, pending.banCertificate, pending.banIp)
-    }
-
-    fun onBanList(bans: List<BanEntry>): List<BanEntry>? {
-        _banListRefreshing.value = false
-        val pending = pendingTimedBan
-        if (pending != null) {
-            val patched = TimedUserBan.applyDuration(
-                bans,
-                pending.name,
-                pending.hash,
-                pending.duration,
-                pending.banListSnapshot,
-                pendingBanAddress,
-            )
-            pendingTimedBan = null
-            if (patched != null) return patched
-        }
-        _banList.value = bans
-        return null
-    }
-
-    fun onUserRemovedBan(session: Int, banned: Boolean): Boolean {
-        val pending = pendingTimedBan
-        return banned && pending != null && pending.session == session
-    }
-
-    fun onUserStats(stats: dev.woms.mumdroid.core.proto.UserStats, userName: String): PendingKick? {
-        val pending = pendingTimedBan
-        val kick = if (pending != null && pending.session == stats.session &&
-            pendingKickSent.compareAndSet(false, true)
-        ) {
-            pendingBanAddress = if (stats.hasAddress()) {
-                stats.address.toByteArray()
-            } else {
-                ByteArray(0)
-            }
-            PendingKick(pending.session, pending.reason, pending.banCertificate, pending.banIp)
-        } else {
-            null
-        }
-        _userStats.value = UserConnectionInfo.fromProto(stats, userName, _userStats.value)
-        return kick
-    }
-
-    fun clearUserStats() {
-        _userStats.value = null
-    }
-
-    fun clearUserStatsIfSession(session: Int) {
-        if (_userStats.value?.session == session) {
-            _userStats.value = null
-        }
-    }
-
-    fun requestUserList(client: MumbleClient?, clear: Boolean = true) {
-        if (!beginUserListRequest(clear, client != null)) return
-        val c = client ?: return
-        scope.launch { c.requestUserList() }
-    }
-
-    fun renameRegisteredUser(client: MumbleClient?, userId: Int, newName: String) {
-        val entry = renameRegisteredUser(userId, newName) ?: return
-        val c = client ?: return
-        scope.launch { c.sendUserList(listOf(entry)) }
-    }
-
-    fun unregisterUser(client: MumbleClient?, userId: Int) {
-        val entry = unregisterUser(userId) ?: return
-        val c = client ?: return
-        scope.launch { c.sendUserList(listOf(entry)) }
-    }
-
-    fun requestBanList(client: MumbleClient?, clear: Boolean = true) {
-        if (!beginBanListRequest(clear, client != null)) return
-        val c = client ?: return
-        scope.launch { c.requestBanList() }
-    }
-
-    fun replaceBanList(client: MumbleClient?, bans: List<BanEntry>) {
-        setBanList(bans)
-        val c = client ?: return
-        scope.launch { c.sendBanList(bans) }
-    }
-
-    fun handleBanList(client: MumbleClient?, bans: List<BanEntry>) {
-        val patched = onBanList(bans)
-        if (patched != null) replaceBanList(client, patched)
-    }
-
-    fun kickUser(client: MumbleClient?, session: Int, reason: String) {
-        client?.kickUser(session, reason)
-    }
-
-    fun registerUser(client: MumbleClient?, session: Int) {
-        client?.registerUser(session)
-    }
-
-    fun requestUserStats(client: MumbleClient?, session: Int, statsOnly: Boolean = false) {
-        client?.requestUserStats(session, statsOnly)
-    }
+    fun consumePasswordJoin(channelId: Int): Boolean = acl.consumePasswordJoin(channelId)
 
     fun requestAcl(client: MumbleClient?, channelId: Int) {
         val c = client ?: return
@@ -365,6 +176,8 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
         val c = client ?: return
         scope.launch { c.sendAcl(snapshot) }
     }
+
+    fun onQueryUsers(ids: List<Int>, names: List<String>) = acl.onQueryUsers(ids, names)
 
     fun queryUsersByName(client: MumbleClient?, names: List<String>) {
         if (names.isEmpty()) return
@@ -378,9 +191,123 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
         scope.launch { c.queryUsers(ids = ids) }
     }
 
-    fun onQueryUsers(ids: List<Int>, names: List<String>) {
-        _aclUserNames.value = _aclUserNames.value.merge(ids, names)
+    /** Applies a channel password: reuse the ACL reply, else query and retry. */
+    fun applyChannelPassword(
+        client: MumbleClient?,
+        channelId: Int,
+        password: String,
+        persistToken: suspend (channelId: Int, token: String) -> Unit,
+    ) {
+        when (val action = acl.preparePasswordApply(channelId, password)) {
+            is PasswordApply.Send -> sendPasswordAcl(client, action.snap, action.password, persistToken)
+            is PasswordApply.Query -> {
+                val c = client ?: return
+                scope.launch { c.requestAcl(action.channelId) }
+            }
+            null -> Unit
+        }
     }
+
+    /** Handles an ACL reply that may carry the password the editor is waiting for. */
+    fun handleAcl(
+        client: MumbleClient?,
+        acl: dev.woms.mumdroid.core.proto.ACL,
+        persistToken: suspend (channelId: Int, token: String) -> Unit,
+    ) {
+        val pending = this.acl.onAcl(acl) ?: return
+        sendPasswordAcl(client, pending.first, pending.second, persistToken)
+    }
+
+    private fun sendPasswordAcl(
+        client: MumbleClient?,
+        snap: dev.woms.mumdroid.core.proto.ACL,
+        password: String,
+        persistToken: suspend (channelId: Int, token: String) -> Unit,
+    ) {
+        val msg = acl.passwordAclMessage(snap, password) ?: return
+        val c = client ?: return
+        scope.launch {
+            if (password.isNotEmpty()) {
+                persistToken(snap.channelId, password)
+                c.setTokens(tokensState.tokens())
+            }
+            c.sendAcl(msg)
+        }
+    }
+
+    // ---- moderation ----
+
+    fun kickUser(client: MumbleClient?, session: Int, reason: String) {
+        client?.kickUser(session, reason)
+    }
+
+    fun registerUser(client: MumbleClient?, session: Int) {
+        client?.registerUser(session)
+    }
+
+    fun requestUserStats(client: MumbleClient?, session: Int, statsOnly: Boolean = false) {
+        client?.requestUserStats(session, statsOnly)
+    }
+
+    /**
+     * Bans a user. With a duration the ban is assembled in two replies: the
+     * kick goes out after the `UserStats` request (which supplies the address
+     * murmur will store), then the ban list reply is patched.
+     */
+    fun banUser(
+        client: MumbleClient?,
+        session: Int,
+        user: User?,
+        reason: String,
+        banCertificate: Boolean,
+        banIp: Boolean,
+        duration: Int,
+    ) {
+        val c = client ?: return
+        val armed = timedBans.begin(
+            session = session,
+            user = user,
+            reason = reason,
+            duration = duration,
+            banCertificate = banCertificate,
+            banIp = banIp,
+            banListSnapshot = lists.banSnapshot(),
+        )
+        if (armed) {
+            c.requestUserStats(session, statsOnly = false)
+            scope.launch {
+                delay(TIMED_BAN_STATS_WAIT_MS)
+                val kick = timedBans.sendKick() ?: return@launch
+                c.banUser(kick.session, kick.reason, kick.banCertificate, kick.banIp)
+            }
+            return
+        }
+        c.banUser(session, reason, banCertificate, banIp)
+    }
+
+    fun handleUserStats(
+        client: MumbleClient?,
+        stats: dev.woms.mumdroid.core.proto.UserStats,
+        userName: String,
+    ) {
+        this.stats.onStats(stats, userName)
+        // The raw proto address is what murmur will store in the ban entry;
+        // the formatted snapshot string cannot be matched against it.
+        val address = if (stats.hasAddress()) stats.address.toByteArray() else ByteArray(0)
+        val kick = timedBans.sendKickWithAddress(stats.session, address)
+        if (kick != null) {
+            client?.banUser(kick.session, kick.reason, kick.banCertificate, kick.banIp)
+        }
+    }
+
+    fun handleUserRemovedBan(client: MumbleClient?, session: Int, banned: Boolean) {
+        if (timedBans.matchesRemoval(session, banned)) {
+            val c = client ?: return
+            scope.launch { c.requestBanList() }
+        }
+    }
+
+    // ---- user comments / textures ----
 
     fun setUserComment(client: MumbleClient?, session: Int, comment: String) {
         client?.setUserComment(session, comment)
@@ -398,141 +325,19 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
         client?.resetUserTexture(session)
     }
 
-    fun banUser(
-        client: MumbleClient?,
-        session: Int,
-        user: User?,
-        reason: String,
-        banCertificate: Boolean,
-        banIp: Boolean,
-        duration: Int,
-    ) {
-        val c = client ?: return
-        if (beginTimedBan(session, user, reason, duration, banCertificate, banIp)) {
-            c.requestUserStats(session, statsOnly = false)
-            scope.launch {
-                delay(TIMED_BAN_STATS_WAIT_MS)
-                val kick = sendPendingTimedBanKick() ?: return@launch
-                c.banUser(kick.session, kick.reason, kick.banCertificate, kick.banIp)
-            }
-            return
-        }
-        c.banUser(session, reason, banCertificate, banIp)
-    }
+    // ---- user stats snapshot ----
 
-    fun handleUserStats(client: MumbleClient?, stats: dev.woms.mumdroid.core.proto.UserStats, userName: String) {
-        val kick = onUserStats(stats, userName)
-        if (kick != null) {
-            client?.banUser(kick.session, kick.reason, kick.banCertificate, kick.banIp)
-        }
-    }
+    fun clearUserStats() = stats.clear()
 
-    fun handleUserRemovedBan(client: MumbleClient?, session: Int, banned: Boolean) {
-        if (onUserRemovedBan(session, banned)) {
-            val c = client ?: return
-            scope.launch { c.requestBanList() }
-        }
-    }
+    fun clearUserStatsIfSession(session: Int) = stats.clearIfSession(session)
 
-    fun applyChannelPassword(
-        client: MumbleClient?,
-        channelId: Int,
-        password: String,
-        persistToken: suspend (channelId: Int, token: String) -> Unit,
-    ) {
-        when (val action = preparePasswordApply(channelId, password)) {
-            is PasswordApply.Send -> sendPasswordAcl(client, action.snap, action.password, persistToken)
-            is PasswordApply.Query -> {
-                val c = client ?: return
-                scope.launch { c.requestAcl(action.channelId) }
-            }
-            null -> Unit
-        }
-    }
-
-    fun handleAcl(
-        client: MumbleClient?,
-        acl: dev.woms.mumdroid.core.proto.ACL,
-        persistToken: suspend (channelId: Int, token: String) -> Unit,
-    ) {
-        val pending = onAcl(acl) ?: return
-        sendPasswordAcl(client, pending.first, pending.second, persistToken)
-    }
-
-    fun replaceAccessTokens(
-        tokens: List<String>,
-        store: ChannelAccessTokenStore,
-        host: String,
-        port: Int,
-        client: MumbleClient?,
-    ) {
-        val sanitized = AccessTokens.sanitize(tokens)
-        setTokens(sanitized)
-        val c = client
-        scope.launch {
-            store.replaceTokens(host, port, sanitized)
-            c?.setTokens(sanitized)
-        }
-    }
-
-    suspend fun persistAccessToken(
-        channelId: Int,
-        token: String,
-        store: ChannelAccessTokenStore,
-        host: String,
-        port: Int,
-    ) {
-        val next = AccessTokens.sanitize(AccessTokens.add(tokens(), token))
-        setTokens(next)
-        store.upsert(host, port, channelId, token)
-        setTokens(store.replaceTokens(host, port, next))
-    }
-
-    private fun sendPasswordAcl(
-        client: MumbleClient?,
-        snap: dev.woms.mumdroid.core.proto.ACL,
-        password: String,
-        persistToken: suspend (channelId: Int, token: String) -> Unit,
-    ) {
-        val msg = passwordAclMessage(snap, password) ?: return
-        val c = client ?: return
-        scope.launch {
-            if (password.isNotEmpty()) {
-                persistToken(snap.channelId, password)
-                c.setTokens(tokens())
-            }
-            c.sendAcl(msg)
-        }
-    }
-
+    /** Resets every flow and pending request for a new session. */
     fun clear() {
-        lastAclQuery = null
-        pendingPasswordApply = null
-        pendingCreatePassword = null
-        _channelAcl.value = null
-        _aclUserNames.value = AclUserNames()
-        _channelAclPassword.value = null
-        _registeredUsers.value = null
-        _banList.value = null
-        _userListRefreshing.value = false
-        _banListRefreshing.value = false
-        pendingTimedBan = null
-        pendingBanAddress = null
-        pendingKickSent.set(false)
-        _channelPasswordPrompt.value = null
-        passwordJoinChannelId = null
-        _userStats.value = null
-    }
-
-    data class PendingKick(
-        val session: Int,
-        val reason: String,
-        val banCertificate: Boolean,
-        val banIp: Boolean,
-    )
-
-    sealed class PasswordApply {
-        data class Send(val snap: dev.woms.mumdroid.core.proto.ACL, val password: String) : PasswordApply()
-        data class Query(val channelId: Int) : PasswordApply()
+        // Access tokens are per server address, not per session: they survive
+        // a disconnect and are restored by the connect flow.
+        lists.clear()
+        acl.clear()
+        timedBans.reset()
+        stats.clear()
     }
 }

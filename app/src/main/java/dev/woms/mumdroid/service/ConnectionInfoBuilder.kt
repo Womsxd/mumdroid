@@ -11,7 +11,7 @@ internal fun buildServerConnectionInfo(
     userCount: Int,
     maxUsers: Int,
     client: MumbleClient?,
-    voice: VoiceSession,
+    voice: SessionVoiceStatus,
     tcp: TcpPingStats,
     forceTcp: Boolean,
 ): ServerConnectionInfo {
