@@ -106,6 +106,7 @@ dev.woms.mumdroid
     - 旧版服务器：legacy 组帧，`(type << 5) | target`，类型 4 = Opus。
     - 仅解码 Opus；CELT 与 Speex 载荷被丢弃，与现代桌面客户端一致。
 - **连通性。** 周期性 UDP ping 测量往返时间并检测语音路径故障。任一方 UDP 失效即切换到 TCP 隧道，UDP 恢复后切回。持续解密失败会触发加密重新同步。
+    - 隧道语音不做 OCB2：`UDPTunnel` 体就是明文包，由其所在的 TLS 通道提供保护（官方客户端的强制 TCP 分支同样如此）。
 - **带宽自适应。** 请求的码率与包大小会被逐步降低（`adjustBandwidth`），直到 IP + UDP + OCB2 + 组帧开销符合服务器 `max_bandwidth`，最低降至 8 kbit/s。
 
 ### 音频流水线
@@ -134,8 +135,9 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 | --- | --- |
 | 服务器身份 | 首次连接固定 SHA-256 证书指纹；不匹配时弹出提示（更新 / 信任一次 / 拒绝） |
 | 客户端身份 | TLS 握手时出示一个 PKCS#12 用户证书；本地生成（Bouncy Castle）或导入 `.p12`/`.pfx` |
-| 密钥存储 | 每个证书存放在应用私有存储中独立的 PKCS#12 keystore；断开时擦除加密密钥材料 |
-| 语音隐私 | 每个语音数据报均使用 OCB2-AES128 加密，包括经 TCP 隧道的包 |
+| 密钥存储 | 每个证书存放在应用私有存储中独立的**无口令** PKCS#12 keystore（与桌面端一致）；断开时擦除加密密钥材料 |
+| 证书备份 | 默认关闭：`.p12` 位于 `noBackupFilesDir`，Auto Backup 与 Android 12+ 设备迁移都不会读取。打开「允许备份用户证书」后文件移到 `filesDir`，系统/厂商才可能把它复制到云端或新设备——私钥无口令保护，能读到该备份者即可冒用你的身份。起作用的是文件位置的移动，而非备份规则（见 `res/xml/backup_rules.xml`） |
+| 语音隐私 | 经 UDP 发送的每个语音数据报使用 OCB2-AES128 加密。经 TCP 隧道（`UDPTunnel`）的语音不做 OCB2 加密——其 TLS 通道已提供保护，与官方客户端的强制 TCP 分支一致 |
 | 频道访问 | 频道密码会转换为服务器 ACL 规则（deny-all + 授予 `#password`）；界面未提供细粒度 ACL 编辑 |
 | 最小化 | 无遥测、无分析、无账号——应用只与您添加的服务器通信 |
 
@@ -153,7 +155,7 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 自动重连、证书固定、服务器列表自动 ping 及间隔。
 
 **身份与证书** —— 默认用户名、当前启用的用户证书、生成 / 导入 / 导出、
-已记录的服务器证书。
+是否允许私钥进入系统/厂商备份（默认关闭）、已记录的服务器证书。
 
 **外观** —— 主题（跟随系统 / 浅色 / 深色）、语言（跟随系统 / English / 简体中文）、
 频道人数显示。
@@ -182,8 +184,9 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 ```
 
 持久化方面，服务器、证书、用户客户端证书与访问令牌使用 Room（数据库版本 6，保留
-1→2→3→4→5→6 迁移），设置使用 DataStore。用户证书元数据与 keystore 口令已迁入 Room，
-旧的 SharedPreferences 存储会一次性迁移后清除。
+1→2→3→4→5→6 迁移），设置使用 DataStore。用户证书元数据存于 Room；私钥是无口令的
+PKCS#12 文件，其所在目录随备份开关变化；旧的 SharedPreferences 存储（含已废弃的
+keystore 口令，待全部文件重打包后清空）会一次性迁移后清除。
 
 ---
 

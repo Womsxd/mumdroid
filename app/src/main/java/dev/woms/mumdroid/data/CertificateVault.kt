@@ -12,6 +12,11 @@ import java.io.File
  * while `noBackupFilesDir` is excluded from both. Only the private-key files
  * are moved; the certificate metadata keeps living in Room.
  *
+ * This depends on the manifest backup configuration staying rule-free for the
+ * `file` domain (`res/xml/backup_rules.xml`, `res/xml/data_extraction_rules.xml`):
+ * excluding `user_certs` there would disable the switch, and adding any
+ * `<include>` would drop the database and settings from every backup.
+ *
  * Pure file-system logic, so it can be unit-tested without Android.
  */
 internal class CertificateVault(

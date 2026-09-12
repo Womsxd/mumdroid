@@ -106,6 +106,7 @@ dev.woms.mumdroid
     - Older servers: legacy framing, `(type << 5) | target`, type 4 = Opus.
     - Only Opus is decoded; CELT and Speex payloads are dropped, matching the modern desktop client.
 - **Connectivity.** Periodic UDP pings measure round-trip time and detect a broken voice path. If UDP stops working in either direction the client switches to TCP tunnelling, and switches back once UDP recovers. Persistent decryption failures trigger a crypt resync.
+    - Tunneled voice skips OCB2: the `UDPTunnel` body is the plaintext packet, protected by the TLS channel it travels in (the official client's force-TCP branch does the same).
 - **Bandwidth adaptation.** The requested bitrate and packet size are reduced (`adjustBandwidth`) until IP + UDP + OCB2 + framing overhead fits the server's `max_bandwidth`, down to a floor of 8 kbit/s.
 
 ### Audio pipeline
@@ -134,8 +135,9 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 | --- | --- |
 | Server identity | SHA-256 certificate fingerprint pinned on first connect; mismatch raises a user prompt (update / trust once / reject) |
 | Client identity | One active PKCS#12 user certificate presented during the TLS handshake; generate locally (Bouncy Castle) or import `.p12`/`.pfx` |
-| Key storage | Each certificate lives in its own PKCS#12 keystore file in app-private storage; crypt key material is erased on disconnect |
-| Voice privacy | OCB2-AES128 on every voice datagram, including tunneled-over-TCP packets |
+| Key storage | Each certificate lives in its own password-less PKCS#12 keystore file in app-private storage (same as the desktop client); crypt key material is erased on disconnect |
+| Certificate backup | Off by default: the `.p12` sits in `noBackupFilesDir`, which neither Auto Backup nor Android 12+ device transfer reads. Turning "Back up user certificate" on moves it to `filesDir` so the system/vendor may copy it to the cloud or a new device — the key has no password, so whoever can read that backup can present your identity. The move, not a backup rule, is what enforces this (see `res/xml/backup_rules.xml`) |
+| Voice privacy | OCB2-AES128 on every voice datagram sent over UDP. Voice tunneled over TCP (`UDPTunnel`) is not OCB2-encrypted — the TLS channel already protects it, exactly as the official client's force-TCP branch does |
 | Channel access | Channel passwords are converted into server ACL rules (deny-all + grant `#password`); fine-grained ACL editing is not exposed in the UI |
 | Minimisation | No telemetry, no analytics, no accounts — the app only talks to the servers you add |
 
@@ -156,7 +158,9 @@ voice socket), automatic reconnect, certificate pinning, server-list auto ping
 and interval.
 
 **Identity & certificates** — default username, active user certificate,
-generation / import / export, recorded server certificates.
+generation / import / export, whether the certificate private key may be
+included in system/vendor backups (off by default), recorded server
+certificates.
 
 **Appearance** — theme (system / light / dark), language (system / English /
 Simplified Chinese), channel user counts.
@@ -186,8 +190,10 @@ Simplified Chinese), channel user counts.
 
 Persistence uses Room (database version 6, migrations 1→2→3→4→5→6 preserved) for
 servers, certificates, user client certificates and access tokens, and DataStore
-for settings. User certificate metadata and the keystore password live in Room;
-the legacy SharedPreferences store is migrated once and cleared.
+for settings. User certificate metadata lives in Room; the private keys are
+password-less PKCS#12 files whose location follows the backup setting, and the
+legacy SharedPreferences store (including the old keystore password, now unused
+and cleared once every file is re-packed) is migrated once and cleared.
 
 ---
 

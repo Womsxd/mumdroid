@@ -1,13 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
+   Auto Backup policy for Android 11 and older (API 31+ uses
+   data_extraction_rules.xml instead).
+
+   There are intentionally no <include> or <exclude> rules, and that must stay
+   that way:
+
+   - Adding ANY <include> turns "back up everything" into "back up only these
+     paths", silently dropping the Room database (servers, favourites, recorded
+     certificates) and the DataStore settings from every backup.
+   - Adding <exclude domain="file" path="user_certs"/> would silently disable
+     the "Back up user certificate" setting: that setting works by MOVING the
+     PKCS#12 files between filesDir/user_certs (included here) and
+     noBackupFilesDir/user_certs, which the platform always excludes. See
+     CertificateVault and UserCertificateStore.
+
+   So the client certificate private key is kept out of backups by its location,
+   not by a rule here: with the default setting off it lives in
+   noBackupFilesDir, which neither Auto Backup nor device transfer ever reads.
+
    See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
 </full-backup-content>

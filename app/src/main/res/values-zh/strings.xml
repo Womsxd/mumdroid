@@ -472,7 +472,7 @@
     <string name="user_certificate">用户证书</string>
     <string name="user_certificate_desc">用于向要求客户端证书的 Mumble 服务器证明你身份的自行签名客户端证书，私钥保存在本机的应用私有目录中。</string>
     <string name="backup_user_certificate">允许备份用户证书</string>
-    <string name="backup_user_certificate_sub">开启后用户证书私钥才可能被系统或厂商的云备份上传（是否备份本应用由系统决定）；关闭时明确排除，仅保存在本机</string>
+    <string name="backup_user_certificate_sub">开启后用户证书私钥才可能随云备份或设备迁移离开本机（是否备份本应用由系统或厂商决定）；私钥无口令保护，能读到备份者即可冒用该身份。关闭时明确排除，仅保存在本机</string>
     <string name="server_certificates">服务器证书</string>
     <string name="cert_fingerprint">SHA-256 指纹</string>
     <string name="cert_fingerprint_sha1">SHA-1 指纹</string>
