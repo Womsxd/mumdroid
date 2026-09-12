@@ -18,13 +18,23 @@ internal class ConcentusOpusBackend : OpusBackend {
         private const val MAX_DECODERS = 32
     }
 
+    /**
+     * One per-session decoder plus its reusable output scratch. The scratch
+     * saves a `ShortArray(MAX_PACKET)` — 8 KB — per decoded packet; it is only
+     * touched under this handle's monitor and the caller still receives a
+     * fresh `copyOf(len)`, so it is never aliased outside the lock.
+     */
+    private class DecoderHandle(val decoder: OpusDecoder) {
+        val out = ShortArray(OpusCodec.MAX_PACKET)
+    }
+
     private val encodeLock = Any()
     private var encoder: OpusEncoder
     private var currentApplication = OpusApplication.OPUS_APPLICATION_VOIP
     private var lastBitrate = 0
     private val outBuffer = ByteArray(OpusCodec.MAX_PACKET)
 
-    private val decoders = java.util.concurrent.ConcurrentHashMap<Int, OpusDecoder>()
+    private val decoders = java.util.concurrent.ConcurrentHashMap<Int, DecoderHandle>()
     private val decoderLastUse = java.util.concurrent.ConcurrentHashMap<Int, Long>()
 
     init {
@@ -98,16 +108,19 @@ internal class ConcentusOpusBackend : OpusBackend {
     }
 
     override fun decode(session: Int, packet: ByteArray, isTerminator: Boolean): ShortArray? {
-        val dec = getOrCreateDecoder(session) ?: return null
-        val out = ShortArray(OpusCodec.MAX_PACKET)
+        val handle = getOrCreateDecoder(session) ?: return null
         return try {
-            val len = synchronized(dec) {
-                dec.decode(packet, 0, packet.size, out, 0, out.size, false)
+            // Decode and copy inside the handle's monitor: the output buffer is
+            // shared with the next call.
+            val pcm = synchronized(handle) {
+                val out = handle.out
+                val len = handle.decoder.decode(packet, 0, packet.size, out, 0, out.size, false)
+                if (len <= 0) null else out.copyOf(len)
             }
             if (isTerminator) {
-                synchronized(dec) { try { dec.resetState() } catch (_: Exception) {} }
+                synchronized(handle) { try { handle.decoder.resetState() } catch (_: Exception) {} }
             }
-            if (len <= 0) null else out.copyOf(len)
+            pcm
         } catch (e: OpusException) {
             Log.w(TAG, "Opus decode failed session=$session", e)
             null
@@ -118,25 +131,26 @@ internal class ConcentusOpusBackend : OpusBackend {
     }
 
     override fun decodePlc(session: Int, frameSize: Int): ShortArray? {
-        val dec = getOrCreateDecoder(session) ?: return null
-        val out = ShortArray(frameSize.coerceAtMost(OpusCodec.MAX_PACKET))
+        val handle = getOrCreateDecoder(session) ?: return null
+        val size = frameSize.coerceAtMost(OpusCodec.MAX_PACKET)
         return try {
-            val len = synchronized(dec) {
-                try {
-                    dec.decode(null, 0, 0, out, 0, out.size, false)
+            synchronized(handle) {
+                val out = handle.out
+                val len = try {
+                    handle.decoder.decode(null, 0, 0, out, 0, size, false)
                 } catch (_: Exception) {
                     -1
                 }
+                if (len <= 0) null else out.copyOf(len)
             }
-            if (len <= 0) null else out.copyOf(len)
         } catch (_: Exception) {
             null
         }
     }
 
     override fun resetDecoder(session: Int) {
-        decoders[session]?.let { dec ->
-            synchronized(dec) { try { dec.resetState() } catch (_: Exception) {} }
+        decoders[session]?.let { handle ->
+            synchronized(handle) { try { handle.decoder.resetState() } catch (_: Exception) {} }
         }
     }
 
@@ -165,12 +179,12 @@ internal class ConcentusOpusBackend : OpusBackend {
         }
     }
 
-    private fun getOrCreateDecoder(session: Int): OpusDecoder? {
+    private fun getOrCreateDecoder(session: Int): DecoderHandle? {
         decoderLastUse[session] = System.currentTimeMillis()
         if ((decoderLastUse.size and 0x7F) == 0) reapIdleDecoders()
         return try {
             decoders.computeIfAbsent(session) {
-                OpusDecoder(OpusCodec.SAMPLE_RATE, OpusCodec.CHANNELS)
+                DecoderHandle(OpusDecoder(OpusCodec.SAMPLE_RATE, OpusCodec.CHANNELS))
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to create Opus decoder for session $session", e)

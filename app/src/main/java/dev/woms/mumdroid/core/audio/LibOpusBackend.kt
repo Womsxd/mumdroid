@@ -14,7 +14,18 @@ internal class LibOpusBackend : OpusBackend {
         private const val MAX_DECODERS = 32
     }
 
-    private class NativeHandle(var ptr: Long)
+    private class NativeHandle(var ptr: Long) {
+        /**
+         * Scratch output for `LibOpusNative.decode`, reused across calls.
+         *
+         * Everything that touches it runs under this handle's monitor, and the
+         * array handed to the caller stays a fresh `copyOf(len)`, so the
+         * scratch is never aliased outside the lock. Allocating it per call
+         * meant a `ShortArray(MAX_PACKET)` — 8 KB — for every decoded packet.
+         * The encoder side already reuses its [outBuffer] the same way.
+         */
+        val out = ShortArray(OpusCodec.MAX_PACKET)
+    }
 
     private val encodeLock = Any()
     private val decoderLock = Any()
@@ -79,9 +90,9 @@ internal class LibOpusBackend : OpusBackend {
 
     override fun decode(session: Int, packet: ByteArray, isTerminator: Boolean): ShortArray? {
         val dec = getOrCreateDecoder(session) ?: return null
-        val out = ShortArray(OpusCodec.MAX_PACKET)
         return synchronized(dec) {
             if (dec.ptr == 0L) return null
+            val out = dec.out
             val len = LibOpusNative.decode(dec.ptr, packet, out, out.size, false)
             if (isTerminator && dec.ptr != 0L) {
                 LibOpusNative.decoderReset(dec.ptr)
@@ -98,9 +109,9 @@ internal class LibOpusBackend : OpusBackend {
     override fun decodePlc(session: Int, frameSize: Int): ShortArray? {
         val dec = getOrCreateDecoder(session) ?: return null
         val size = frameSize.coerceAtMost(OpusCodec.MAX_PACKET)
-        val out = ShortArray(size)
         return synchronized(dec) {
             if (dec.ptr == 0L) return null
+            val out = dec.out
             val len = LibOpusNative.decode(dec.ptr, null, out, size, false)
             if (len <= 0) null else out.copyOf(len)
         }
