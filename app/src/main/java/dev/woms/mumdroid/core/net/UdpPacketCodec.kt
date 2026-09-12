@@ -197,13 +197,20 @@ object UdpPacketCodec {
      * Legacy header byte for an Opus talk packet: `(type << 5) | target`.
      *
      * The five least significant bits carry the voice-target id (0 = regular
-     * speech, 1..30 = a registered shout/whisper target), exactly as official
-     * `UDPAudioEncoder::updateAudioPacket_legacy` assembles it. The official
-     * encoder refuses any value that does not fit in five bits; see
-     * [VoiceFraming.buildVoiceBody] for the same refusal on this side.
+     * speech, 1..30 = a registered shout/whisper target, 31 = server loopback),
+     * exactly as official `UDPAudioEncoder::updateAudioPacket_legacy` assembles
+     * it. A [target] that does not fit in five bits is **refused**, mirroring
+     * the official encoder's early return: masking it instead would fold e.g. 32
+     * into 0 and silently turn a broken whisper into a channel-wide broadcast.
+     * [VoiceFraming.buildVoiceBody] already rejects such targets, so this is the
+     * second line of defence for any new caller.
      */
-    fun talkHeaderByte(target: Int = 0): Byte =
-        ((UdpType.VOICE_OPUS shl 5) or (target and 0x1f)).toByte()
+    fun talkHeaderByte(target: Int = 0): Byte {
+        require(target in 0..0x1f) {
+            "Voice target $target does not fit the five legacy header bits (0..31)"
+        }
+        return ((UdpType.VOICE_OPUS shl 5) or target).toByte()
+    }
 
     /**
      * Client→server legacy Opus body: `[header][frameNumber][size][opus]`.

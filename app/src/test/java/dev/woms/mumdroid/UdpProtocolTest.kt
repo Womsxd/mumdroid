@@ -4,6 +4,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -107,6 +108,33 @@ class UdpProtocolTest {
         // Truncated (size claims more data than present) should be rejected.
         val truncated = byteArrayOf((4 shl 5).toByte(), 5, 1, 0x50)
         assertNull(dev.woms.mumdroid.core.net.UdpPacketCodec.parseLegacyOpus(truncated))
+    }
+
+    @Test
+    fun udpTalkHeaderByte_keepsTheWholeFiveBitRange() {
+        // 31 is the highest representable id (server loopback), not 30.
+        val header = dev.woms.mumdroid.core.net.UdpPacketCodec.talkHeaderByte(31)
+        assertEquals(31, header.toInt() and 0x1f)
+        assertEquals(
+            dev.woms.mumdroid.core.net.UdpType.VOICE_OPUS,
+            (header.toInt() ushr 5) and 0x07,
+        )
+    }
+
+    @Test
+    fun udpTalkHeaderByte_refusesOutOfRangeTargetsInsteadOfFoldingThem() {
+        // 32 & 0x1f would silently become 0, i.e. a channel-wide broadcast.
+        assertThrows(IllegalArgumentException::class.java) {
+            dev.woms.mumdroid.core.net.UdpPacketCodec.talkHeaderByte(32)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            dev.woms.mumdroid.core.net.UdpPacketCodec.encodeLegacyOpus(
+                byteArrayOf(1, 2, 3),
+                isLastFrame = false,
+                frameNumber = 0L,
+                target = 32,
+            )
+        }
     }
 
     @Test
