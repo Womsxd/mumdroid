@@ -157,6 +157,16 @@ class CryptStateConcurrencyTest {
         reader.start()
         writer.start()
         started.await(2, TimeUnit.SECONDS)
+        // A successful decrypt only lands while the writer happens to hold the
+        // peer's generation, so "sleep a fixed 50 ms and hope" is a coin flip on
+        // a loaded machine — the assertion below ("never exercised decryption")
+        // then failed for scheduling reasons rather than a real regression. Wait
+        // (bounded) for the first one, which is exactly the precondition that
+        // assertion needs, and then let the race run a little longer.
+        val firstDecodeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (decoded.get() == 0 && System.nanoTime() < firstDecodeDeadline) {
+            Thread.sleep(1)
+        }
         Thread.sleep(50)
         stop.set(true)
         reader.join(5_000)
