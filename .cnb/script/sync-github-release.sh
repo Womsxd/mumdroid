@@ -151,11 +151,14 @@ upsert_release() { # $1=Tag $2=版本名 $3=描述 $4=prerelease；回显 releas
 
 # ── 同步 Release 附件 ───────────────────────────────────────────────────────
 # 上传流程同 cnb-file-upload：asset-upload-url 取预签名地址 -> PUT 上传 -> verify_url 确认。
+# 注意：verify_url 必须带 Authorization 头，平台未登录时返回 401，附件不会落库。
 # 这里直接用已解析出的 release ID，避免该脚本按 tag_name 过滤失效时传错版本。
 sync_assets() { # $1=Release ID $2=GitHub Release JSON $3=Tag
   local rel_id="$1" gh_release="$2" tag="$3" exist_assets=""
+  # 排除已有的 probe 探测临时附件，正常上传的附件仍为严格同名匹配
   cnb_status "${CNB_API}/${TARGET_REPO}/-/releases/${rel_id}" /tmp/cnb-release.json >/dev/null
-  exist_assets="$(jq -r '.assets[]?.name' /tmp/cnb-release.json | sort -u)"
+  exist_assets="$(jq -r '.assets[]?.name' /tmp/cnb-release.json \
+    | grep -vxF "probe-test.txt" | sort -u || true)"
 
   mkdir -p gh-assets
   local asset_name asset_url asset_size info upload_url verify_url
@@ -185,10 +188,28 @@ sync_assets() { # $1=Release ID $2=GitHub Release JSON $3=Tag
       return 1
     fi
 
-    curl -fsSL -X PUT "${upload_url}" -H "Accept: application/json" \
-      -T "gh-assets/${asset_name}" -o /dev/null
-    if [ -n "${verify_url}" ] && [ "${verify_url}" != "null" ]; then
-      curl -sS -X POST "${verify_url}" -H "Accept: application/json" >/dev/null || true
+    local put_status=""
+    put_status="$(curl -sS -X PUT "${upload_url}" -H "Accept: application/json" \
+      -T "gh-assets/${asset_name}" -o /dev/null -w '%{http_code}')"
+    if [ "${put_status}" != "200" ] && [ "${put_status}" != "201" ] && [ "${put_status}" != "204" ]; then
+      echo "❌ 附件 ${asset_name} PUT 上传失败（HTTP ${put_status}）"
+      return 1
+    fi
+
+    # 必须带 Authorization 调用 verify_url，否则平台返回 401，
+    # 附件不会落库（Release 页看不到文件，下载 404）。
+    if [ -z "${verify_url}" ] || [ "${verify_url}" = "null" ]; then
+      echo "❌ 附件 ${asset_name} 缺少 verify_url，无法确认上传"
+      return 1
+    fi
+    local verify_status=""
+    verify_status="$(curl -sS -X POST "${verify_url}" \
+      -H "Accept: application/json" \
+      -H "Authorization: Bearer ${CNB_TOKEN}" \
+      -o /dev/null -w '%{http_code}')"
+    if [ "${verify_status}" != "200" ]; then
+      echo "❌ 附件 ${asset_name} 上传确认失败（HTTP ${verify_status}）"
+      return 1
     fi
     echo "✅ 附件上传完成: ${asset_name}"
   done < <(jq -r '.assets[]? | [.name, .browser_download_url] | @tsv' <<<"${gh_release}")
