@@ -4,9 +4,24 @@
 # For more details, see
 #   https://d.android.com/r/tools/r8/keep-rules
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ---------------------------------------------------------------------------
+# Debug-info of release crash reports
+# ---------------------------------------------------------------------------
+# R8 shrinking + optimisation is ON for release (see build.gradle.kts), but the
+# app must still emit stack traces with the real class name, method name and
+# source line of every frame. Obfuscation renames classes/methods, which turns
+#   at dev.woms.mumdroid.core.net.MumbleClient.connect(MumbleClient.kt:120)
+# into
+#   at a.b.c(SourceFile:12)
+# and that can only be undone with the ProGuard mapping file. Turning
+# obfuscation off keeps the original identifiers while still allowing shrinking
+# (unused code removal) and optimisation.
+-dontobfuscate
+
+# Keep the source-line metadata. Without LineNumberTable a frame shows no line
+# at all; without SourceFile it shows "Unknown Source".
+-keepattributes SourceFile,LineNumberTable
+-keepattributes EnclosingMethod,InnerClasses,Signature,Exceptions
+
+# Never rewrite the SourceFile value; we want the real ".kt" name in the trace.
+-renamesourcefileattribute SourceFile

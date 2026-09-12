@@ -1,7 +1,55 @@
-# Keep the whole app code path from shrinking / obfuscation.
--keep class dev.woms.mumdroid.** { *; }
+# ---------------------------------------------------------------------------
+# R8 keep rules for the release build.
+#
+# Goal: shrink/optimise the release build while keeping crash reports
+# readable. Every stack frame must still show the *original* class name,
+# method name and source line number.
+#
+# Names + line numbers come from `-dontobfuscate` and the SourceFile /
+# LineNumberTable attributes in rules.keep. This file pins the code that must
+# not be removed even when R8 cannot see a reference to it.
+# ---------------------------------------------------------------------------
 
-# JNI entry points called from native code (rnnoise_jni.c, speexdsp_jni.c, opus_jni.c).
+# --- App code: keep frames, still allow shrinking -------------------------
+# `-dontobfuscate` preserves the *names*, but R8's optimiser can still inline
+# methods and merge classes, silently dropping frames from the trace. A `-keep`
+# without `allowoptimization` pins these methods against inlining, while
+# `allowshrinking` still lets R8 delete genuinely unreachable code.
+# Net effect: smaller APK, but a crash still points at the real
+# Class.method(File.kt:line) of every frame.
+-keep,allowshrinking class dev.woms.mumdroid.** { *; }
+
+# --- JNI entry points -----------------------------------------------------
+# Native code resolves Kotlin methods by their *mangled* name, e.g.
+#   Java_dev_woms_mumdroid_core_audio_LibOpusNative_encoderCreate
+# so both the declaring class and the native method names must survive.
 -keepclasseswithmembernames class dev.woms.mumdroid.** {
     native <methods>;
 }
+# Class names must survive so the JNI symbol lookup keeps matching.
+-keep,allowshrinking class dev.woms.mumdroid.core.audio.LibOpusNative { *; }
+-keep,allowshrinking class dev.woms.mumdroid.core.audio.noise.RnNoiseProcessor { *; }
+-keep,allowshrinking class dev.woms.mumdroid.core.audio.noise.SpeexDspProcessor { *; }
+
+# --- Android components ---------------------------------------------------
+# Addressed by name from the manifest; the manifest is rewritten by AGP so
+# this is mostly a safety net for exported/reflective entry points.
+-keep,allowshrinking class dev.woms.mumdroid.ui.activity.** extends android.app.Activity { *; }
+-keep,allowshrinking class dev.woms.mumdroid.service.MumbleService { *; }
+
+# --- Room ----------------------------------------------------------------
+# Room generates DAOs/entities that are looked up reflectively at runtime.
+-keep class dev.woms.mumdroid.data.db.** { *; }
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao class * { *; }
+
+# --- protobuf-lite -------------------------------------------------------
+# Generated message classes are instantiated reflectively by the runtime.
+-keep class * extends com.google.protobuf.GeneratedMessageLite { *; }
+-keepclassmembers class * extends com.google.protobuf.GeneratedMessageLite {
+    <fields>;
+}
+
+# --- BouncyCastle / security providers -----------------------------------
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.bouncycastle.**

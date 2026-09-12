@@ -60,7 +60,17 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-            // Enables R8 code shrinking and resource shrinking (AGP 9.3+ DSL).
+            // R8 code shrinking + resource shrinking + optimisation (AGP 9.3+ DSL).
+            //
+            // Debug-info contract for release crash reports: every stack frame
+            // must keep the original class name, method name and source line.
+            // That is enforced by:
+            //   * `-dontobfuscate` + `-keepattributes SourceFile,LineNumberTable`
+            //     in src/main/keepRules/rules.keep
+            //   * targeted keeps for JNI / Room / protobuf / components in
+            //     src/main/keepRules/keep-rules.keep
+            // Do NOT add a blanket `-keep class dev.woms.mumdroid.** { *; }`;
+            // it silently disables shrinking again.
             optimization {
                 enable = true
             }
