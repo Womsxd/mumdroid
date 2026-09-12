@@ -52,7 +52,7 @@ android {
         buildConfigField("String", "versionCodeNameZH", "\"蒙德\"")
         buildConfigField("String", "EXPECTED_SIGNATURE_SHA256", "\"$expectedSignatureSha256\"")
 
-        ndkVersion = "30.0.15729638"
+        ndkVersion = "30.0.16248370"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
