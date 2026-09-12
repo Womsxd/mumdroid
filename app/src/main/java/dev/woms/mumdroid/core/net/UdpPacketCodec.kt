@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.net
 
+import dev.woms.mumdroid.core.net.UdpPacketCodec.parseLegacyOpusFull
 import java.io.ByteArrayOutputStream
 
 /**
@@ -248,8 +249,11 @@ object UdpPacketCodec {
         val isLastFrame: Boolean,
         /**
          * The five least significant header bits: on a server→client packet
-         * this is the `context` (0 normal / 1 shout / 2 whisper / 3 listener),
-         * see [dev.woms.mumdroid.core.model.AudioContext].
+         * this is the audio `context` (0 normal / 1 shout / 2 whisper /
+         * 3 listener), see [dev.woms.mumdroid.core.model.AudioContext]. This is
+         * official legacy behaviour — the server stamps the bits with
+         * `SpeechFlags` and the client maps them onto its talk state; see
+         * [parseLegacyOpusFull].
          */
         val context: Int = 0,
     )
@@ -265,7 +269,22 @@ object UdpPacketCodec {
         return p.session to p.payload
     }
 
-    /** Full parse including frameNumber / isLastFrame (needed for PLC & reset). */
+    /**
+     * Full parse including frameNumber / isLastFrame (needed for PLC & reset).
+     *
+     * The five least significant header bits are read as the audio context.
+     * That matches the official legacy protocol on both ends: murmur writes them
+     * as `SpeechFlags::Normal/Shout/Whisper/Listen` while fanning audio out
+     * (`murmur/Server.cpp`), and the client maps those same bits to
+     * `Settings::Talking/Shouting/Whispering` (`AudioOutputSpeech.cpp`, both the
+     * legacy and the protobuf path — the latter keeps the identical field
+     * `AudioData::targetOrContext`). It is therefore *not* an extension of ours
+     * and must not be forced to NORMAL.
+     *
+     * These bits carry a voice-target id only in the opposite direction
+     * (client→server); the message type lives in the top three bits, so the two
+     * cannot be confused on the wire.
+     */
     fun parseLegacyOpusFull(body: ByteArray): LegacyOpusPacket? {
         if (body.size < 3) return null
         val header = body[0].toInt() and 0xff
