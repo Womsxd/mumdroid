@@ -336,8 +336,12 @@ class CryptState {
             }
 
             decCrypt.setNonce(decryptNonce)
-            // The plaintext is handed to the caller (and on to the playback
-            // path), so it cannot be pooled here.
+            // The caller owns the returned array, so it is allocated here. Note
+            // that the receive path does NOT keep this array: the framing layer
+            // copies the payload out of it, so the plaintext dies within the
+            // receive call and a caller could instead pass a reusable scratch
+            // buffer ([CryptOCB2.decrypt] already accepts an output buffer).
+            // [decrypt] stays allocation-per-call because it returns an array.
             val plain = ByteArray(cipherLength)
             // Official `memcmp(tag, source+1, 3)` / libmumble `User::decrypt`
             // passes the 3 header bytes, not a 16-byte zero buffer. Comparing

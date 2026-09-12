@@ -128,6 +128,12 @@ class VoiceJitterBuffer(
     /**
      * Queues an encoded Opus packet for in-order decode at playback, matching
      * official `jitter_buffer_put` (`timestamp = iFrameSize * frameNumber`).
+     *
+     * Takes ownership of [opus] instead of copying it: every caller already
+     * hands over a buffer built for this one packet (the framing layer copies
+     * the payload out of the received datagram), and the decode happens later
+     * from this same array. Do not pass a buffer that is reused or mutated
+     * afterwards.
      */
     fun pushEncoded(
         session: Int,
@@ -142,7 +148,7 @@ class VoiceJitterBuffer(
             val s = sessions.getOrPut(session) { JitterSession(minTimedPreroll) }
             ingestTimed(
                 s,
-                JitterPacket(frameNumber, null, opus.copyOf(), isLast, samples, context),
+                JitterPacket(frameNumber, null, opus, isLast, samples, context),
             )
         }
     }
