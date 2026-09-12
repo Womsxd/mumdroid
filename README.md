@@ -22,6 +22,7 @@
 - [Third-party components](#third-party-components)
 - [References](#references)
 - [Special Thanks](#special-thanks)
+- [Contributing](#contributing)
 - [License](#license)
 
 ---
@@ -296,6 +297,16 @@ The full, localised attribution list is also shown in-app under **Settings → A
 ## Special Thanks
 
 - Mumla (development reference and partial inspiration): <https://gitlab.com/quite/mumla>
+
+---
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for how to
+build, test and open a pull request. By opening a pull request you agree to the
+project's [Contributor License Agreement](CLA.md), which lets the project's
+maintainers and administrators, now and in the future, relicense your
+contributions under any OSI-approved license.
 
 ---
 
