@@ -39,6 +39,12 @@ import java.security.cert.X509Certificate
  * PKCS#12 key material stays on disk. The previous SharedPreferences JSON array
  * is migrated in once, lazily, and then cleared.
  *
+ * The keystores carry **no password**: like the official desktop client (which
+ * writes `PKCS12_create("", "Mumble Identity", …)`), the app-private sandbox is
+ * the boundary. Older installs re-encrypted the files with a random password
+ * kept in Room; [convertToPasswordless] re-packs those and clears the stored
+ * password only after every file has been verified to open without one.
+ *
  * The PKCS#12 files live in a [CertificateVault] subdirectory whose base
  * directory follows [AppSettings.backupUserCertificates]: `filesDir` (included
  * in cloud backup) when on, `noBackupFilesDir` (excluded) when off. Toggling
@@ -90,11 +96,11 @@ class UserCertificateStore(private val context: Context) {
         if (!cert.isPresent()) return null
         return try {
             withVault { files ->
-                val password = keystorePassword()
-                val ks = files.load(cert.fingerprint, password)
-                val entry = ks?.getEntry(
+                val opened = openStored(files, cert.fingerprint) ?: return@withVault null
+                val (ks, storePassword) = opened
+                val entry = ks.getEntry(
                     UserCertificatePkcs12.KEY_ALIAS,
-                    KeyStore.PasswordProtection(password),
+                    KeyStore.PasswordProtection(storePassword),
                 ) as? KeyStore.PrivateKeyEntry
                 val x509 = entry?.certificate as? X509Certificate
                 if (entry == null || x509 == null) null else x509 to entry.privateKey
@@ -115,11 +121,14 @@ class UserCertificateStore(private val context: Context) {
             val certMeta = UserCertificatePkcs12.metadataOf(cert)
             val fingerprint = certMeta.fingerprint
 
-            // Persist the private key + certificate as a new PKCS#12 file.
+            // Persist the private key + certificate as a new PKCS#12 file. Like
+            // the desktop client's identity file it carries no password: the
+            // app-private sandbox is the boundary, and a password stored next to
+            // the file would only make the identity unrecoverable if the
+            // database holding it were lost.
             withVault { files ->
-                val password = keystorePassword()
-                val ks = UserCertificatePkcs12.pack(key, arrayOf(cert), password)
-                files.save(fingerprint, ks, password)
+                val ks = UserCertificatePkcs12.pack(key, arrayOf(cert), EMPTY_PASSWORD)
+                files.save(fingerprint, ks, EMPTY_PASSWORD)
             }
 
             addAndSelect(certMeta)
@@ -157,15 +166,14 @@ class UserCertificateStore(private val context: Context) {
         val certMeta = UserCertificatePkcs12.metadataOf(opened.certificate)
         val fingerprint = certMeta.fingerprint
 
-        // Re-encrypt with our own random password and store in app-private storage.
+        // Re-pack with the app's (empty) store password and write to app-private storage.
         withVault { files ->
-            val storePassword = keystorePassword()
             val newKs = UserCertificatePkcs12.pack(
                 opened.entry.privateKey,
                 opened.entry.certificateChain,
-                storePassword,
+                EMPTY_PASSWORD,
             )
-            files.save(fingerprint, newKs, storePassword)
+            files.save(fingerprint, newKs, EMPTY_PASSWORD)
         }
 
         addAndSelect(certMeta)
@@ -185,15 +193,16 @@ class UserCertificateStore(private val context: Context) {
      */
     suspend fun exportTo(fingerprint: String, out: OutputStream, password: CharArray) {
         withVault { files ->
-            val storePassword = keystorePassword()
-            val ks = files.load(fingerprint, storePassword)
+            val opened = openStored(files, fingerprint)
                 ?: throw NoExportableCertificateException()
+            val (ks, storePassword) = opened
             val chain = ks.getCertificateChain(UserCertificatePkcs12.KEY_ALIAS)
                 ?: throw NoExportableCertificateException()
             val key = ks.getKey(UserCertificatePkcs12.KEY_ALIAS, storePassword)
                 ?: throw NoExportableCertificateException()
 
-            // Re-encrypt using the caller-provided export password.
+            // The exported copy is protected by the caller-provided password,
+            // which is where a user-chosen password belongs.
             val exportKs = UserCertificatePkcs12.pack(key, chain, password)
             files.storeTo(exportKs, out, password)
         }
@@ -252,9 +261,7 @@ class UserCertificateStore(private val context: Context) {
     suspend fun setBackupEnabled(enabled: Boolean) {
         vaultLock.withLock {
             settingsStore.setBackupUserCertificates(enabled)
-            legacy.ensureMigrated()
-            relocate(enabled)
-            pruneMissing(enabled)
+            reconcile(enabled)
             ready = true
         }
     }
@@ -271,11 +278,21 @@ class UserCertificateStore(private val context: Context) {
     /** One-time-per-process vault reconciliation; must run under [vaultLock]. */
     private suspend fun reconcileIfNeeded() {
         if (ready) return
-        legacy.ensureMigrated()
-        val enabled = currentBackupEnabled()
-        relocate(enabled)
-        pruneMissing(enabled)
+        reconcile(currentBackupEnabled())
         ready = true
+    }
+
+    /**
+     * Brings storage in line with [backupEnabled] and with the password-less
+     * format: relocates the PKCS#12 files, re-packs any legacy
+     * password-protected one, then drops metadata whose key material is gone.
+     * Must run under [vaultLock].
+     */
+    private suspend fun reconcile(backupEnabled: Boolean) {
+        legacy.ensureMigrated()
+        relocate(backupEnabled)
+        convertToPasswordless()
+        pruneMissing(backupEnabled)
     }
 
     private suspend fun currentBackupEnabled(): Boolean =
@@ -326,17 +343,76 @@ class UserCertificateStore(private val context: Context) {
     }
 
     /**
-     * The password protecting the on-disk PKCS#12 files. Generated once and
-     * kept in Room, so the files stay encrypted at rest even though the app
-     * never asks the user for a key-store password.
+     * Re-packs every stored certificate with the app's empty password,
+     * replacing the legacy random password the app used to keep in Room.
+     *
+     * The database value is cleared only once every file has been confirmed to
+     * open with the empty password, so a certificate is never left needing a
+     * password the database no longer has. A file that cannot be re-packed
+     * keeps the value around for a later attempt.
      */
-    private suspend fun keystorePassword(): CharArray {
-        val config = dao.getConfig()
-        val existing = config?.keystorePassword
-        if (!existing.isNullOrEmpty()) return existing.toCharArray()
-        val generated = UserCertificateCodec.generatePassword()
-        dao.upsertConfig((config ?: UserCertificateConfigEntity()).copy(keystorePassword = generated))
-        return generated.toCharArray()
+    private suspend fun convertToPasswordless() {
+        val legacy = legacyKeystorePassword() ?: return
+        val files = UserCertificateKeyStoreFiles(vault.dir(currentBackupEnabled()))
+        var allConverted = true
+        for (row in dao.getAll()) {
+            if (!files.fileFor(row.fingerprint).exists()) continue
+            if (files.loadOrNull(row.fingerprint, EMPTY_PASSWORD) != null) continue
+            val ks = files.loadOrNull(row.fingerprint, legacy)
+            if (ks == null) {
+                allConverted = false
+                continue
+            }
+            try {
+                files.save(row.fingerprint, ks, EMPTY_PASSWORD)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not re-pack certificate ${row.fingerprint}", e)
+            }
+            if (files.loadOrNull(row.fingerprint, EMPTY_PASSWORD) == null) {
+                allConverted = false
+            }
+        }
+        if (!allConverted) {
+            Log.w(TAG, "Some certificates still need the legacy keystore password; keeping it")
+            return
+        }
+        val config = dao.getConfig() ?: UserCertificateConfigEntity()
+        if (config.keystorePassword.isNotEmpty()) {
+            dao.upsertConfig(config.copy(keystorePassword = ""))
+            Log.i(TAG, "All certificates are password-less; cleared the legacy keystore password")
+        }
+    }
+
+    /**
+     * Opens the stored PKCS#12 of [fingerprint] with the app's empty password,
+     * falling back to the legacy random password for a file that has not been
+     * re-packed yet. Returns the keystore together with the password it was
+     * actually opened with, since that is the one its key entry needs.
+     */
+    private suspend fun openStored(
+        files: UserCertificateKeyStoreFiles,
+        fingerprint: String,
+    ): Pair<KeyStore, CharArray>? {
+        files.loadOrNull(fingerprint, EMPTY_PASSWORD)?.let { return it to EMPTY_PASSWORD }
+        val legacy = legacyKeystorePassword() ?: return null
+        return files.loadOrNull(fingerprint, legacy)?.let { it to legacy }
+    }
+
+    /**
+     * The legacy random password still kept in Room, or null once the
+     * certificates have been converted to the password-less format.
+     */
+    private suspend fun legacyKeystorePassword(): CharArray? =
+        dao.getConfig()?.keystorePassword?.takeIf { it.isNotEmpty() }?.toCharArray()
+
+    /** [UserCertificateKeyStoreFiles.load] reporting a wrong password as null. */
+    private fun UserCertificateKeyStoreFiles.loadOrNull(
+        fingerprint: String,
+        password: CharArray,
+    ): KeyStore? = try {
+        load(fingerprint, password)
+    } catch (_: Exception) {
+        null
     }
 
     /** Adds a certificate metadata to the store and marks it active. */
@@ -354,6 +430,18 @@ class UserCertificateStore(private val context: Context) {
 
     companion object {
         private const val TAG = "UserCertificateStore"
+
+        /**
+         * Password for the app's own PKCS#12 files, empty on purpose.
+         *
+         * The official Mumble desktop client stores its client identity as a
+         * password-less PKCS#12 blob (`PKCS12_create("", "Mumble Identity", …)`
+         * in `Cert.cpp`) and relies on the OS sandbox / file permissions. This
+         * app does the same: a password kept in the same sandbox as the file
+         * adds no real protection, while it would make the identity
+         * unrecoverable whenever the database holding it is lost or damaged.
+         */
+        private val EMPTY_PASSWORD = CharArray(0)
 
         /**
          * Serialises vault reads/moves. Shared by every store instance (the UI

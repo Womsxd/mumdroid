@@ -4,7 +4,6 @@ import dev.woms.mumdroid.data.UserCertificateCodec
 import dev.woms.mumdroid.data.UserCertificatePkcs12
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,16 +53,6 @@ class UserCertificateStoreLogicTest {
             "user_cert_AA11BB22.p12",
             UserCertificateCodec.certFileName("AA:11:BB:22"),
         )
-    }
-
-    // ---- passwords ----
-
-    @Test
-    fun generatePassword_isRandomAndNonEmpty() {
-        val a = UserCertificateCodec.generatePassword()
-        val b = UserCertificateCodec.generatePassword()
-        assertTrue("password must not be empty", a.isNotEmpty())
-        assertNotEquals("passwords must differ per call", a, b)
     }
 
     // ---- PKCS#12 failure classification ----

@@ -115,7 +115,12 @@ internal object UserCertificatePkcs12 {
         return keyPair.private to cert
     }
 
-    /** Packs [key] with its [chain] into a fresh, [password]-protected keystore. */
+    /**
+     * Packs [key] with its [chain] into a fresh keystore protected by
+     * [password]. [password] may be empty: the app's own keystores use an empty
+     * password on purpose (see [dev.woms.mumdroid.data.UserCertificateStore]),
+     * mirroring the desktop client's unprotected identity blob.
+     */
     fun pack(key: java.security.Key, chain: Array<out java.security.cert.Certificate>, password: CharArray): KeyStore {
         val ks = KeyStore.getInstance("PKCS12")
         ks.load(null, null)

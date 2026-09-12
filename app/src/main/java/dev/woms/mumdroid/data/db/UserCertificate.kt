@@ -73,13 +73,18 @@ fun UserCertificate.toEntity(createdAt: Long = System.currentTimeMillis()): User
  * Single-row configuration for the user certificate store, persisted with Room.
  *
  * Replaces the leftover SharedPreferences keys: which certificate is active and
- * the password protecting the PKCS#12 keystore files. There is always at most
- * one row, pinned to [id] = 0 so it can be upserted.
+ * the password the PKCS#12 keystore files used to be encrypted with. There is
+ * always at most one row, pinned to [id] = 0 so it can be upserted.
  *
  * @property id fixed primary key (always 0) so the row can be upserted.
  * @property selectedFingerprint fingerprint of the active certificate, if any.
- * @property keystorePassword random password encrypting the on-disk PKCS#12
- *   files; generated lazily on first use.
+ * @property keystorePassword legacy random password the on-disk PKCS#12 files
+ *   were once encrypted with. No new value is ever written: the files are now
+ *   stored password-less (mirroring the desktop client) and this field only
+ *   survives until [dev.woms.mumdroid.data.UserCertificateStore] has re-packed
+ *   every existing file and verified each one opens without a password, after
+ *   which it is cleared. The column itself can be dropped once no install
+ *   still needs it.
  */
 @Entity(tableName = "user_certificate_config")
 data class UserCertificateConfigEntity(

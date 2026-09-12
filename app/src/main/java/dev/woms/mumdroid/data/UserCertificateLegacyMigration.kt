@@ -67,6 +67,9 @@ internal class UserCertificateLegacyMigration(
             dao.upsertConfig(
                 config.copy(
                     selectedFingerprint = selectedValid ?: config.selectedFingerprint,
+                    // The legacy password only survives so UserCertificateStore
+                    // can re-pack the still-encrypted legacy files without one;
+                    // it is cleared once every file has been converted.
                     keystorePassword = password ?: config.keystorePassword,
                 ),
             )

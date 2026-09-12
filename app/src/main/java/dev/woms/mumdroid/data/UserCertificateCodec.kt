@@ -2,7 +2,6 @@ package dev.woms.mumdroid.data
 
 import dev.woms.mumdroid.core.model.UserCertificate
 import java.math.BigInteger
-import java.security.SecureRandom
 import java.security.UnrecoverableKeyException
 import java.security.cert.X509Certificate
 import java.util.Base64
@@ -35,13 +34,6 @@ internal object UserCertificateCodec {
     /** The on-disk PKCS#12 file name for a certificate fingerprint. */
     fun certFileName(fingerprint: String): String =
         CERT_FILE_PREFIX + fingerprint.replace(":", "") + CERT_FILE_SUFFIX
-
-    /** A fresh random PKCS#12 password. */
-    fun generatePassword(random: SecureRandom = SecureRandom()): String {
-        val bytes = ByteArray(32)
-        random.nextBytes(bytes)
-        return Base64.getEncoder().encodeToString(bytes)
-    }
 
     /** The SHA-256 fingerprint of [cert] in the usual colon-separated form. */
     fun sha256Fingerprint(cert: X509Certificate): String {
