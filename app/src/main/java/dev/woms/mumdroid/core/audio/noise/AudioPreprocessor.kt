@@ -318,12 +318,13 @@ class AudioPreprocessor(
         }
 
         // Voice hold: keep the mic open for a few frames after speech stops so
-        // trailing syllables are not clipped.
-        if (!isSpeech) {
+        // trailing syllables are not clipped. It only extends an utterance that
+        // actually started — a fresh detector must not report speech in silence.
+        if (isSpeech) {
+            vadHoldCounter = 0
+        } else if (vadPreviousVoice) {
             vadHoldCounter++
             if (vadHoldCounter < vadHoldFrames) isSpeech = true
-        } else {
-            vadHoldCounter = 0
         }
         vadPreviousVoice = isSpeech
         return isSpeech

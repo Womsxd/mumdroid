@@ -83,6 +83,16 @@ android {
         compose = true
         buildConfig = true
     }
+    // Local JVM unit tests run against the mockable android.jar, where every
+    // android.* method throws `RuntimeException("Stub!")`. Classes such as
+    // LibOpusNative log on their failure path (no native lib on the JVM), so
+    // without defaults the stub throws inside <clinit> and the whole class
+    // fails to initialise. Let the stubs return defaults instead.
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
     }

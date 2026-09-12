@@ -98,8 +98,10 @@ class ChannelTreeTest {
         val picks = ChannelTree.flattenForPicker(tree)
         assertEquals(listOf(0, 2, 11, 1), picks.map { it.id })
         assertEquals(listOf(0, 1, 2, 1), picks.map { it.indent })
-        assertEquals(games, ChannelTree.find(tree, 2))
-        assertEquals(ace, ChannelTree.find(tree, 11))
+        // `find` returns the built node (children wired), not the input instance,
+        // so compare ids rather than whole-tree equality.
+        assertEquals(games.id, ChannelTree.find(tree, 2)?.id)
+        assertEquals(ace.id, ChannelTree.find(tree, 11)?.id)
     }
 
     @Test

@@ -165,9 +165,15 @@ object BanAddresses {
         if (!address.contains(':')) return null
         if (address.any { it.isLetter() && it !in 'a'..'f' && it !in 'A'..'F' }) return null
         return try {
-            val parsed = InetAddress.getByName(address)
-            val bytes = parsed.address
-            if (bytes.size == 16) bytes else null
+            // The JVM collapses an IPv4-mapped literal (`::ffff:a.b.c.d`) to an
+            // Inet4Address (4 bytes) while Android keeps the 16-byte form, so
+            // map the 4-byte result back for a platform-stable parse.
+            val bytes = InetAddress.getByName(address).address
+            when (bytes.size) {
+                16 -> bytes
+                4 -> mapV4(bytes)
+                else -> null
+            }
         } catch (_: Exception) {
             null
         }

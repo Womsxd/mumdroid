@@ -34,6 +34,9 @@ object ChannelLinks {
         previous: Set<Int>,
         next: Set<Int>,
     ) {
+        map[channelId]?.let { home ->
+            if (home.linkedIds != next) map[channelId] = home.copy(linkedIds = next)
+        }
         for (id in previous - next) {
             val other = map[id] ?: continue
             map[id] = other.copy(linkedIds = other.linkedIds - channelId)

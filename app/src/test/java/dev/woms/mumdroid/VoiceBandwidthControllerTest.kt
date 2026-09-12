@@ -48,6 +48,9 @@ class VoiceBandwidthControllerTest {
     fun reconfigure_withoutCap_appliesWantedAndSkipsNotice() {
         val rec = Recorder()
         val c = rec.controller()
+        // Establish the baseline the way connect does (applyInitialSettings ->
+        // resetTo) so "changed" means changed relative to the applied settings.
+        c.resetTo(settings(qualityKbps = 96, frames = 4))
         val framesChanged = c.reconfigure(settings(qualityKbps = 96, frames = 4), useTcp = false, udp = null)
         assertFalse(framesChanged)
         assertEquals(96_000, c.effectiveBitrateBps)
