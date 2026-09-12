@@ -72,6 +72,19 @@ class MumbleClient internal constructor(
         private const val TAG = "MumbleClient"
         private const val TIMEOUT_MS = 15000
 
+        /**
+         * How long a frame already in progress may go without a single byte
+         * before the peer is considered wedged. Waiting for a frame to *start*
+         * stays unbounded on purpose: a quiet control channel is normal, and a
+         * peer that stops answering altogether is already reaped by the ping
+         * in-flight budget. This covers the remaining case — a peer that keeps
+         * answering pings while never finishing a declared message — which
+         * would otherwise wedge the reader forever with `soTimeout == 0`.
+         * `soTimeout` applies per read call, so a large body that keeps
+         * arriving, however slowly, is unaffected.
+         */
+        private const val FRAME_STALL_TIMEOUT_MS = 30_000
+
         // Official desktop default (`iPingIntervalMsec`) is 5 seconds. A 15 s
         // interval plus a 15 s SO_TIMEOUT raced the keep-alive and dropped
         // otherwise-healthy connections.
@@ -340,6 +353,9 @@ class MumbleClient internal constructor(
             sendAuthenticate()
 
             connected.set(true)
+            // Unbounded idle wait from here on: a quiet control channel must not
+            // drop the socket. The read loop re-arms a stalled-frame timeout
+            // only while a frame is actually being received.
             rawSocket.soTimeout = 0
 
             startPingLoop()
@@ -428,17 +444,48 @@ class MumbleClient internal constructor(
         val input = input ?: return
         while (running.get() && connected.get()) {
             try {
-                val type = input.readUnsignedShort()
-                val size = input.readInt()
-                if (size < 0 || size > MAX_TCP_MESSAGE_BYTES) {
-                    disconnect("Invalid message size")
+                // Idle wait before any frame starts: unbounded, so a quiet but
+                // healthy control channel is never dropped.
+                val first = input.read()
+                if (first < 0) {
+                    disconnect("Connection closed")
                     return
                 }
-                router.dispatch(type, readMessageBody(input, size))
+                // A frame is now in progress: bound the wait for the rest of it
+                // so a peer that stalls mid-message cannot wedge this loop.
+                armFrameReadTimeout()
+                try {
+                    val type = (first shl 8) or input.readUnsignedByte()
+                    val size = input.readInt()
+                    if (size < 0 || size > MAX_TCP_MESSAGE_BYTES) {
+                        disconnect("Invalid message size")
+                        return
+                    }
+                    router.dispatch(type, readMessageBody(input, size))
+                } finally {
+                    clearFrameReadTimeout()
+                }
             } catch (e: Exception) {
                 disconnect(e.message ?: "Read error")
                 return
             }
+        }
+    }
+
+    /** Bounds a single read while a frame is in progress; see [readLoop]. */
+    private fun armFrameReadTimeout() {
+        try {
+            socket?.soTimeout = FRAME_STALL_TIMEOUT_MS
+        } catch (_: Exception) {
+            // A socket that is already gone will fail the read itself.
+        }
+    }
+
+    /** Restores the unbounded idle wait once a frame is done (or has failed). */
+    private fun clearFrameReadTimeout() {
+        try {
+            socket?.soTimeout = 0
+        } catch (_: Exception) {
         }
     }
 
