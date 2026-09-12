@@ -491,7 +491,12 @@
     <string name="import_cert_password_hint">Enter the password of the .p12/.pfx certificate file</string>
     <string name="export_cert_password_hint">Set a password to protect the exported .p12 certificate</string>
     <string name="import_cert_failed">Failed to import the certificate</string>
+    <string name="import_cert_corrupt">The certificate file is damaged or not a supported format</string>
+    <string name="import_cert_no_private_key">The certificate file contains no private key</string>
+    <string name="import_cert_no_certificate">The certificate file contains no X.509 certificate</string>
+    <string name="import_cert_expired">The certificate has expired</string>
     <string name="export_cert_failed">Failed to export the certificate</string>
+    <string name="export_cert_no_certificate">There is no user certificate to export</string>
     <string name="certificate_operation">Certificate</string>
     <string name="confirm">OK</string>
     <string name="delete_certificate_confirm">Delete this certificate? This cannot be undone.</string>

@@ -33,6 +33,21 @@ internal object UserCertificatePkcs12 {
     /** Validity of generated self-signed certificates. */
     const val VALIDITY_YEARS = 20L
 
+    /**
+     * Why an opened PKCS#12 file cannot be used as a client certificate. The
+     * caller maps it to a user-facing message, so this layer carries no text.
+     */
+    enum class UnusableReason {
+        /** The file carries no private-key entry. */
+        NO_PRIVATE_KEY,
+
+        /** The private-key entry carries no X.509 certificate. */
+        NO_CERTIFICATE,
+
+        /** The certificate's validity period has passed. */
+        EXPIRED,
+    }
+
     /** Outcome of opening a PKCS#12 byte blob. */
     sealed interface OpenResult {
         /** A private-key entry with a usable, unexpired certificate. */
@@ -50,9 +65,9 @@ internal object UserCertificatePkcs12 {
 
         /**
          * The file opened, but its content cannot be used as a client
-         * certificate. [reason] is the user-facing explanation.
+         * certificate. [reason] tells the caller which message to show.
          */
-        data class Unusable(val reason: String) : OpenResult
+        data class Unusable(val reason: UnusableReason) : OpenResult
     }
 
     /**
@@ -130,11 +145,11 @@ internal object UserCertificatePkcs12 {
         }
 
         val entry = findPrivateKeyEntry(ks, password)
-            ?: return OpenResult.Unusable("证书中未找到私钥")
+            ?: return OpenResult.Unusable(UnusableReason.NO_PRIVATE_KEY)
         val cert = entry.certificate as? X509Certificate
-            ?: return OpenResult.Unusable("证书中未找到 X.509 证书")
+            ?: return OpenResult.Unusable(UnusableReason.NO_CERTIFICATE)
         if (cert.notAfter.before(now)) {
-            return OpenResult.Unusable("证书已过期")
+            return OpenResult.Unusable(UnusableReason.EXPIRED)
         }
         return OpenResult.Opened(ks, entry, cert)
     }

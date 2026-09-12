@@ -491,7 +491,12 @@
     <string name="import_cert_password_hint">请输入 .p12/.pfx 证书文件的密码</string>
     <string name="export_cert_password_hint">设置一个密码以保护导出的 .p12 证书</string>
     <string name="import_cert_failed">导入证书失败</string>
+    <string name="import_cert_corrupt">证书文件损坏或格式不支持</string>
+    <string name="import_cert_no_private_key">证书中未找到私钥</string>
+    <string name="import_cert_no_certificate">证书中未找到 X.509 证书</string>
+    <string name="import_cert_expired">证书已过期</string>
     <string name="export_cert_failed">导出证书失败</string>
+    <string name="export_cert_no_certificate">没有可导出的用户证书</string>
     <string name="certificate_operation">证书</string>
     <string name="confirm">确定</string>
     <string name="delete_certificate_confirm">确定要删除此证书吗？此操作无法撤销。</string>

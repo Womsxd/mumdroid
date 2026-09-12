@@ -152,7 +152,10 @@ class UserCertificateStoreLogicTest {
 
         val result = UserCertificatePkcs12.open(bytes, password)
         assertTrue("an expired certificate must be rejected", result is UserCertificatePkcs12.OpenResult.Unusable)
-        assertEquals("证书已过期", (result as UserCertificatePkcs12.OpenResult.Unusable).reason)
+        assertEquals(
+            UserCertificatePkcs12.UnusableReason.EXPIRED,
+            (result as UserCertificatePkcs12.OpenResult.Unusable).reason,
+        )
     }
 
     @Test

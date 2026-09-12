@@ -3,6 +3,10 @@ package dev.woms.mumdroid.ui
 import android.app.Application
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.UserCertificate
+import dev.woms.mumdroid.data.CertificateFileCorruptException
+import dev.woms.mumdroid.data.NoExportableCertificateException
+import dev.woms.mumdroid.data.UnusableCertificateException
+import dev.woms.mumdroid.data.UserCertificatePkcs12
 import dev.woms.mumdroid.data.UserCertificateStore
 import dev.woms.mumdroid.data.WrongPasswordException
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +40,13 @@ internal class UserCertificateController(
         _error.value = null
     }
 
+    /** Maps a data-layer unusable reason to its localised message resource. */
+    private fun unusableMessageRes(reason: UserCertificatePkcs12.UnusableReason): Int = when (reason) {
+        UserCertificatePkcs12.UnusableReason.NO_PRIVATE_KEY -> R.string.import_cert_no_private_key
+        UserCertificatePkcs12.UnusableReason.NO_CERTIFICATE -> R.string.import_cert_no_certificate
+        UserCertificatePkcs12.UnusableReason.EXPIRED -> R.string.import_cert_expired
+    }
+
     init {
         scope.launch {
             _userCertificate.value = store.load()
@@ -50,11 +61,10 @@ internal class UserCertificateController(
                 _userCertificate.value = store.load()
                 _userCertificates.value = store.loadAll()
                 _error.value = null
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Surface the failure instead of silently swallowing it: the
                 // user pressed "generate" and deserves to know it did not work.
-                _error.value = e.message
-                    ?: application.getString(R.string.generate_certificate_failed)
+                _error.value = application.getString(R.string.generate_certificate_failed)
             }
         }
     }
@@ -98,10 +108,14 @@ internal class UserCertificateController(
                 store.import(p12Bytes, password)
                 _userCertificate.value = store.load()
                 _userCertificates.value = store.loadAll()
-            } catch (e: WrongPasswordException) {
+            } catch (_: WrongPasswordException) {
                 onNeedPassword()
-            } catch (e: Exception) {
-                onError(e.message ?: application.getString(R.string.import_cert_failed))
+            } catch (e: UnusableCertificateException) {
+                onError(application.getString(unusableMessageRes(e.reason)))
+            } catch (_: CertificateFileCorruptException) {
+                onError(application.getString(R.string.import_cert_corrupt))
+            } catch (_: Exception) {
+                onError(application.getString(R.string.import_cert_failed))
             }
         }
     }
@@ -119,8 +133,10 @@ internal class UserCertificateController(
         scope.launch {
             try {
                 store.exportTo(fingerprint, out, password)
-            } catch (e: Exception) {
-                onError(e.message ?: application.getString(R.string.export_cert_failed))
+            } catch (_: NoExportableCertificateException) {
+                onError(application.getString(R.string.export_cert_no_certificate))
+            } catch (_: Exception) {
+                onError(application.getString(R.string.export_cert_failed))
             }
         }
     }

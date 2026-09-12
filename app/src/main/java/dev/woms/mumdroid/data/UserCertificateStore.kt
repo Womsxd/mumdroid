@@ -122,7 +122,7 @@ class UserCertificateStore(private val context: Context) {
      * @throws CertificateFileCorruptException if the file is truncated,
      *   corrupted or not a PKCS#12 file at all (re-entering the password
      *   cannot help).
-     * @throws IllegalArgumentException if the file contains no private-key
+     * @throws UnusableCertificateException if the file contains no private-key
      *   entry / certificate, or the certificate is expired.
      */
     suspend fun import(p12Bytes: ByteArray, password: CharArray) {
@@ -130,11 +130,11 @@ class UserCertificateStore(private val context: Context) {
         val opened = when (val result = UserCertificatePkcs12.open(p12Bytes, password)) {
             is UserCertificatePkcs12.OpenResult.Opened -> result
             UserCertificatePkcs12.OpenResult.WrongPassword ->
-                throw WrongPasswordException("证书密码错误或文件受密码保护")
+                throw WrongPasswordException()
             UserCertificatePkcs12.OpenResult.Corrupt ->
-                throw CertificateFileCorruptException("证书文件损坏或格式不支持")
+                throw CertificateFileCorruptException()
             is UserCertificatePkcs12.OpenResult.Unusable ->
-                throw IllegalArgumentException(result.reason)
+                throw UnusableCertificateException(result.reason)
         }
 
         val certMeta = UserCertificatePkcs12.metadataOf(opened.certificate)
@@ -161,16 +161,18 @@ class UserCertificateStore(private val context: Context) {
      * @param out the stream to write the PKCS#12 bytes to. The stream is NOT
      *   closed by this method.
      * @param password the password with which the exported file will be protected.
+     * @throws NoExportableCertificateException if no key material is stored for
+     *   [fingerprint].
      */
     suspend fun exportTo(fingerprint: String, out: OutputStream, password: CharArray) {
         legacy.ensureMigrated()
         val storePassword = keystorePassword()
         val ks = files.load(fingerprint, storePassword)
-            ?: throw IllegalStateException("没有可导出的用户证书")
+            ?: throw NoExportableCertificateException()
         val chain = ks.getCertificateChain(UserCertificatePkcs12.KEY_ALIAS)
-            ?: throw IllegalStateException("没有可导出的用户证书")
+            ?: throw NoExportableCertificateException()
         val key = ks.getKey(UserCertificatePkcs12.KEY_ALIAS, storePassword)
-            ?: throw IllegalStateException("没有可导出的用户证书")
+            ?: throw NoExportableCertificateException()
 
         // Re-encrypt using the caller-provided export password.
         val exportKs = UserCertificatePkcs12.pack(key, chain, password)
@@ -293,12 +295,30 @@ internal class UserCertificateKeyStoreFiles(private val filesDir: File) {
 /**
  * Thrown when a PKCS#12 file cannot be opened with the supplied password,
  * indicating that the caller should ask the user for the correct password.
+ *
+ * Carries no message: the data layer holds no user-facing text, so the caller
+ * picks the string from the exception type.
  */
-class WrongPasswordException(message: String = "Wrong password") : Exception(message)
+class WrongPasswordException : Exception()
 
 /**
  * Thrown when a PKCS#12 file is truncated, corrupted or not a PKCS#12 file at
  * all. Re-entering the password cannot help; the caller should tell the user
  * to pick another file instead of prompting for a password again.
  */
-class CertificateFileCorruptException(message: String) : Exception(message)
+class CertificateFileCorruptException : Exception()
+
+/**
+ * Thrown when a PKCS#12 file opens but its content cannot be used as a client
+ * certificate; [reason] tells the caller which message to show.
+ *
+ * Internal because [reason] is [UserCertificatePkcs12]'s own reason type,
+ * which does not leave the module.
+ */
+internal class UnusableCertificateException(val reason: UserCertificatePkcs12.UnusableReason) : Exception()
+
+/**
+ * Thrown when the certificate to export has no PKCS#12 key material on disk
+ * (its file is gone or the fingerprint is unknown).
+ */
+class NoExportableCertificateException : Exception()
