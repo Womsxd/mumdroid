@@ -129,7 +129,12 @@ object ServerPingCodec {
         } catch (_: Exception) {
             return null
         }
-        val hasExt = ping.serverVersionV2 != 0L || ping.userCount != 0 || ping.maxUserCount != 0
+        // 0 is not a valid version, so in protobuf it means the field was left
+        // at its default — and then the other extended fields were not set
+        // either. This is the exact test official `decodePing_protobuf` uses,
+        // and it also keeps the counts consistent with [version] below, which
+        // already maps 0 to null for the same reason.
+        val hasExt = ping.serverVersionV2 != 0L
         return Decoded(
             timestamp = ping.timestamp,
             users = if (hasExt) ping.userCount else null,
@@ -137,7 +142,7 @@ object ServerPingCodec {
             version = MumbleVersion.formatVersionV2(ping.serverVersionV2),
             bandwidth = if (hasExt && ping.maxBandwidthPerUser != 0) ping.maxBandwidthPerUser else null,
             // Protobuf replies carry the exact v2 version (16.16.16).
-            versionIsV2 = ping.serverVersionV2 != 0L,
+            versionIsV2 = hasExt,
         )
     }
 }

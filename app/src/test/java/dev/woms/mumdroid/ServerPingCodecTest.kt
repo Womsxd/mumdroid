@@ -99,6 +99,28 @@ class ServerPingCodecTest {
     }
 
     @Test
+    fun protobufCountsWithoutVersion_areTreatedAsUnset() {
+        // murmur never sends counts without server_version_v2; a reply that does
+        // is non-conforming. Official decodePing_protobuf reads a zero version as
+        // "field not set" and therefore drops the whole extended block, so the
+        // counts must not leak through either.
+        val body = Ping.newBuilder()
+            .setTimestamp(4L)
+            .setUserCount(3)
+            .setMaxUserCount(25)
+            .build()
+            .toByteArray()
+        val packet = byteArrayOf(1) + body
+        val decoded = ServerPingCodec.decode(packet)
+        assertNotNull(decoded)
+        assertEquals(4L, decoded!!.timestamp)
+        assertNull(decoded.users)
+        assertNull(decoded.maxUsers)
+        assertNull(decoded.version)
+        assertFalse(decoded.versionIsV2)
+    }
+
+    @Test
     fun protobufConnectivityOnly_leavesCountsUnset() {
         val body = Ping.newBuilder().setTimestamp(1L).build().toByteArray()
         val packet = byteArrayOf(1) + body
