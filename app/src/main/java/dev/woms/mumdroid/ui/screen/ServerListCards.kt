@@ -187,11 +187,15 @@ private fun ServerPingStats(ping: ServerPingInfo?) {
 }
 
 @Composable
-private fun pingStatusColor(ping: ServerPingInfo?): Color = when (ServerPingDisplay.health(ping)) {
-    PingHealth.PROBING -> MaterialTheme.colorScheme.onSurfaceVariant
-    PingHealth.UNREACHABLE -> MaterialTheme.colorScheme.error
-    PingHealth.NO_LATENCY -> MaterialTheme.colorScheme.primary
-    PingHealth.MEASURED -> pingLatencyColor(ServerPingDisplay.grade(ping!!.pingMs!!))
+private fun pingStatusColor(ping: ServerPingInfo?): Color {
+    val latency = ping?.pingMs
+    return when (ServerPingDisplay.health(ping)) {
+        PingHealth.PROBING -> MaterialTheme.colorScheme.onSurfaceVariant
+        PingHealth.UNREACHABLE -> MaterialTheme.colorScheme.error
+        PingHealth.NO_LATENCY -> MaterialTheme.colorScheme.primary
+        PingHealth.MEASURED -> latency?.let { pingLatencyColor(ServerPingDisplay.grade(it)) }
+            ?: MaterialTheme.colorScheme.primary
+    }
 }
 
 private fun pingLatencyColor(grade: LatencyGrade): Color = when (grade) {

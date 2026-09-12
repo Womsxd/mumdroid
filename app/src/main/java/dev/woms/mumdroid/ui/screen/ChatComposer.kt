@@ -115,10 +115,14 @@ internal class ChatComposer(
     }
 
     /** The destination a [send] would use. */
-    fun destination(): Destination = when {
-        privateTarget != null -> Destination.Private(privateTarget!!.session)
-        channelTarget != null -> Destination.Channel(channelTarget!!.id)
-        else -> Destination.Channel(defaultChannelId)
+    fun destination(): Destination {
+        val user = privateTarget
+        val channel = channelTarget
+        return when {
+            user != null -> Destination.Private(user.session)
+            channel != null -> Destination.Channel(channel.id)
+            else -> Destination.Channel(defaultChannelId)
+        }
     }
 
     /**
