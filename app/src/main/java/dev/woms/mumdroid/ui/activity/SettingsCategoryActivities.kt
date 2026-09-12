@@ -67,6 +67,7 @@ private fun CategorySettingsContent(
     onBack: () -> Unit,
     onImportUserCertificate: () -> Unit = {},
     onExportUserCertificate: (String) -> Unit = {},
+    onBackupUserCertificateChange: (Boolean) -> Unit = {},
 ) {
     val certificates by vm.certificates.collectAsStateWithLifecycle()
     val userCertificate by vm.userCertificate.collectAsStateWithLifecycle()
@@ -89,6 +90,7 @@ private fun CategorySettingsContent(
         onSelectUserCertificate = { fp -> vm.selectUserCertificate(fp) },
         onImportUserCertificate = onImportUserCertificate,
         onExportUserCertificate = onExportUserCertificate,
+        onBackupUserCertificateChange = onBackupUserCertificateChange,
         onBack = onBack,
     )
 }
@@ -197,6 +199,7 @@ class IdentitySettingsActivity : SettingsCategoryActivity() {
                 exportPassword = ""
                 showExportDialog = true
             },
+            onBackupUserCertificateChange = { vm.setBackupUserCertificates(it) },
         )
 
         // Password dialog shown only when the selected .p12/.pfx file requires a

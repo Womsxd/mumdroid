@@ -58,6 +58,7 @@ internal fun IdentitySettingsScreen(
     onSelectUserCertificate: (String) -> Unit,
     onImportUserCertificate: () -> Unit,
     onExportUserCertificate: (String) -> Unit,
+    onBackupUserCertificateChange: (Boolean) -> Unit,
     onOpenPicker: () -> Unit,
     modifier: Modifier,
 ) {
@@ -105,6 +106,16 @@ internal fun IdentitySettingsScreen(
                     onClick = onOpenPicker,
                 )
             }
+        }
+
+        // Whether the private key may leave the device through cloud backup.
+        item {
+            SwitchRow(
+                title = stringResource(R.string.backup_user_certificate),
+                subtitle = stringResource(R.string.backup_user_certificate_sub),
+                checked = settings.backupUserCertificates,
+                onCheckedChange = onBackupUserCertificateChange,
+            )
         }
 
         // Generate / import user certificates. Export lives inside the picker,

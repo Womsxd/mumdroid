@@ -136,6 +136,7 @@ fun SettingsPageScreen(
     onSelectUserCertificate: (String) -> Unit,
     onImportUserCertificate: () -> Unit,
     onExportUserCertificate: (String) -> Unit,
+    onBackupUserCertificateChange: (Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
     var showPicker by remember { mutableStateOf(false) }
@@ -189,6 +190,7 @@ fun SettingsPageScreen(
                 onSelectUserCertificate = onSelectUserCertificate,
                 onImportUserCertificate = onImportUserCertificate,
                 onExportUserCertificate = onExportUserCertificate,
+                onBackupUserCertificateChange = onBackupUserCertificateChange,
                 onOpenPicker = { showPicker = true },
                 modifier = Modifier.padding(padding),
             )

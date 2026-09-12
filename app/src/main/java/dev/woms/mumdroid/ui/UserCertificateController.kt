@@ -88,6 +88,18 @@ internal class UserCertificateController(
     }
 
     /**
+     * Enables or disables cloud backup of the certificate private keys and
+     * relocates the stored files accordingly.
+     */
+    fun setBackupEnabled(enabled: Boolean) {
+        scope.launch {
+            store.setBackupEnabled(enabled)
+            _userCertificate.value = store.load()
+            _userCertificates.value = store.loadAll()
+        }
+    }
+
+    /**
      * Imports a user certificate from a PKCS#12 (.p12/.pfx) file. On success the
      * loaded certificate replaces the current one.
      *

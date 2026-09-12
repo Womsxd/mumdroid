@@ -23,6 +23,7 @@ import dev.woms.mumdroid.core.model.VadMethod
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.model.VoicePlaybackMode
+import dev.woms.mumdroid.data.SettingsStore.Companion.KEY_BACKUP_USER_CERTS
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -45,6 +46,7 @@ class SettingsStore(private val context: Context) {
         private val KEY_AUTO_RECONNECT = booleanPreferencesKey("auto_reconnect")
         private val KEY_DEFAULT_USERNAME = stringPreferencesKey("default_username")
         private val KEY_CERT_PINNING = booleanPreferencesKey("certificate_pinning")
+        private val KEY_BACKUP_USER_CERTS = booleanPreferencesKey("backup_user_certificates")
         private val KEY_INPUT_VOLUME = intPreferencesKey("input_volume")
         private val KEY_INPUT_BITRATE = intPreferencesKey("input_bitrate")
         private val KEY_FRAMES_PER_PACKET = intPreferencesKey("frames_per_packet")
@@ -118,6 +120,7 @@ class SettingsStore(private val context: Context) {
             autoReconnect = prefs[KEY_AUTO_RECONNECT] ?: false,
             defaultUsername = prefs[KEY_DEFAULT_USERNAME] ?: "",
             certificatePinning = prefs[KEY_CERT_PINNING] ?: true,
+            backupUserCertificates = prefs[KEY_BACKUP_USER_CERTS] ?: false,
             inputVolume = prefs[KEY_INPUT_VOLUME] ?: 100,
             transmitQuality = VoiceBandwidth.clampQualityKbps(prefs[KEY_INPUT_BITRATE] ?: 40),
             framesPerPacket = prefs[KEY_FRAMES_PER_PACKET] ?: 2,
@@ -159,6 +162,15 @@ class SettingsStore(private val context: Context) {
         ).sanitized()
     }
 
+    /**
+     * Writes only [KEY_BACKUP_USER_CERTS]. Used by the certificate store, which
+     * persists the switch and relocates the private-key files under one lock so
+     * the two can never disagree.
+     */
+    suspend fun setBackupUserCertificates(enabled: Boolean) {
+        store.edit { prefs -> prefs[KEY_BACKUP_USER_CERTS] = enabled }
+    }
+
     /** Drops leftover DataStore channel-password keys; they now live in Room. */
     suspend fun wipeLegacyAccessTokens() {
         store.edit { prefs -> prefs.remove(KEY_ACCESS_TOKENS_LEGACY) }
@@ -191,6 +203,7 @@ class SettingsStore(private val context: Context) {
             prefs[KEY_AUTO_RECONNECT] = settings.autoReconnect
             prefs[KEY_DEFAULT_USERNAME] = settings.defaultUsername
             prefs[KEY_CERT_PINNING] = settings.certificatePinning
+            prefs[KEY_BACKUP_USER_CERTS] = settings.backupUserCertificates
             prefs[KEY_INPUT_VOLUME] = settings.inputVolume
             prefs[KEY_INPUT_BITRATE] = VoiceBandwidth.clampQualityKbps(settings.transmitQuality)
             prefs[KEY_FRAMES_PER_PACKET] = settings.framesPerPacket

@@ -97,6 +97,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteUserCertificate(fingerprint: String) = userCerts.delete(fingerprint)
     fun selectUserCertificate(fingerprint: String) = userCerts.select(fingerprint)
 
+    /**
+     * Toggles cloud backup of the user-certificate private keys. The switch is
+     * reflected immediately; the DataStore flow confirms it once persisted.
+     */
+    fun setBackupUserCertificates(enabled: Boolean) {
+        _settings.value = _settings.value.copy(backupUserCertificates = enabled)
+        userCerts.setBackupEnabled(enabled)
+    }
+
     fun importUserCertificate(
         p12Bytes: ByteArray,
         password: CharArray,

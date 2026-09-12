@@ -471,7 +471,9 @@
     <string name="no_certificates_yet">No certificates yet</string>
     <string name="certificates_recorded_hint">Certificates are recorded when you connect</string>
     <string name="user_certificate">User certificate</string>
-    <string name="user_certificate_desc">A self-signed client certificate used to identify you to Mumble servers that request one. The private key is kept securely on this device.</string>
+    <string name="user_certificate_desc">A self-signed client certificate used to identify you to Mumble servers that request one. The private key is kept in the app&#8217;s private storage on this device.</string>
+    <string name="backup_user_certificate">Back up user certificate</string>
+    <string name="backup_user_certificate_sub">When on, the private key may be included in a system or vendor cloud backup (whether this app is backed up is up to the system). When off, it is excluded and stays on this device only.</string>
     <string name="server_certificates">Server certificates</string>
     <string name="cert_fingerprint">SHA-256 fingerprint</string>
     <string name="cert_serial">Serial number</string>

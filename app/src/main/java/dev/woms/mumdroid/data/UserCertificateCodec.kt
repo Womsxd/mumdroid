@@ -18,6 +18,7 @@ import javax.crypto.IllegalBlockSizeException
 internal object UserCertificateCodec {
 
     const val CERT_FILE_PREFIX = "user_cert_"
+    const val CERT_FILE_SUFFIX = ".p12"
 
     /** Builds the X.500 subject (`CN=…`) for a generated certificate. */
     fun subjectFor(username: String): String {
@@ -33,7 +34,7 @@ internal object UserCertificateCodec {
 
     /** The on-disk PKCS#12 file name for a certificate fingerprint. */
     fun certFileName(fingerprint: String): String =
-        CERT_FILE_PREFIX + fingerprint.replace(":", "") + ".p12"
+        CERT_FILE_PREFIX + fingerprint.replace(":", "") + CERT_FILE_SUFFIX
 
     /** A fresh random PKCS#12 password. */
     fun generatePassword(random: SecureRandom = SecureRandom()): String {

@@ -30,6 +30,10 @@ import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
  * @property defaultUsername username pre-filled for the connect dialog.
  * @property certificatePinning when true, the server certificate fingerprint
  *   captured on the first connection is pinned for subsequent connections.
+ * @property backupUserCertificates when true, the user-certificate private-key
+ *   files are kept in a location covered by system/vendor cloud backup. When
+ *   false (the default), they are stored in no-backup storage so they are
+ *   excluded from cloud backup and device transfer.
  * @property inputVolume manual input gain applied to captured audio (0..200 %,
  *   100 = unity), mirroring mumla's `inputVolume`.
  * @property transmitQuality the Opus encode bitrate, expressed in kilobits per
@@ -112,6 +116,7 @@ data class AppSettings(
     val autoReconnect: Boolean = false,
     val defaultUsername: String = "",
     val certificatePinning: Boolean = true,
+    val backupUserCertificates: Boolean = false,
     val inputVolume: Int = 100,
     val transmitQuality: Int = 40,
     val framesPerPacket: Int = 2,
