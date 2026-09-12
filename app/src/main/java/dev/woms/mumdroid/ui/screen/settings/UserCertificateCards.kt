@@ -17,12 +17,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.UserCertificate
+import dev.woms.mumdroid.data.UserCertificateCodec
 import dev.woms.mumdroid.ui.screen.settings.CertificateFormatting.displaySubject
 import dev.woms.mumdroid.ui.screen.settings.CertificateFormatting.formatEpoch
 
@@ -42,6 +44,9 @@ internal fun UserCertificateSummaryCard(
     count: Int,
     onClick: () -> Unit,
 ) {
+    // SHA-1 is murmur's identity hash (see [UserCertificateCodec.sha1Fingerprint]),
+    // derived from the stored certificate rather than persisted separately.
+    val sha1 = remember(active.pem) { UserCertificateCodec.sha1FingerprintOfPem(active.pem) }
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(onClick = onClick),
     ) {
@@ -65,6 +70,9 @@ internal fun UserCertificateSummaryCard(
                     )
                 }
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
+            }
+            if (sha1 != null) {
+                CertificateDetail(stringResource(R.string.cert_fingerprint_sha1), sha1)
             }
             CertificateDetail(stringResource(R.string.cert_fingerprint), active.fingerprint)
             if (count > 1) {
@@ -91,6 +99,7 @@ internal fun UserCertificateRow(
     onExport: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val sha1 = remember(certificate.pem) { UserCertificateCodec.sha1FingerprintOfPem(certificate.pem) }
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
     ) {
@@ -123,6 +132,9 @@ internal fun UserCertificateRow(
                         tint = MaterialTheme.colorScheme.error,
                     )
                 }
+            }
+            if (sha1 != null) {
+                CertificateDetail(stringResource(R.string.cert_fingerprint_sha1), sha1)
             }
             CertificateDetail(stringResource(R.string.cert_fingerprint), certificate.fingerprint)
             CertificateDetail(stringResource(R.string.cert_serial), certificate.serial)

@@ -99,6 +99,11 @@ internal fun ConnectionScreenDialogs(
 
     val viewingSession = screen.infoSession
     if (viewingSession != null) {
+        // The server's SHA-1 identity hash travels on the roster (`UserState.hash`),
+        // not on the polled UserStats, so it is looked up by session. Prefer the
+        // real seat over a channel-listener proxy of the same user.
+        val viewingUser = state.users.firstOrNull { it.session == viewingSession && !it.isChannelListener }
+            ?: state.users.firstOrNull { it.session == viewingSession }
         // User statistics change server-side; poll while the dialog is open.
         LaunchedEffect(viewingSession) {
             while (true) {
@@ -109,6 +114,7 @@ internal fun ConnectionScreenDialogs(
         UserInformationDialog(
             userName = screen.infoUserName,
             info = state.userInfo?.takeIf { it.session == viewingSession },
+            identityHash = viewingUser?.hash.orEmpty(),
             onDismiss = {
                 screen.closeUserInformation()
                 commands.clearUserStats()

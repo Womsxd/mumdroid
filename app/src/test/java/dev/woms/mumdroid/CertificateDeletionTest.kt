@@ -42,6 +42,27 @@ class CertificateDeletionTest {
         assertEquals("-", CertificateFormatting.formatEpoch(-1))
     }
 
+    // ---- CertificateFormatting.prettifyDigest ----
+
+    @Test
+    fun prettifyDigest_upperCasesAndSeparatesBytes() {
+        assertEquals("AB:CD:EF", CertificateFormatting.prettifyDigest("abcdef"))
+        assertEquals("01:23", CertificateFormatting.prettifyDigest(" 0123 "))
+    }
+
+    @Test
+    fun prettifyDigest_returnsNonHexUnchanged() {
+        // A non-hex or odd-length value is not a digest; leave it alone rather
+        // than mangling whatever the server sent.
+        assertEquals("not-a-hash", CertificateFormatting.prettifyDigest("not-a-hash"))
+        assertEquals("abc", CertificateFormatting.prettifyDigest("abc"))
+    }
+
+    @Test
+    fun prettifyDigest_emptyStaysEmpty() {
+        assertEquals("", CertificateFormatting.prettifyDigest(""))
+    }
+
     // ---- DeleteConfirmation ----
 
     private val certA = "fp-a"

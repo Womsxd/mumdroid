@@ -125,7 +125,7 @@
     <string name="info_forward_secrecy">完美前向保密</string>
     <string name="info_yes">是</string>
     <string name="info_no">否</string>
-    <string name="info_certificate_fingerprint">证书指纹</string>
+    <string name="info_certificate_fingerprint">SHA-256 指纹</string>
     <string name="channels">频道</string>
     <string name="chat">聊天</string>
     <string name="mute">静音</string>
@@ -147,7 +147,6 @@
     <string name="user_info_version_truncated">服务器报告的该客户端协议版本可能被截断。</string>
     <string name="user_info_address">IP 地址</string>
     <string name="user_info_certificate">证书</string>
-    <string name="user_info_cert_fingerprint">指纹</string>
     <string name="user_info_opus">Opus</string>
     <string name="user_info_opus_supported">支持</string>
     <string name="user_info_opus_unsupported">不支持</string>
@@ -456,8 +455,8 @@
     <!-- Certificate pinning prompt -->
     <string name="certificate_prompt_title">证书异常</string>
     <string name="certificate_prompt_message">%1$s 出示的证书与已固定的证书不一致，连接已暂停。</string>
-    <string name="certificate_prompt_pinned">已固定指纹：%1$s</string>
-    <string name="certificate_prompt_presented">服务器指纹：%1$s</string>
+    <string name="certificate_prompt_pinned">已固定指纹（SHA-256）：%1$s</string>
+    <string name="certificate_prompt_presented">服务器指纹（SHA-256）：%1$s</string>
     <string name="certificate_prompt_question">更新固定证书、本次信任，还是拒绝连接？</string>
     <string name="certificate_update">更新证书</string>
     <string name="certificate_trust_once">本次信任</string>
@@ -476,6 +475,7 @@
     <string name="backup_user_certificate_sub">开启后用户证书私钥才可能被系统或厂商的云备份上传（是否备份本应用由系统决定）；关闭时明确排除，仅保存在本机</string>
     <string name="server_certificates">服务器证书</string>
     <string name="cert_fingerprint">SHA-256 指纹</string>
+    <string name="cert_fingerprint_sha1">SHA-1 指纹</string>
     <string name="cert_serial">序列号</string>
     <string name="cert_validity">有效期</string>
     <string name="cert_validity_range">%1$s — %2$s</string>

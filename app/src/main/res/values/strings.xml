@@ -125,7 +125,7 @@
     <string name="info_forward_secrecy">Perfect Forward Secrecy</string>
     <string name="info_yes">Yes</string>
     <string name="info_no">No</string>
-    <string name="info_certificate_fingerprint">Certificate</string>
+    <string name="info_certificate_fingerprint">SHA-256 fingerprint</string>
     <string name="channels">Channels</string>
     <string name="chat">Chat</string>
     <string name="mute">Mute</string>
@@ -147,7 +147,6 @@
     <string name="user_info_version_truncated">The server reported a truncated protocol version for this client.</string>
     <string name="user_info_address">IP Address</string>
     <string name="user_info_certificate">Certificate</string>
-    <string name="user_info_cert_fingerprint">Fingerprint</string>
     <string name="user_info_opus">Opus</string>
     <string name="user_info_opus_supported">Supported</string>
     <string name="user_info_opus_unsupported">Not Supported</string>
@@ -456,8 +455,8 @@
     <!-- Certificate pinning prompt -->
     <string name="certificate_prompt_title">Certificate problem</string>
     <string name="certificate_prompt_message">The certificate presented by %1$s does not match the pinned certificate. The connection is paused.</string>
-    <string name="certificate_prompt_pinned">Pinned: %1$s</string>
-    <string name="certificate_prompt_presented">Presented: %1$s</string>
+    <string name="certificate_prompt_pinned">Pinned (SHA-256): %1$s</string>
+    <string name="certificate_prompt_presented">Presented (SHA-256): %1$s</string>
     <string name="certificate_prompt_question">Update the pinned certificate, trust it once, or reject the connection?</string>
     <string name="certificate_update">Update certificate</string>
     <string name="certificate_trust_once">Trust once</string>
@@ -476,6 +475,7 @@
     <string name="backup_user_certificate_sub">When on, the private key may be included in a system or vendor cloud backup (whether this app is backed up is up to the system). When off, it is excluded and stays on this device only.</string>
     <string name="server_certificates">Server certificates</string>
     <string name="cert_fingerprint">SHA-256 fingerprint</string>
+    <string name="cert_fingerprint_sha1">SHA-1 fingerprint</string>
     <string name="cert_serial">Serial number</string>
     <string name="cert_validity">Validity</string>
     <string name="cert_validity_range">%1$s — %2$s</string>

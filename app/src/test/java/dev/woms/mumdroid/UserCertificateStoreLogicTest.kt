@@ -5,6 +5,7 @@ import dev.woms.mumdroid.data.UserCertificatePkcs12
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
@@ -53,6 +54,31 @@ class UserCertificateStoreLogicTest {
             "user_cert_AA11BB22.p12",
             UserCertificateCodec.certFileName("AA:11:BB:22"),
         )
+    }
+
+    // ---- identity fingerprints (SHA-1 is what murmur uses) ----
+
+    @Test
+    fun sha1Fingerprint_isColonSeparatedUpperHexOfTheDer() {
+        val (_, cert) = UserCertificatePkcs12.createSelfSigned("Dave")
+        val expected = java.security.MessageDigest.getInstance("SHA-1").digest(cert.encoded)
+            .joinToString(":") { String.format(java.util.Locale.US, "%02X", it) }
+
+        val sha1 = UserCertificateCodec.sha1Fingerprint(cert)
+
+        assertEquals(expected, sha1)
+        assertEquals("SHA-1 is 20 bytes: 40 hex digits plus 19 separators", 59, sha1.length)
+        assertFalse("the display form is upper-case", sha1.any { it.isLowerCase() })
+        assertTrue("SHA-1 and SHA-256 must differ", sha1 != UserCertificateCodec.sha256Fingerprint(cert))
+    }
+
+    @Test
+    fun sha1FingerprintOfPem_matchesTheCertificateAndRejectsGarbage() {
+        val (_, cert) = UserCertificatePkcs12.createSelfSigned("Erin")
+        val pem = UserCertificateCodec.toPem(cert)
+
+        assertEquals(UserCertificateCodec.sha1Fingerprint(cert), UserCertificateCodec.sha1FingerprintOfPem(pem))
+        assertNull(UserCertificateCodec.sha1FingerprintOfPem("not a certificate"))
     }
 
     // ---- PKCS#12 failure classification ----

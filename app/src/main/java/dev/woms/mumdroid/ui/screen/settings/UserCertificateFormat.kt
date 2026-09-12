@@ -24,6 +24,22 @@ internal object CertificateFormatting {
         val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         return fmt.format(Date(epochMillis))
     }
+
+    /**
+     * Renders a raw lower-case hex digest the way the official certificate
+     * viewer does (`ViewCert::prettifyDigest`): upper-case, one `:` between
+     * bytes. Used for the server's `UserState.hash`, which arrives as bare
+     * hex but is shown as the same colon-separated fingerprint as a locally
+     * computed digest. Anything that is not an even-length hex string is
+     * returned trimmed and unchanged.
+     */
+    fun prettifyDigest(digest: String): String {
+        val trimmed = digest.trim()
+        val isHex = trimmed.length % 2 == 0 &&
+            trimmed.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }
+        if (!isHex) return trimmed
+        return trimmed.chunked(2).joinToString(":") { it.uppercase(Locale.US) }
+    }
 }
 
 /**

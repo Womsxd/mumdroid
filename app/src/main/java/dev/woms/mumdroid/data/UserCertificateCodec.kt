@@ -1,8 +1,10 @@
 package dev.woms.mumdroid.data
 
 import dev.woms.mumdroid.core.model.UserCertificate
+import java.io.ByteArrayInputStream
 import java.math.BigInteger
 import java.security.UnrecoverableKeyException
+import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.util.Base64
 import java.util.Locale
@@ -35,11 +37,39 @@ internal object UserCertificateCodec {
     fun certFileName(fingerprint: String): String =
         CERT_FILE_PREFIX + fingerprint.replace(":", "") + CERT_FILE_SUFFIX
 
+    /**
+     * The SHA-1 fingerprint of [cert], colon-separated upper-case.
+     *
+     * This is the algorithm the official client shows first in its certificate
+     * viewer (`ViewCert.cpp`: `Digest (SHA-1)` rendered through
+     * `prettifyDigest`) and — more importantly — the one murmur uses for a
+     * user's identity: `cert.digest(QCryptographicHash::Sha1)` becomes
+     * `UserState.hash` (`murmur/Server.cpp`), which is what the `/user` output,
+     * the admin panel, the ban list and the logs all agree on.
+     */
+    fun sha1Fingerprint(cert: X509Certificate): String = fingerprint(cert, "SHA-1")
+
     /** The SHA-256 fingerprint of [cert] in the usual colon-separated form. */
-    fun sha256Fingerprint(cert: X509Certificate): String {
-        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(cert.encoded)
+    fun sha256Fingerprint(cert: X509Certificate): String = fingerprint(cert, "SHA-256")
+
+    /** The [algorithm] digest of [cert]'s DER encoding, colon-separated upper-case. */
+    private fun fingerprint(cert: X509Certificate, algorithm: String): String {
+        val digest = java.security.MessageDigest.getInstance(algorithm).digest(cert.encoded)
         return digest.joinToString(":") { String.format(Locale.US, "%02X", it) }
     }
+
+    /** Parses a stored PEM certificate, or null when it cannot be read. */
+    fun certificateFromPem(pem: String): X509Certificate? = try {
+        CertificateFactory.getInstance("X.509")
+            .generateCertificate(ByteArrayInputStream(pem.toByteArray(Charsets.US_ASCII)))
+            as? X509Certificate
+    } catch (_: Exception) {
+        null
+    }
+
+    /** The SHA-1 fingerprint of a stored PEM certificate, or null when unreadable. */
+    fun sha1FingerprintOfPem(pem: String): String? =
+        certificateFromPem(pem)?.let(::sha1Fingerprint)
 
     /** The PEM encoding of [cert], wrapped at 64 characters. */
     fun toPem(cert: X509Certificate): String {

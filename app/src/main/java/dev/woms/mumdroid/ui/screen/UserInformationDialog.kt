@@ -23,14 +23,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.net.UserConnectionInfo
+import dev.woms.mumdroid.ui.screen.settings.CertificateFormatting
 
 /**
  * Desktop `UserInformation` dialog: connection, ping, UDP packet stats.
+ *
+ * @param identityHash the server's own certificate hash for this user
+ *   (`UserState.hash`, i.e. murmur's SHA-1 — see [CertificateFormatting.prettifyDigest]).
+ *   This is the value that matches `/user`, the admin panel and the ban list,
+ *   so it is shown alongside the locally computed SHA-256 fingerprint.
  */
 @Composable
 fun UserInformationDialog(
     userName: String,
     info: UserConnectionInfo?,
+    identityHash: String = "",
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -81,9 +88,18 @@ fun UserInformationDialog(
                                     info.certificate.ifEmpty { info.certificateFingerprint },
                                     emphasize = info.strongCertificate,
                                 )
+                                // The server's identity hash is SHA-1 (murmur's
+                                // `UserState.hash`); show it first so it can be
+                                // matched against /user, the admin panel and bans.
+                                if (identityHash.isNotEmpty()) {
+                                    InfoRow(
+                                        stringResource(R.string.cert_fingerprint_sha1),
+                                        CertificateFormatting.prettifyDigest(identityHash),
+                                    )
+                                }
                                 if (info.certificate.isNotEmpty() && info.certificateFingerprint.isNotEmpty()) {
                                     InfoRow(
-                                        stringResource(R.string.user_info_cert_fingerprint),
+                                        stringResource(R.string.cert_fingerprint),
                                         info.certificateFingerprint,
                                     )
                                 }
