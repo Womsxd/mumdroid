@@ -15,7 +15,6 @@ $:
       image: docker.cnb.cool/womsxd/base/fedora-base-env:latest
 
 .check-repo: &check-repo
-  stages:
     - name: check_repo
       script: |
         if [ "${CNB_REPO_SLUG_LOWERCASE}" != "womsxd/mumdroid" ]; then
@@ -25,7 +24,6 @@ $:
         echo "✅ 仓库验证通过"
 
 .github-sync: &github-sync
-  stages:
     - name: sync
       script: |
         git clone --bare https://github.com/Womsxd/mumdroid.git syncRepo
