@@ -5,6 +5,7 @@ import android.util.Log
 import dev.woms.mumdroid.core.model.MumbleServer
 import dev.woms.mumdroid.core.model.ServerPingInfo
 import dev.woms.mumdroid.core.model.pingKey
+import dev.woms.mumdroid.core.net.ServerListPinger.Companion.DNS_BUDGET_MS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +45,30 @@ import kotlin.coroutines.coroutineContext
  * Each ping's timestamp is the send instant; the 2.5 s reply window starts
  * after the last send, not at probe entry. Replies are still collected on
  * one socket (official ConnectDialog), not a serial per-server wait.
+ *
+ * ## Why an unconnected socket is safe here
+ *
+ * The socket is not `connect()`ed, so packets from any source arrive; a reply is
+ * only trusted when *all* of these hold:
+ *  - its source `address:port` is one we actually sent to (`addressToServer`),
+ *  - that address has a secret from *this* probe round (`secrets`), and
+ *  - `echoed xor secret` lands on an elapsed time inside the reply window.
+ *
+ * Each round fabricates a fresh 64-bit [SecureRandom] secret per destination and
+ * sends `timestamp = sentAt xor secret` in both framings, so an off-path host
+ * cannot inject a result without guessing the secret (it never leaves the
+ * process) *and* spoofing the source address, and a replayed reply from an
+ * earlier round fails because the secret is rebuilt every probe. The token is
+ * deliberately readable in the plaintext packet: the probed server is
+ * authoritative for its own ping result, exactly as in the official client.
+ *
+ * This mirrors official `ConnectDialog::sendPing`, which xor-masks the elapsed
+ * counter with a per-address random ("so that server's can't spoof the returned
+ * timestamp (easily) to fake a better ping") and, on the reply, subtracts the
+ * mask back out with no further validation. Two deliberate differences: the
+ * secret is regenerated every round instead of cached per address (kills
+ * cross-round replay), and the decoded elapsed time must land inside the reply
+ * window instead of being trusted outright.
  */
 class ServerListPinger(
     private val onUpdate: (Map<String, ServerPingInfo>) -> Unit,
