@@ -377,9 +377,19 @@ class MumbleClient internal constructor(
         sendBytes(type, message.toByteArray())
     }
 
-    /** Sends a raw payload with the 6-byte big-endian header. */
+    /**
+     * Sends a raw payload with the 6-byte big-endian header.
+     *
+     * Off the main thread the write happens inline; on the main thread it is
+     * handed to [writeExecutor] so the UI never blocks on the socket. A queued
+     * write can still lose the race against [close] — that drop is logged by
+     * [writeLocked] instead of passing unnoticed.
+     */
     fun sendBytes(type: Int, body: ByteArray) {
-        if (!running.get()) return
+        if (!running.get()) {
+            Log.i(TAG, "TCP send dropped (not running): type $type")
+            return
+        }
         val main = android.os.Looper.getMainLooper()
         if (main != null && Thread.currentThread() === main.thread) {
             val copy = body.copyOf()
@@ -391,6 +401,14 @@ class MumbleClient internal constructor(
 
     @Synchronized
     private fun writeLocked(type: Int, body: ByteArray) {
+        // A task queued while running can only get to run after close() has
+        // flipped `running` (close() shuts the executor down without draining).
+        // The socket is going away by then, so write nothing on it and say so,
+        // rather than failing silently or racing the socket close.
+        if (!running.get()) {
+            Log.i(TAG, "TCP write dropped (closing): type $type")
+            return
+        }
         val out = output ?: return
         if (body.size > MAX_TCP_MESSAGE_BYTES) {
             Log.w(TAG, "TCP write dropped: message size ${body.size}")
@@ -561,6 +579,13 @@ class MumbleClient internal constructor(
         // block forever on a dialog nobody will answer any more.
         tls.abort()
         pingLoop.stop()
+        // Queued writes are abandoned rather than drained: the socket is closed
+        // right below, so they could not reach the server anyway, and the app
+        // never sends a message that has to survive teardown (no Disconnect
+        // message — teardown is just an explicit FIN). `running` is already
+        // false, so those tasks turn into a logged drop in writeLocked instead
+        // of a silent one, and shutdownNow() additionally unblocks an in-flight
+        // SSL write so close() cannot hang on a stuck socket.
         writeExecutor.shutdownNow()
         try {
             socket?.close()
