@@ -3,11 +3,13 @@ package dev.woms.mumdroid.core.net
 import android.util.Log
 import com.google.protobuf.MessageLite
 import dev.woms.mumdroid.BuildConfig
+import dev.woms.mumdroid.core.net.MumbleClient.Companion.BODY_CHUNK_BYTES
 import dev.woms.mumdroid.core.proto.Authenticate
 import dev.woms.mumdroid.core.proto.Ping
 import dev.woms.mumdroid.core.proto.Version
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.EOFException
 import java.net.InetSocketAddress
 import java.security.cert.X509Certificate
 import java.util.concurrent.Executors
@@ -80,6 +82,17 @@ class MumbleClient internal constructor(
          *  USER_STATE with a large avatar texture or comment can exceed 1 MB. */
         private const val MAX_TCP_MESSAGE_BYTES = 0x7fffff
 
+        /**
+         * Bodies larger than this are read in chunks instead of allocating the
+         * declared length up front. The official client only reads a body once
+         * the socket has the whole frame buffered (`Connection.cpp`:
+         * `iAvailable < iPacketLength`); a blocking socket cannot know that,
+         * but growing on demand keeps the memory held proportional to the bytes
+         * actually received, so a hostile server has to send them instead of
+         * pinning the 8 MiB cap with a 6-byte header.
+         */
+        private const val BODY_CHUNK_BYTES = 64 * 1024
+
         // Our reported client version.
         //
         // IMPORTANT: Mumble 1.5.0 introduced the *protobuf* UDP voice protocol
@@ -102,6 +115,34 @@ class MumbleClient internal constructor(
             versionName: String = BuildConfig.VERSION_NAME,
             gitHash: String = BuildConfig.GIT_HASH,
         ): String = "mumdroid $versionName-$gitHash"
+
+        /**
+         * Reads a message body of [size] bytes: small bodies land in one
+         * exact-size array, larger ones grow on demand (doubling from
+         * [BODY_CHUNK_BYTES]) so the memory held tracks the bytes actually
+         * received, while the returned array is still exactly [size] bytes and
+         * nothing beyond it is consumed from [input].
+         *
+         * @throws EOFException when the peer closes the connection mid-message.
+         */
+        internal fun readMessageBody(input: DataInputStream, size: Int): ByteArray {
+            if (size <= BODY_CHUNK_BYTES) {
+                val body = ByteArray(size)
+                input.readFully(body)
+                return body
+            }
+            var body = ByteArray(BODY_CHUNK_BYTES)
+            var filled = 0
+            while (filled < size) {
+                if (filled == body.size) {
+                    body = body.copyOf(minOf(size, body.size shl 1))
+                }
+                val n = input.read(body, filled, body.size - filled)
+                if (n < 0) throw EOFException("Connection closed mid-message")
+                filled += n
+            }
+            return body
+        }
     }
 
     private var socket: SSLSocket? = null
@@ -375,9 +416,7 @@ class MumbleClient internal constructor(
                     disconnect("Invalid message size")
                     return
                 }
-                val body = ByteArray(size)
-                input.readFully(body)
-                router.dispatch(type, body)
+                router.dispatch(type, readMessageBody(input, size))
             } catch (e: Exception) {
                 disconnect(e.message ?: "Read error")
                 return
