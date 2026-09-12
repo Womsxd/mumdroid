@@ -127,10 +127,15 @@ internal class JitterTimedPlayback(
         return produced
     }
 
-    /** One PLC quantum: the decoder's own concealment, or silence without one. */
+    /**
+     * One concealment frame. Both branches already produce a fresh array (the
+     * decoder copies out of its scratch, the fallback allocates), and the
+     * caller keeps it as the session's leftover and applies fades to it — so no
+     * further defensive copy is needed here.
+     */
     private fun conceal(session: Int, decoder: VoiceJitterBuffer.Decoder?): ShortArray =
-        (decoder?.conceal(session, OpusCodec.FRAME_SIZE_10MS) ?: ShortArray(OpusCodec.FRAME_SIZE_10MS))
-            .copyOf()
+        decoder?.conceal(session, OpusCodec.FRAME_SIZE_10MS)
+            ?: ShortArray(OpusCodec.FRAME_SIZE_10MS)
 
     private fun applyFadeIn(pcm: ShortArray) {
         val n = minOf(pcm.size, fadeIn.size)
