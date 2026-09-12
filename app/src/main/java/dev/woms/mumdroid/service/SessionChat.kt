@@ -5,6 +5,7 @@ import dev.woms.mumdroid.core.net.MumbleClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** In-session chat log (channel, private, and system lines). */
@@ -17,14 +18,20 @@ internal class SessionChat(private val scope: CoroutineScope) {
         _messages.value = emptyList()
     }
 
+    /**
+     * Appends without blocking the caller. [update] is a CAS loop, not a
+     * read-modify-write: the scope runs on [kotlinx.coroutines.Dispatchers.Default],
+     * so two appends could otherwise read the same list and one line would be
+     * lost from the log.
+     */
     fun appendSync(message: ChatMessage) {
-        _messages.value = _messages.value + message
+        _messages.update { it + message }
     }
 
     fun appendAsync(message: ChatMessage) {
         if (message.text.isEmpty()) return
         scope.launch {
-            _messages.value = _messages.value + message
+            _messages.update { it + message }
         }
     }
 
