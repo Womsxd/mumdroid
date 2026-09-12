@@ -17,7 +17,8 @@ import javax.crypto.spec.SecretKeySpec
  * Thread-safety contract: a single instance is NOT safe for concurrent use.
  * [CryptState] keeps separate instances for each direction and serialises
  * every call of one instance under its encrypt/decrypt lock, which is also
- * why the reused [Cipher] objects below need no further synchronisation.
+ * why the reused [Cipher] objects and block scratch buffers below need no
+ * further synchronisation.
  *
  * `isReady` is deliberately **not** `@Volatile`: it is only read/written while
  * the owning direction lock is held (`CryptState.encrypt`/`decrypt`,
@@ -48,6 +49,23 @@ class CryptOCB2 {
      */
     private var encryptCipher: Cipher? = null
     private var decryptCipher: Cipher? = null
+
+    /**
+     * Reused per-block scratch, so a voice packet allocates no AES working
+     * buffers. The core is written entirely in terms of these six blocks: the
+     * nonce-derived `delta`, the running `checksum`, the block in flight, its
+     * ciphertext/plaintext counterpart, the tail pad and the computed tag.
+     * Each is fully overwritten before it is read (only `checksum` needs an
+     * explicit clear). Reuse is sound for the same reason as the ciphers above:
+     * [CryptState] owns one instance per direction and serialises every call of
+     * that instance under its direction lock.
+     */
+    private val deltaBuf = ByteArray(BLOCK_SIZE)
+    private val checksumBuf = ByteArray(BLOCK_SIZE)
+    private val tmpBuf = ByteArray(BLOCK_SIZE)
+    private val encBuf = ByteArray(BLOCK_SIZE)
+    private val padBuf = ByteArray(BLOCK_SIZE)
+    private val tagBuf = ByteArray(BLOCK_SIZE)
 
     private var keySet = false
     private var nonceSet = false
@@ -138,15 +156,22 @@ class CryptOCB2 {
     }
 
     /**
-     * Zeroes the key/nonce material and drops the reused ciphers, so no
-     * secret state survives a teardown (fail closed: [isReady] stays false
-     * until [setKey] succeeds again).
+     * Zeroes the key/nonce material, the block scratch and drops the reused
+     * ciphers, so no secret state survives a teardown (fail closed: [isReady]
+     * stays false until [setKey] succeeds again).
      */
     fun clearKeys() {
         key.fill(0)
         nonce.fill(0)
         encryptCipher = null
         decryptCipher = null
+        // The scratch blocks hold AES outputs and plaintext fragments.
+        deltaBuf.fill(0)
+        checksumBuf.fill(0)
+        tmpBuf.fill(0)
+        encBuf.fill(0)
+        padBuf.fill(0)
+        tagBuf.fill(0)
         keySet = false
         nonceSet = false
         isReady = false
@@ -178,11 +203,13 @@ class CryptOCB2 {
         if (!Ocb2Blocks.validSlice(input, inputOffset, inputLength)) return 0
         if (!Ocb2Blocks.validSlice(output, outputOffset, inputLength)) return 0
 
-        val delta = aesBlock(nonce) ?: return 0
+        val delta = deltaBuf
+        if (!aesBlock(nonce, delta)) return 0
         var written = 0
 
-        val checksum = ByteArray(BLOCK_SIZE)
-        val tmp = ByteArray(BLOCK_SIZE)
+        val checksum = checksumBuf
+        val tmp = tmpBuf
+        checksum.fill(0)
 
         val inputEnd = inputOffset + inputLength
         var inOffset = inputOffset
@@ -203,8 +230,8 @@ class CryptOCB2 {
                 tmp[0] = (tmp[0].toInt() xor 1).toByte()
             }
 
-            val enc = aesBlock(tmp) ?: return 0
-            Ocb2Blocks.xorBlock(output, outputOffset + written, delta, 0, enc, 0)
+            if (!aesBlock(tmp, encBuf)) return 0
+            Ocb2Blocks.xorBlock(output, outputOffset + written, delta, 0, encBuf, 0)
             written += BLOCK_SIZE
 
             Ocb2Blocks.xorBlock(checksum, 0, input, inOffset)
@@ -222,16 +249,16 @@ class CryptOCB2 {
         tmp[BLOCK_SIZE - 1] = (len * 8).toByte()
         Ocb2Blocks.xorBlock(tmp, 0, delta, 0)
 
-        val pad = aesBlock(tmp) ?: return 0
+        if (!aesBlock(tmp, padBuf)) return 0
 
         // tmpBytes = plaintext || pad_tail (matching the reference algorithm)
         tmp.fill(0)
         System.arraycopy(input, inOffset, tmp, 0, len)
-        System.arraycopy(pad, len, tmp, len, BLOCK_SIZE - len)
+        System.arraycopy(padBuf, len, tmp, len, BLOCK_SIZE - len)
         // checksum ^= (plaintext || pad_tail)
         Ocb2Blocks.xorBlock(checksum, 0, tmp, 0)
         // tmp = pad ^ tmpBytes -> (pad[:len]^plain) || 0
-        Ocb2Blocks.xorBlock(tmp, 0, pad, 0)
+        Ocb2Blocks.xorBlock(tmp, 0, padBuf, 0)
 
         System.arraycopy(tmp, 0, output, outputOffset + written, len)
         written += len
@@ -239,8 +266,8 @@ class CryptOCB2 {
         if (tag.isNotEmpty()) {
             Ocb2Blocks.s3(delta)
             Ocb2Blocks.xorBlock(tmp, 0, delta, 0, checksum, 0)
-            val computedTag = aesBlock(tmp) ?: return 0
-            System.arraycopy(computedTag, 0, tag, 0, BLOCK_SIZE)
+            if (!aesBlock(tmp, tagBuf)) return 0
+            System.arraycopy(tagBuf, 0, tag, 0, BLOCK_SIZE)
         }
 
         return written
@@ -268,19 +295,21 @@ class CryptOCB2 {
         if (inputLength < 0 || !Ocb2Blocks.validSlice(input, inputOffset, inputLength)) return -1
         if (!Ocb2Blocks.validSlice(output, 0, inputLength)) return -1
 
-        val delta = aesBlock(nonce) ?: return -1
+        val delta = deltaBuf
+        if (!aesBlock(nonce, delta)) return -1
         var written = 0
 
-        val checksum = ByteArray(BLOCK_SIZE)
-        val tmp = ByteArray(BLOCK_SIZE)
+        val checksum = checksumBuf
+        val tmp = tmpBuf
+        checksum.fill(0)
 
         val inputEnd = inputOffset + inputLength
         var inOffset = inputOffset
         while (inputEnd - inOffset > BLOCK_SIZE) {
             Ocb2Blocks.s2(delta)
             Ocb2Blocks.xorBlock(tmp, 0, delta, 0, input, inOffset)
-            val dec = aesBlockDecrypt(tmp) ?: return -1
-            Ocb2Blocks.xorBlock(output, written, delta, 0, dec, 0)
+            if (!aesBlockDecrypt(tmp, encBuf)) return -1
+            Ocb2Blocks.xorBlock(output, written, delta, 0, encBuf, 0)
             written += BLOCK_SIZE
 
             Ocb2Blocks.xorBlock(checksum, 0, output, written - BLOCK_SIZE)
@@ -295,13 +324,13 @@ class CryptOCB2 {
         tmp[BLOCK_SIZE - 1] = (len * 8).toByte()
         Ocb2Blocks.xorBlock(tmp, 0, delta, 0)
 
-        val pad = aesBlock(tmp) ?: return -1
+        if (!aesBlock(tmp, padBuf)) return -1
 
         // tmpBytes = ciphertext || zeros
         tmp.fill(0)
         System.arraycopy(input, inOffset, tmp, 0, len)
         // tmp = pad ^ tmpBytes -> plaintext || pad_tail
-        Ocb2Blocks.xorBlock(tmp, 0, pad, 0)
+        Ocb2Blocks.xorBlock(tmp, 0, padBuf, 0)
 
         // Counter-cryptanalysis described in section 9 of https://eprint.iacr.org/2019/311
         // In an attack, the decrypted last block would need to equal `delta ^ len(128)`.
@@ -325,12 +354,12 @@ class CryptOCB2 {
         if (tag.isNotEmpty()) {
             Ocb2Blocks.s3(delta)
             Ocb2Blocks.xorBlock(tmp, 0, delta, 0, checksum, 0)
-            val computedTag = aesBlock(tmp) ?: return -1
+            if (!aesBlock(tmp, tagBuf)) return -1
             // libmumble `std::equal(tag.begin(), tag.end(), retrievedTag)`:
             // the wire header only carries 3 tag bytes (`CryptStateOCB2`).
-            if (tag.size > computedTag.size) return -1
+            if (tag.size > tagBuf.size) return -1
             for (i in tag.indices) {
-                if (tag[i] != computedTag[i]) return -1
+                if (tag[i] != tagBuf[i]) return -1
             }
         }
 
@@ -341,25 +370,29 @@ class CryptOCB2 {
     // ---- AES block helpers ----
 
     /**
-     * One AES block. Returns null instead of throwing when the cipher was
-     * dropped ([clearKeys] / failed [setKey]) so a future refactor cannot
-     * crash the audio thread with [IllegalStateException].
+     * One AES block, written into the caller's [out] block: the 5-argument
+     * `doFinal` skips the fresh array a `doFinal(input)` allocates per block.
+     * Returns false instead of throwing when the cipher was dropped
+     * ([clearKeys] / failed [setKey]) so a future refactor cannot crash the
+     * audio thread with [IllegalStateException].
      */
-    private fun aesBlock(input: ByteArray): ByteArray? {
-        val cipher = encryptCipher ?: return null
+    private fun aesBlock(input: ByteArray, out: ByteArray): Boolean {
+        val cipher = encryptCipher ?: return false
         return try {
-            cipher.doFinal(input)
+            cipher.doFinal(input, 0, BLOCK_SIZE, out, 0)
+            true
         } catch (_: GeneralSecurityException) {
-            null
+            false
         }
     }
 
-    private fun aesBlockDecrypt(input: ByteArray): ByteArray? {
-        val cipher = decryptCipher ?: return null
+    private fun aesBlockDecrypt(input: ByteArray, out: ByteArray): Boolean {
+        val cipher = decryptCipher ?: return false
         return try {
-            cipher.doFinal(input)
+            cipher.doFinal(input, 0, BLOCK_SIZE, out, 0)
+            true
         } catch (_: GeneralSecurityException) {
-            null
+            false
         }
     }
 }

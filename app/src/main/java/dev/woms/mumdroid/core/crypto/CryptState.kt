@@ -42,6 +42,11 @@ import java.util.Arrays
  */
 class CryptState {
 
+    private companion object {
+        /** The wire header is `iv[0] | tag[0..2]`: three tag bytes travel. */
+        const val WIRE_TAG_SIZE = 3
+    }
+
     // Official CryptStateOCB2 keeps separate AES contexts for encrypt and
     // decrypt. A single shared CryptOCB2 races when the capture thread encrypts
     // while the UDP receive thread decrypts (both call setNonce).
@@ -51,6 +56,15 @@ class CryptState {
     private val encryptLock = Any()
     private val decryptLock = Any()
     private val encryptTag = ByteArray(CryptOCB2.BLOCK_SIZE)
+
+    /**
+     * Receive-path scratch, so a datagram allocates no header bookkeeping:
+     * the decryption nonce as it was before the header byte was applied
+     * (restored for rejected and late packets) and the three wire tag bytes.
+     * Both are only touched under [decryptLock].
+     */
+    private val decryptSaveIv = ByteArray(CryptOCB2.NONCE_SIZE)
+    private val decryptWireTag = ByteArray(WIRE_TAG_SIZE)
 
     /** The current encryption/decryption nonce (16 bytes). */
     @Volatile
@@ -308,7 +322,7 @@ class CryptState {
             val ivByte = packet[offset].toInt() and 0xff
             val cipherLength = length - 4
 
-            val saveIv = decryptNonce.copyOf()
+            System.arraycopy(decryptNonce, 0, decryptSaveIv, 0, CryptOCB2.NONCE_SIZE)
             val plan = CryptNonce.plan(decryptNonce, ivByte)
             if (plan.advance == CryptNonce.Advance.UNKNOWN) return null
             if (plan.advance == CryptNonce.Advance.DUPLICATE) return null
@@ -317,25 +331,27 @@ class CryptState {
             if (replayChecked &&
                 replayHistory.isReplay(decryptNonce[0].toInt() and 0xff, decryptNonce[1])
             ) {
-                decryptNonce = saveIv
+                restoreDecryptNonce()
                 return null
             }
 
             decCrypt.setNonce(decryptNonce)
+            // The plaintext is handed to the caller (and on to the playback
+            // path), so it cannot be pooled here.
             val plain = ByteArray(cipherLength)
             // Official `memcmp(tag, source+1, 3)` / libmumble `User::decrypt`
             // passes the 3 header bytes, not a 16-byte zero buffer. Comparing
             // a full 16-byte tag against zeros made every UDP datagram fail
             // auth (force-TCP still worked because the tunnel is plaintext).
-            val wireTag = byteArrayOf(packet[offset + 1], packet[offset + 2], packet[offset + 3])
+            System.arraycopy(packet, offset + 1, decryptWireTag, 0, WIRE_TAG_SIZE)
             val written = decCrypt.decrypt(
-                plain, packet, wireTag,
+                plain, packet, decryptWireTag,
                 inputOffset = offset + 4,
                 inputLength = cipherLength,
             )
 
             if (written < 0) {
-                decryptNonce = saveIv
+                restoreDecryptNonce()
                 return null
             }
 
@@ -347,11 +363,21 @@ class CryptState {
             // restore it so subsequently arriving in-order packets still decrypt
             // correctly (mirrors the official `CryptStateOCB2::decrypt`).
             if (plan.restore) {
-                decryptNonce = saveIv
+                restoreDecryptNonce()
             }
 
             return plain
         }
+    }
+
+    /**
+     * Restores [decryptNonce] to the bytes saved before the header byte was
+     * applied. Written in place: `CryptNonce.Plan.apply` mutates the nonce
+     * array itself, so replacing the reference is not needed and would have to
+     * allocate. Only called under [decryptLock].
+     */
+    private fun restoreDecryptNonce() {
+        System.arraycopy(decryptSaveIv, 0, decryptNonce, 0, CryptOCB2.NONCE_SIZE)
     }
 
     fun reset() {
@@ -372,6 +398,7 @@ class CryptState {
             Arrays.fill(decryptNonce, 0)
             replayHistory.clear()
             Arrays.fill(encryptTag, 0)
+            Arrays.fill(decryptSaveIv, 0)
             packetStats.reset()
             publishStats()
         }
