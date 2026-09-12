@@ -42,6 +42,18 @@ class VoiceJitterBuffer(
     private val lock = Any()
     private val sessions = LinkedHashMap<Int, JitterSession>()
 
+    /**
+     * Scratch accumulator for [mix], reused across quanta.
+     *
+     * [mix] is called only from the playback thread and always with the same
+     * quantum size ([AudioOutput.MIX_QUANTUM]), so allocating the accumulator
+     * per call produced a fresh `IntArray(out.size)` — about 4 KB — every
+     * quantum. It must be zeroed before each mix, and a second concurrent
+     * caller would corrupt it, which is why the playback thread stays the only
+     * caller.
+     */
+    private var mixAcc = IntArray(0)
+
     /** Time-axis playback (reorder / conceal / advance the play head). */
     private val timed = JitterTimedPlayback(
         minPreroll = minTimedPreroll,
@@ -190,7 +202,12 @@ class VoiceJitterBuffer(
      */
     fun mix(out: ShortArray): Boolean {
         if (out.isEmpty()) return false
-        val acc = IntArray(out.size)
+        // Owned by the playback thread, so resizing/clearing it needs no lock
+        // (the same thread is the only one that reaches this point).
+        if (mixAcc.size != out.size) mixAcc = IntArray(out.size)
+        val acc = mixAcc
+        // A reused accumulator still holds the previous quantum.
+        acc.fill(0)
         val now = clock()
         var had = false
         val ended = ArrayList<Int>()
