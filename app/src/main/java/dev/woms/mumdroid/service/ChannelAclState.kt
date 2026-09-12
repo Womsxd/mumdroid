@@ -12,6 +12,7 @@ import dev.woms.mumdroid.core.proto.ACL
 import dev.woms.mumdroid.core.proto.PermissionDenied
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 
 /** What the caller must do to apply a channel password. */
 internal sealed class PasswordApply {
@@ -150,8 +151,17 @@ internal class ChannelAclState {
         return true
     }
 
+    /**
+     * Merges a `QueryUsers` answer into the name map. `update` is a CAS loop:
+     * this runs on the TCP read thread while [clear] can arrive from the ping
+     * timer's `onDisconnected` or from `MumbleService.disconnect()` on
+     * `Dispatchers.Default`, and a plain read-modify-write could overwrite that
+     * clear with the pre-clear value. [ChannelAclState] outlives a connection
+     * (`ServerAdminSession` is created once per service), so a lost clear would
+     * leave the previous server's names in the next session.
+     */
     fun onQueryUsers(ids: List<Int>, names: List<String>) {
-        _aclUserNames.value = _aclUserNames.value.merge(ids, names)
+        _aclUserNames.update { it.merge(ids, names) }
     }
 
     fun clear() {
@@ -159,7 +169,9 @@ internal class ChannelAclState {
         pendingPasswordApply = null
         pendingCreatePassword = null
         _channelAcl.value = null
-        _aclUserNames.value = AclUserNames()
+        // Same reason as [onQueryUsers]: sequenced against the merge instead of
+        // being a plain store that a racing CAS could be based on.
+        _aclUserNames.update { AclUserNames() }
         _channelAclPassword.value = null
         _channelPasswordPrompt.value = null
         passwordJoinChannelId = null

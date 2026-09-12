@@ -18,6 +18,7 @@ import dev.woms.mumdroid.data.db.CertificateEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -100,9 +101,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Toggles cloud backup of the user-certificate private keys. The switch is
      * reflected immediately; the DataStore flow confirms it once persisted.
+     *
+     * `update` rather than a read-modify-write: the other writer of [_settings]
+     * is the `settingsStore.settings` collector, so a CAS can never merge this
+     * toggle into a snapshot it read before that emission landed.
      */
     fun setBackupUserCertificates(enabled: Boolean) {
-        _settings.value = _settings.value.copy(backupUserCertificates = enabled)
+        _settings.update { it.copy(backupUserCertificates = enabled) }
         userCerts.setBackupEnabled(enabled)
     }
 
