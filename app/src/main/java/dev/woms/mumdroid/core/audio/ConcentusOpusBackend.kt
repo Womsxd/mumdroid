@@ -36,6 +36,7 @@ internal class ConcentusOpusBackend : OpusBackend {
     private var lastBitrate = 0
     private val outBuffer = ByteArray(OpusCodec.MAX_PACKET)
 
+    private val decoderLock = Any()
     private val decoders = java.util.concurrent.ConcurrentHashMap<Int, DecoderHandle>()
     private val decoderLastUse = java.util.concurrent.ConcurrentHashMap<Int, Long>()
     private var lastReapMs = 0L
@@ -192,15 +193,17 @@ internal class ConcentusOpusBackend : OpusBackend {
     }
 
     private fun getOrCreateDecoder(session: Int): DecoderHandle? {
-        noteDecoderUse(session, System.currentTimeMillis())
-        return try {
-            decoders.computeIfAbsent(session) {
-                DecoderHandle(OpusDecoder(OpusCodec.SAMPLE_RATE, OpusCodec.CHANNELS))
+        synchronized(decoderLock) {
+            noteDecoderUse(session, System.currentTimeMillis())
+            return try {
+                decoders.computeIfAbsent(session) {
+                    DecoderHandle(OpusDecoder(OpusCodec.SAMPLE_RATE, OpusCodec.CHANNELS))
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to create Opus decoder for session $session", e)
+                decoderLastUse.remove(session)
+                null
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to create Opus decoder for session $session", e)
-            decoderLastUse.remove(session)
-            null
         }
     }
 
