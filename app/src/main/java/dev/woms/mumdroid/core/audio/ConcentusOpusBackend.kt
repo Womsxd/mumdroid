@@ -16,6 +16,8 @@ internal class ConcentusOpusBackend : OpusBackend {
         private const val TAG = "ConcentusOpus"
         private const val DECODER_TTL_MS = 30_000L
         private const val MAX_DECODERS = 32
+        private const val REAP_INTERVAL_MS = 10_000L
+        private const val REAP_SESSION_INTERVAL = 16
     }
 
     /**
@@ -36,6 +38,8 @@ internal class ConcentusOpusBackend : OpusBackend {
 
     private val decoders = java.util.concurrent.ConcurrentHashMap<Int, DecoderHandle>()
     private val decoderLastUse = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+    private var lastReapMs = 0L
+    private var newSessionsSinceReap = 0
 
     init {
         try {
@@ -159,29 +163,36 @@ internal class ConcentusOpusBackend : OpusBackend {
         decoderLastUse.clear()
     }
 
-    private fun reapIdleDecoders() {
-        if (decoders.size <= MAX_DECODERS) {
-            val now = System.currentTimeMillis()
-            val it = decoderLastUse.entries.iterator()
-            while (it.hasNext()) {
-                val e = it.next()
-                if (now - e.value > DECODER_TTL_MS) {
-                    decoders.remove(e.key)
-                    it.remove()
-                }
+    private fun reapIdleDecoders(now: Long) {
+        val it = decoderLastUse.entries.iterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            if (now - e.value > DECODER_TTL_MS) {
+                decoders.remove(e.key)
+                it.remove()
             }
-        } else {
-            val sorted = decoderLastUse.entries.sortedBy { it.value }
-            for (i in 0 until sorted.size / 2) {
-                decoders.remove(sorted[i].key)
-                decoderLastUse.remove(sorted[i].key)
-            }
+        }
+        if (decoders.size <= MAX_DECODERS) return
+        val excess = decoders.size - MAX_DECODERS
+        val oldest = decoderLastUse.entries.sortedBy { it.value }.take(excess)
+        for (e in oldest) {
+            decoders.remove(e.key)
+            decoderLastUse.remove(e.key)
         }
     }
 
+    private fun noteDecoderUse(session: Int, now: Long) {
+        if (decoderLastUse.put(session, now) == null) newSessionsSinceReap++
+        val dueByTime = now - lastReapMs >= REAP_INTERVAL_MS
+        val dueByCount = newSessionsSinceReap >= REAP_SESSION_INTERVAL
+        if (!dueByTime && !dueByCount) return
+        lastReapMs = now
+        newSessionsSinceReap = 0
+        reapIdleDecoders(now)
+    }
+
     private fun getOrCreateDecoder(session: Int): DecoderHandle? {
-        decoderLastUse[session] = System.currentTimeMillis()
-        if ((decoderLastUse.size and 0x7F) == 0) reapIdleDecoders()
+        noteDecoderUse(session, System.currentTimeMillis())
         return try {
             decoders.computeIfAbsent(session) {
                 DecoderHandle(OpusDecoder(OpusCodec.SAMPLE_RATE, OpusCodec.CHANNELS))

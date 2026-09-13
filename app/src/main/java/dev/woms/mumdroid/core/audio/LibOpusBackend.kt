@@ -12,6 +12,8 @@ internal class LibOpusBackend : OpusBackend {
         private const val TAG = "LibOpus"
         private const val DECODER_TTL_MS = 30_000L
         private const val MAX_DECODERS = 32
+        private const val REAP_INTERVAL_MS = 10_000L
+        private const val REAP_SESSION_INTERVAL = 16
     }
 
     private class NativeHandle(var ptr: Long) {
@@ -36,6 +38,8 @@ internal class LibOpusBackend : OpusBackend {
 
     private val decoders = java.util.concurrent.ConcurrentHashMap<Int, NativeHandle>()
     private val decoderLastUse = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+    private var lastReapMs = 0L
+    private var newSessionsSinceReap = 0
 
     init {
         if (!LibOpusNative.isAvailable) {
@@ -170,24 +174,32 @@ internal class LibOpusBackend : OpusBackend {
         }
     }
 
-    private fun reapIdleDecoders() {
-        if (decoders.size <= MAX_DECODERS) {
-            val now = System.currentTimeMillis()
-            val it = decoderLastUse.entries.iterator()
-            while (it.hasNext()) {
-                val e = it.next()
-                if (now - e.value > DECODER_TTL_MS) {
-                    decoders.remove(e.key)?.let { destroyDecoder(it) }
-                    it.remove()
-                }
-            }
-        } else {
-            val sorted = decoderLastUse.entries.sortedBy { it.value }
-            for (i in 0 until sorted.size / 2) {
-                decoders.remove(sorted[i].key)?.let { destroyDecoder(it) }
-                decoderLastUse.remove(sorted[i].key)
+    private fun reapIdleDecoders(now: Long) {
+        val it = decoderLastUse.entries.iterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            if (now - e.value > DECODER_TTL_MS) {
+                decoders.remove(e.key)?.let { destroyDecoder(it) }
+                it.remove()
             }
         }
+        if (decoders.size <= MAX_DECODERS) return
+        val excess = decoders.size - MAX_DECODERS
+        val oldest = decoderLastUse.entries.sortedBy { it.value }.take(excess)
+        for (e in oldest) {
+            decoders.remove(e.key)?.let { destroyDecoder(it) }
+            decoderLastUse.remove(e.key)
+        }
+    }
+
+    private fun noteDecoderUse(session: Int, now: Long) {
+        if (decoderLastUse.put(session, now) == null) newSessionsSinceReap++
+        val dueByTime = now - lastReapMs >= REAP_INTERVAL_MS
+        val dueByCount = newSessionsSinceReap >= REAP_SESSION_INTERVAL
+        if (!dueByTime && !dueByCount) return
+        lastReapMs = now
+        newSessionsSinceReap = 0
+        reapIdleDecoders(now)
     }
 
     private fun destroyDecoder(dec: NativeHandle) {
@@ -201,8 +213,7 @@ internal class LibOpusBackend : OpusBackend {
 
     private fun getOrCreateDecoder(session: Int): NativeHandle? {
         synchronized(decoderLock) {
-            decoderLastUse[session] = System.currentTimeMillis()
-            if ((decoderLastUse.size and 0x7F) == 0) reapIdleDecoders()
+            noteDecoderUse(session, System.currentTimeMillis())
             val existing = decoders[session]
             if (existing != null) return existing
             val ptr = LibOpusNative.decoderCreate(OpusCodec.SAMPLE_RATE, OpusCodec.CHANNELS)
