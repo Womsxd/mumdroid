@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.os.Build
+import androidx.annotation.RequiresApi
 import dev.woms.mumdroid.BuildConfig
 import dev.woms.mumdroid.core.security.SignatureVerifier.decide
 import dev.woms.mumdroid.core.security.SignatureVerifier.expectedDigests
@@ -274,6 +275,7 @@ object SignatureVerifier {
         return certs.map { sha256Hex(it.toByteArray()) }.distinct()
     }
 
+    @RequiresApi(Build.VERSION_CODES.P)
     private fun signingInfoCertificates(signingInfo: android.content.pm.SigningInfo?): List<Signature> {
         if (signingInfo == null) return emptyList()
         val result = mutableListOf<Signature>()

@@ -5,7 +5,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import dev.woms.mumdroid.R
@@ -380,9 +379,5 @@ private fun Context.startForegroundServiceCompat(intent: Intent) {
             component = ComponentName(resolved.packageName, resolved.name)
         }
     }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        startForegroundService(explicit)
-    } else {
-        startService(explicit)
-    }
+    startForegroundService(explicit)
 }

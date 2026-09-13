@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
@@ -219,7 +220,7 @@ private fun lastSeenLabel(lastSeen: String, lastChannel: String): String {
         stringResource(R.string.last_seen_never)
     } else {
         val days = inactiveDays(lastSeen)
-        if (days != null) stringResource(R.string.inactive_days, days)
+        if (days != null) pluralStringResource(R.plurals.inactive_days, days, days)
         else lastSeen
     }
     val channel = lastChannel.ifEmpty { "—" }

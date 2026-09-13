@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.crypto
 
+import android.annotation.SuppressLint
 import java.security.GeneralSecurityException
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -115,7 +116,14 @@ class CryptOCB2 {
         return true
     }
 
-    /** Builds the two block ciphers for the current [key]. */
+    /**
+     * Builds the two block ciphers for the current [key].
+     *
+     * `AES/ECB/NoPadding` is used deliberately: OCB2 is built on the raw AES
+     * block function, so the cipher is always driven one block at a time with
+     * the OCB2 nonce/delta masking around it — it is not ECB-encrypting data.
+     */
+    @SuppressLint("GetInstance")
     private fun initCiphers(): Boolean {
         return try {
             val spec = SecretKeySpec(key, "AES")

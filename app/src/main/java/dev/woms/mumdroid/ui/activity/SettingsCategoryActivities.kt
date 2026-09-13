@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.woms.mumdroid.R
@@ -137,6 +138,8 @@ class IdentitySettingsActivity : SettingsCategoryActivity() {
         var exportFingerprint by remember { mutableStateOf<String?>(null) }
         // UI feedback (error message), shown as a dialog and cleared afterwards.
         var certError by remember { mutableStateOf<String?>(null) }
+        val importCertFailed = stringResource(R.string.import_cert_failed)
+        val exportCertFailed = stringResource(R.string.export_cert_failed)
 
         val importLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocument(),
@@ -149,7 +152,7 @@ class IdentitySettingsActivity : SettingsCategoryActivity() {
                     null
                 }
                 if (bytes == null) {
-                    certError = context.getString(R.string.import_cert_failed)
+                    certError = importCertFailed
                 } else {
                     importNeedsPassword = false
                     vm.importUserCertificate(
@@ -176,9 +179,9 @@ class IdentitySettingsActivity : SettingsCategoryActivity() {
                 try {
                     contentResolver.openOutputStream(uri)?.use { out ->
                         vm.exportUserCertificate(fingerprint, out, password) { msg -> certError = msg }
-                    } ?: run { certError = context.getString(R.string.export_cert_failed) }
+                    } ?: run { certError = exportCertFailed }
                 } catch (e: Exception) {
-                    certError = e.message ?: context.getString(R.string.export_cert_failed)
+                    certError = e.message ?: exportCertFailed
                 }
                 exportPassword = ""
                 exportFingerprint = null
@@ -207,14 +210,14 @@ class IdentitySettingsActivity : SettingsCategoryActivity() {
         if (importUri != null && importNeedsPassword) {
             AlertDialog(
                 onDismissRequest = { importUri = null; importNeedsPassword = false; importBytes = null },
-                title = { Text(context.getString(R.string.import_certificate)) },
+                title = { Text(stringResource(R.string.import_certificate)) },
                 text = {
                     Column {
-                        Text(context.getString(R.string.import_cert_password_hint))
+                        Text(stringResource(R.string.import_cert_password_hint))
                         OutlinedTextField(
                             value = importPassword,
                             onValueChange = { importPassword = it },
-                            label = { Text(context.getString(R.string.cert_password)) },
+                            label = { Text(stringResource(R.string.cert_password)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         )
@@ -231,12 +234,12 @@ class IdentitySettingsActivity : SettingsCategoryActivity() {
                         }
                         importPassword = ""
                     }) {
-                        Text(context.getString(R.string.confirm))
+                        Text(stringResource(R.string.confirm))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { importUri = null; importNeedsPassword = false; importBytes = null; importPassword = "" }) {
-                        Text(context.getString(R.string.cancel))
+                        Text(stringResource(R.string.cancel))
                     }
                 },
             )
@@ -246,14 +249,14 @@ class IdentitySettingsActivity : SettingsCategoryActivity() {
         if (showExportDialog) {
             AlertDialog(
                 onDismissRequest = { showExportDialog = false; exportPassword = ""; exportFingerprint = null },
-                title = { Text(context.getString(R.string.export_certificate)) },
+                title = { Text(stringResource(R.string.export_certificate)) },
                 text = {
                     Column {
-                        Text(context.getString(R.string.export_cert_password_hint))
+                        Text(stringResource(R.string.export_cert_password_hint))
                         OutlinedTextField(
                             value = exportPassword,
                             onValueChange = { exportPassword = it },
-                            label = { Text(context.getString(R.string.cert_password)) },
+                            label = { Text(stringResource(R.string.cert_password)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         )
@@ -264,12 +267,12 @@ class IdentitySettingsActivity : SettingsCategoryActivity() {
                         showExportDialog = false
                         exportLauncher.launch("mumdroid-user-cert.p12")
                     }) {
-                        Text(context.getString(R.string.confirm))
+                        Text(stringResource(R.string.confirm))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showExportDialog = false; exportPassword = ""; exportFingerprint = null }) {
-                        Text(context.getString(R.string.cancel))
+                        Text(stringResource(R.string.cancel))
                     }
                 },
             )
@@ -280,11 +283,11 @@ class IdentitySettingsActivity : SettingsCategoryActivity() {
         if (error != null) {
             AlertDialog(
                 onDismissRequest = { certError = null },
-                title = { Text(context.getString(R.string.certificate_operation)) },
+                title = { Text(stringResource(R.string.certificate_operation)) },
                 text = { Text(error) },
                 confirmButton = {
                     TextButton(onClick = { certError = null }) {
-                        Text(context.getString(R.string.confirm))
+                        Text(stringResource(R.string.confirm))
                     }
                 },
             )

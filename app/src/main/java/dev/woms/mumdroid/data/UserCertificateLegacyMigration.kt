@@ -2,6 +2,7 @@ package dev.woms.mumdroid.data
 
 import android.content.Context
 import android.util.Log
+import androidx.core.content.edit
 import androidx.room.withTransaction
 import dev.woms.mumdroid.core.model.UserCertificate
 import dev.woms.mumdroid.data.db.MumdroidDatabase
@@ -74,7 +75,7 @@ internal class UserCertificateLegacyMigration(
                 ),
             )
         }
-        prefs.edit().clear().apply()
+        prefs.edit { clear() }
         Log.i(TAG, "Migrated ${certs.size} user certificate(s) from SharedPreferences to Room")
     }
 

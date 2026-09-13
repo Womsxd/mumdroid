@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- App / common -->
     <string name="app_name">mumdroid</string>
     <string name="debug_build">Debug</string>
@@ -50,7 +50,10 @@
     <string name="unregister_user">Unregister</string>
     <string name="unregister_user_confirm">Unregister “%1$s”? This cannot be undone.</string>
     <string name="last_seen_never">Never seen</string>
-    <string name="inactive_days">Inactive %1$d days</string>
+    <plurals name="inactive_days">
+        <item quantity="one">Inactive %1$d day</item>
+        <item quantity="other">Inactive %1$d days</item>
+    </plurals>
     <string name="registered_user_detail">%1$s · %2$s</string>
     <string name="ban_list">Ban list</string>
     <string name="ban_list_count">Ban list: %1$d</string>
@@ -94,7 +97,10 @@
     <string name="ban_unban">Unban</string>
     <string name="delete_ban_confirm">Remove the ban on “%1$s”?</string>
     <string name="ban_permanent">Permanent</string>
-    <string name="ban_hours">%1$d hours</string>
+    <plurals name="ban_hours">
+        <item quantity="one">%1$d hour</item>
+        <item quantity="other">%1$d hours</item>
+    </plurals>
     <string name="info_unknown">Unknown</string>
     <string name="info_host">Host</string>
     <string name="info_port">Port</string>
@@ -160,8 +166,14 @@
     <string name="user_info_to_client">To Client</string>
     <string name="user_info_late_percent">Late %</string>
     <string name="user_info_lost_percent">Lost %</string>
-    <string name="user_info_rolling_seconds">Last %1$d seconds:</string>
-    <string name="user_info_rolling_minutes">Last %1$d minutes:</string>
+    <plurals name="user_info_rolling_seconds">
+        <item quantity="one">Last %1$d second:</item>
+        <item quantity="other">Last %1$d seconds:</item>
+    </plurals>
+    <plurals name="user_info_rolling_minutes">
+        <item quantity="one">Last %1$d minute:</item>
+        <item quantity="other">Last %1$d minutes:</item>
+    </plurals>
     <string name="user_info_session">Session</string>
     <string name="user_info_time">Time</string>
     <string name="user_info_online">%1$s online</string>
@@ -288,7 +300,7 @@
     <string name="permission_denied_channel_listener">No more listeners allowed in this channel.</string>
     <string name="permission_denied_user_listener">You are not allowed to listen to more channels than you currently are.</string>
     <string name="codec_opus_required">This server is not using Opus. mumdroid only supports Opus voice.</string>
-    <string name="bandwidth_auto_adjusted">Server maximum network bandwidth is only %1$d kbit/s. Audio quality auto-adjusted to %2$d kbit/s (%3$d ms)</string>
+    <string name="bandwidth_auto_adjusted" tools:ignore="PluralsCandidate">Server maximum network bandwidth is only %1$d kbit/s. Audio quality auto-adjusted to %2$d kbit/s (%3$d ms)</string>
 
     <!-- Connection / service status strings -->
     <string name="status_not_connected">Not connected</string>
@@ -448,7 +460,10 @@
     <string name="auto_reconnect_sub">Reconnect automatically after an unexpected drop</string>
     <string name="auto_server_ping">Refresh server latency</string>
     <string name="auto_server_ping_sub">Periodically re-ping saved servers on the home list</string>
-    <string name="server_ping_interval">Re-ping every %1$d seconds</string>
+    <plurals name="server_ping_interval">
+        <item quantity="one">Re-ping every %1$d second</item>
+        <item quantity="other">Re-ping every %1$d seconds</item>
+    </plurals>
     <string name="certificate_pinning">Certificate pinning</string>
     <string name="certificate_pinning_sub">Verify the server certificate fingerprint</string>
 
@@ -482,7 +497,10 @@
     <string name="cert_in_use">In use</string>
     <string name="cert_tap_to_use">Tap to use this certificate</string>
     <string name="select_user_certificate">Select certificate</string>
-    <string name="cert_count_hint">%1$d certificates in total</string>
+    <plurals name="cert_count_hint">
+        <item quantity="one">%1$d certificate in total</item>
+        <item quantity="other">%1$d certificates in total</item>
+    </plurals>
     <string name="delete_certificate">Delete</string>
     <string name="generate_certificate">Generate certificate</string>
     <string name="certificate_identity">Certificate identity</string>

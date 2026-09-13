@@ -85,6 +85,20 @@ android {
             isUniversalApk = false
         }
     }
+    bundle {
+        language {
+            // The in-app language switcher changes the locale at runtime
+            // (LocaleManager), so per-language splits would strip the locales
+            // the user can pick from.
+            enableSplit = false
+        }
+    }
+    lint {
+        // Informational only: the Gradle distribution is pinned deliberately
+        // and bumped on its own schedule, so "a newer version is available"
+        // is noise here.
+        disable += "AndroidGradlePluginVersion"
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

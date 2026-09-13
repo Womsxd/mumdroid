@@ -18,6 +18,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -310,9 +311,10 @@ private fun UdpStatRow(label: String, from: Any?, to: Any?) {
 @Composable
 private fun rollingWindowLabel(seconds: Int): String {
     return if (seconds < 120) {
-        stringResource(R.string.user_info_rolling_seconds, seconds)
+        pluralStringResource(R.plurals.user_info_rolling_seconds, seconds, seconds)
     } else {
-        stringResource(R.string.user_info_rolling_minutes, seconds / 60)
+        val minutes = seconds / 60
+        pluralStringResource(R.plurals.user_info_rolling_minutes, minutes, minutes)
     }
 }
 

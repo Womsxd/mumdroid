@@ -167,15 +167,21 @@ class MicCaptureEngine(
             val minBuf = AudioRecord.getMinBufferSize(
                 sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
             )
-            val rec = AudioRecord(
-                when (micSource) {
-                    MicSource.MIC -> MediaRecorder.AudioSource.MIC
-                    MicSource.VOICE_COMMUNICATION -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
-                },
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
-                maxOf(minBuf, frameSize * 2 * 8),
-            )
+            val rec = try {
+                AudioRecord(
+                    when (micSource) {
+                        MicSource.MIC -> MediaRecorder.AudioSource.MIC
+                        MicSource.VOICE_COMMUNICATION -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                    },
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                    maxOf(minBuf, frameSize * 2 * 8),
+                )
+            } catch (e: SecurityException) {
+                Log.e(TAG, "RECORD_AUDIO permission not granted", e)
+                close()
+                return false
+            }
             if (rec.state != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "AudioRecord init failed")
                 rec.release()

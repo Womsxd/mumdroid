@@ -19,7 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,7 +49,7 @@ internal fun ChatInputBar(
     // plain object so the prefix rules are unit-testable.
     val composer = remember(channelId) { ChatComposer(defaultChannelId = channelId) }
     // Re-render trigger: the composer is mutable but not observable.
-    var revision by remember { mutableStateOf(0) }
+    var revision by remember { mutableIntStateOf(0) }
     // A plain (non-observable) revision is enough for *reading* the composer,
     // but the value handed to BasicTextField must never be memoised on it: the
     // memo key survives the state reset, which would resurrect a stale

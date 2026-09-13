@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- bcpkix (BouncyCastle) ships a trust manager internally; it is
+         third-party bytecode we cannot annotate with @SuppressLint. -->
+    <issue id="TrustAllX509TrustManager">
+        <ignore regexp="bcpkix" />
+    </issue>
+</lint>

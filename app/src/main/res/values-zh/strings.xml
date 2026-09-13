@@ -50,7 +50,9 @@
     <string name="unregister_user">取消注册</string>
     <string name="unregister_user_confirm">确定要取消注册“%1$s”吗？此操作无法撤销。</string>
     <string name="last_seen_never">从未上线</string>
-    <string name="inactive_days">已离开 %1$d 天</string>
+    <plurals name="inactive_days">
+        <item quantity="other">已离开 %1$d 天</item>
+    </plurals>
     <string name="registered_user_detail">%1$s · %2$s</string>
     <string name="ban_list">封禁列表</string>
     <string name="ban_list_count">封禁列表：%1$d</string>
@@ -94,7 +96,9 @@
     <string name="ban_unban">解除封禁</string>
     <string name="delete_ban_confirm">确定要解除对“%1$s”的封禁吗？</string>
     <string name="ban_permanent">永久</string>
-    <string name="ban_hours">%1$d 小时</string>
+    <plurals name="ban_hours">
+        <item quantity="other">%1$d 小时</item>
+    </plurals>
     <string name="info_unknown">未知</string>
     <string name="info_host">主机</string>
     <string name="info_port">端口</string>
@@ -160,8 +164,12 @@
     <string name="user_info_to_client">发往客户端</string>
     <string name="user_info_late_percent">迟到 %</string>
     <string name="user_info_lost_percent">丢失 %</string>
-    <string name="user_info_rolling_seconds">最近 %1$d 秒：</string>
-    <string name="user_info_rolling_minutes">最近 %1$d 分钟：</string>
+    <plurals name="user_info_rolling_seconds">
+        <item quantity="other">最近 %1$d 秒：</item>
+    </plurals>
+    <plurals name="user_info_rolling_minutes">
+        <item quantity="other">最近 %1$d 分钟：</item>
+    </plurals>
     <string name="user_info_session">会话</string>
     <string name="user_info_time">在线时间</string>
     <string name="user_info_online">在线 %1$s</string>
@@ -448,7 +456,9 @@
     <string name="auto_reconnect_sub">意外断开后自动重新连接</string>
     <string name="auto_server_ping">自动刷新延迟</string>
     <string name="auto_server_ping_sub">在首页按设定间隔重新探测已保存服务器的延迟</string>
-    <string name="server_ping_interval">每隔 %1$d 秒重新探测</string>
+    <plurals name="server_ping_interval">
+        <item quantity="other">每隔 %1$d 秒重新探测</item>
+    </plurals>
     <string name="certificate_pinning">证书固定</string>
     <string name="certificate_pinning_sub">校验服务器证书指纹</string>
 
@@ -482,7 +492,9 @@
     <string name="cert_in_use">使用中</string>
     <string name="cert_tap_to_use">点击使用此证书</string>
     <string name="select_user_certificate">选择证书</string>
-    <string name="cert_count_hint">共 %1$d 张证书</string>
+    <plurals name="cert_count_hint">
+        <item quantity="other">共 %1$d 张证书</item>
+    </plurals>
     <string name="delete_certificate">删除</string>
     <string name="generate_certificate">生成证书</string>
     <string name="certificate_identity">证书身份</string>

@@ -57,7 +57,7 @@ internal class ConnectionNotifications(private val service: Service) {
 
     fun startForegroundSafe(text: String, serverName: String, reconnectCountdown: Int) {
         val notification = build(text, serverName, reconnectCountdown)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             service.startForeground(
                 NOTIFICATION_ID,
                 notification,

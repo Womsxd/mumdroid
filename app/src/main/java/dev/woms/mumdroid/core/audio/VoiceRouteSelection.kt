@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.audio
 
+import android.annotation.SuppressLint
 import android.media.AudioDeviceInfo
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 
@@ -10,6 +11,7 @@ import dev.woms.mumdroid.core.model.VoiceOutputTarget
  * Headset / Bluetooth / speaker may use communication or media routing.
  * The earpiece is communication-only.
  */
+@SuppressLint("InlinedApi")
 object VoiceRouteSelection {
 
     /** Wired / USB / hearing-aid output, most specific first. */

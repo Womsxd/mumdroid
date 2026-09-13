@@ -198,7 +198,7 @@ class MainActivity : BaseActivity() {
         if (showAddDialog) {
             ServerEditDialog(
                 initial = editingServer,
-                defaultUsername = vm.settings.value.defaultUsername,
+                defaultUsername = settings.defaultUsername,
                 onDismiss = { vm.dismissAddDialog() },
                 onSave = { name, host, port, username, password ->
                     vm.saveServer(name, host, port, username, password)

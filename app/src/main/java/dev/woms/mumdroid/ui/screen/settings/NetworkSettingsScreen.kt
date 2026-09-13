@@ -11,6 +11,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
@@ -76,7 +77,7 @@ private fun ServerPingIntervalSlider(seconds: Int, onSecondsChange: (Int) -> Uni
     val steps = ((max - min) / step) - 1
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Text(
-            stringResource(R.string.server_ping_interval, clamped),
+            pluralStringResource(R.plurals.server_ping_interval, clamped, clamped),
             style = MaterialTheme.typography.bodyMedium,
         )
         Slider(

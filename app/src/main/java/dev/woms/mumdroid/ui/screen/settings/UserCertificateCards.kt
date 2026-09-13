@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
@@ -77,7 +78,7 @@ internal fun UserCertificateSummaryCard(
             CertificateDetail(stringResource(R.string.cert_fingerprint), active.fingerprint)
             if (count > 1) {
                 Text(
-                    stringResource(R.string.cert_count_hint, count),
+                    pluralStringResource(R.plurals.cert_count_hint, count, count),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

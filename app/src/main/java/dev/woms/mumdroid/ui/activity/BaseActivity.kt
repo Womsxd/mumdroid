@@ -52,10 +52,10 @@ abstract class BaseActivity : ComponentActivity() {
             // or chat updates.
             val connected by remember(vm) {
                 vm.connectionState.map { it.connected }.distinctUntilChanged()
-            }.collectAsStateWithLifecycle(vm.connectionState.value.connected)
+            }.collectAsStateWithLifecycle(false)
             val outputTarget by remember(vm) {
                 vm.connectionState.map { it.outputTarget }.distinctUntilChanged()
-            }.collectAsStateWithLifecycle(vm.connectionState.value.outputTarget)
+            }.collectAsStateWithLifecycle(null)
 
             // Apply the selected language once it is loaded / whenever it changes.
             LaunchedEffect(appSettings.language) {

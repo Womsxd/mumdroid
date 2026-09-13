@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.net
 
+import android.annotation.SuppressLint
 import android.util.Log
 import dev.woms.mumdroid.core.model.CertificateDecision
 import java.security.SecureRandom
@@ -201,6 +202,7 @@ internal class ClientTlsPolicy(
      * captured instead ([captureSession]) and verification is left to the
      * user via the pinning option.
      */
+    @SuppressLint("TrustAllX509TrustManager", "CustomX509TrustManager")
     private object TrustAllManager : X509TrustManager {
         override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
         override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
@@ -216,6 +218,7 @@ internal class ClientTlsPolicy(
      * [onCertificateError] asks the user to update the pin, trust the
      * certificate once, or reject the connection.
      */
+    @SuppressLint("TrustAllX509TrustManager", "CustomX509TrustManager")
     private inner class PinningTrustManager : X509TrustManager {
         override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
 

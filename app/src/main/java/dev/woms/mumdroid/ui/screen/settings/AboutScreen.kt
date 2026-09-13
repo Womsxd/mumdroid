@@ -1,7 +1,6 @@
 ﻿package dev.woms.mumdroid.ui.screen.settings
 
 import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +31,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import dev.woms.mumdroid.BuildConfig
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.ui.screen.OpenSourceLicensesScreen
@@ -88,7 +88,7 @@ private object SourceCodeUrls {
 }
 
 private fun openUrl(context: android.content.Context, url: String) {
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    val intent = Intent(Intent.ACTION_VIEW, url.toUri())
     context.startActivity(intent)
 }
 
