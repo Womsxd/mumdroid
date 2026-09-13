@@ -107,7 +107,11 @@ class OpusCodec(
                         ConcentusOpusBackend()
                     }
                 }
-                Log.w(TAG, "LibOpus native library unavailable; falling back to Concentus")
+                // android.util.Log is an unmocked stub in JVM unit tests and
+                // throws there; the fallback must not break construction.
+                runCatching {
+                    Log.w(TAG, "LibOpus native library unavailable; falling back to Concentus")
+                }
             }
             return ConcentusOpusBackend()
         }

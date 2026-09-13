@@ -1,6 +1,5 @@
 package dev.woms.mumdroid.core.audio
 
-import android.util.Log
 import dev.woms.mumdroid.core.audio.LibOpusNative.isAvailable
 
 /**
@@ -9,7 +8,6 @@ import dev.woms.mumdroid.core.audio.LibOpusNative.isAvailable
  * [isAvailable] is true.
  */
 internal object LibOpusNative {
-    private const val TAG = "LibOpusNative"
 
     /** libopus `OPUS_APPLICATION_VOIP`. */
     const val APPLICATION_VOIP = 2048
@@ -20,10 +18,7 @@ internal object LibOpusNative {
     /** libopus `OPUS_APPLICATION_RESTRICTED_LOWDELAY`. */
     const val APPLICATION_LOWDELAY = 2051
 
-    val isAvailable: Boolean =
-        runCatching { System.loadLibrary("opus") }
-            .onFailure { Log.w(TAG, "libopus.so not loaded", it) }
-            .isSuccess
+    val isAvailable: Boolean = runCatching { System.loadLibrary("opus") }.isSuccess
 
     @JvmStatic
     external fun encoderCreate(sampleRate: Int, channels: Int, application: Int): Long

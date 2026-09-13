@@ -87,6 +87,8 @@ class UdpVoiceManager(
     private val host: String,
     private val port: Int,
     opusImplementation: OpusImplementation = OpusImplementation.LIBOPUS,
+    /** Monotonic source for ping timestamps and local timeouts (official `QElapsedTimer`). */
+    private val clock: () -> Long = { SystemClock.elapsedRealtime() },
 ) : VoiceSendChannel {
     companion object {
         private const val TAG = "UdpVoiceManager"
@@ -122,9 +124,6 @@ class UdpVoiceManager(
         /** UDP error. */
         fun onUdpError(message: String)
     }
-
-    /** Monotonic source for ping timestamps and local timeouts (official `QElapsedTimer`). */
-    private val clock = { SystemClock.elapsedRealtime() }
 
     private val crypto = UdpVoiceCrypto(clock)
     private val framing = VoiceFraming(clock)

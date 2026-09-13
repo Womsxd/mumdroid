@@ -245,7 +245,7 @@ class CryptStateTest {
         assertEquals(2, crypt.resyncPackets)
         assertFalse(crypt.setDecryptIV(ByteArray(8)))
         assertEquals(2, crypt.resyncPackets)
-        val udp = UdpVoiceManager("127.0.0.1", 64738)
+        val udp = UdpVoiceManager("127.0.0.1", 64738, clock = { 0L })
         udp.setupCryptography(key, clientNonce, serverNonce)
         assertEquals(0, udp.packetStats().resync)
         assertTrue(udp.resyncDecryptIV(ByteArray(16) { 6 }))

@@ -94,13 +94,13 @@ android {
         buildConfig = true
     }
     // Local JVM unit tests run against the mockable android.jar, where every
-    // android.* method throws `RuntimeException("Stub!")`. Classes such as
-    // LibOpusNative log on their failure path (no native lib on the JVM), so
-    // without defaults the stub throws inside <clinit> and the whole class
-    // fails to initialise. Let the stubs return defaults instead.
+    // android.* method throws `RuntimeException("Stub!")`. Leave
+    // isReturnDefaultValues off: silently returning defaults would let a test
+    // pass on stub behaviour. An unmocked framework call must fail loudly
+    // instead, so production code stays free of it on the JVM path.
     testOptions {
         unitTests {
-            isReturnDefaultValues = true
+            isReturnDefaultValues = false
         }
     }
     ksp {
