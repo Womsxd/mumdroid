@@ -12,13 +12,13 @@ import dev.woms.mumdroid.data.db.MumdroidDatabase
  * `Database::getTokens` / `setTokens` (keyed by server identity, not
  * username or favorite row).
  */
-class ChannelAccessTokenStore(context: Context) {
+class ChannelAccessTokenStore(context: Context) : AccessTokenSource {
 
     private val db = MumdroidDatabase.getInstance(context)
     private val dao = db.channelAccessTokenDao()
     private val serverTokenDao = db.serverAccessTokenDao()
 
-    suspend fun tokensFor(host: String, port: Int): List<String> {
+    override suspend fun tokensFor(host: String, port: Int): List<String> {
         val key = ServerAddress.normalizeHost(host)
         if (key.isEmpty() || port <= 0) return emptyList()
         return AccessTokens.sanitize(serverTokenDao.tokensForAddress(key, port))

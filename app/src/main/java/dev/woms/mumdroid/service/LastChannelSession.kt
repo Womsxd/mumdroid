@@ -1,7 +1,7 @@
 package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.core.model.LastChannelRestore
-import dev.woms.mumdroid.data.ServerStore
+import dev.woms.mumdroid.data.LastChannelStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -13,7 +13,7 @@ internal class LastChannelSession(
     private val scope: CoroutineScope,
     private val roster: SessionRoster,
 ) {
-    private lateinit var serverStore: ServerStore
+    private lateinit var serverStore: LastChannelStore
 
     var restorePending = false
         private set
@@ -22,7 +22,7 @@ internal class LastChannelSession(
 
     data class Remembered(val serverKey: String, val id: Int, val name: String)
 
-    fun attach(store: ServerStore) {
+    fun attach(store: LastChannelStore) {
         serverStore = store
     }
 

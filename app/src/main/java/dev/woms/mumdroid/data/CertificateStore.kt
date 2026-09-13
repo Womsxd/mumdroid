@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
  * review, pin and manage the certificates of the servers they connect to
  * (mirroring the desktop client's certificate management).
  */
-class CertificateStore(private val context: Context) {
+class CertificateStore(private val context: Context) : PinnedFingerprintSource {
 
     private val dao = MumdroidDatabase.getInstance(context).certificateDao()
 
@@ -44,7 +44,7 @@ class CertificateStore(private val context: Context) {
      * The fingerprint pinned for [host]:[port], if any (the latest entry
      * recorded for that server). Used by the certificate-pinning check.
      */
-    suspend fun pinnedFingerprint(host: String, port: Int): String? =
+    override suspend fun pinnedFingerprint(host: String, port: Int): String? =
         dao.findLatestByHostPort(host, port)?.fingerprint
 
     /**

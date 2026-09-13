@@ -59,7 +59,7 @@ import java.security.cert.X509Certificate
  * import exceptions this class throws — live at the bottom of this file rather
  * than in files of their own.
  */
-class UserCertificateStore(private val context: Context) {
+class UserCertificateStore(private val context: Context) : CertificateMaterialSource {
 
     private val db = MumdroidDatabase.getInstance(context)
     private val dao = db.userCertificateDao()
@@ -91,7 +91,7 @@ class UserCertificateStore(private val context: Context) {
      * certificate for TLS client authentication, or null if no certificate has
      * been generated/imported.
      */
-    suspend fun keyStoreMaterial(): Pair<X509Certificate, PrivateKey>? {
+    override suspend fun keyStoreMaterial(): Pair<X509Certificate, PrivateKey>? {
         val cert = load()
         if (!cert.isPresent()) return null
         return try {

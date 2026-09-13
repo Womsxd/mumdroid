@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.map
  * that keeps a favorite's Room identity ([ServerSave]) lives at the bottom of
  * this file: it is the store's own save rule.
  */
-class ServerStore(private val context: Context) {
+class ServerStore(private val context: Context) : LastChannelStore {
 
     private val dao = MumdroidDatabase.getInstance(context).serverDao()
 
@@ -76,7 +76,7 @@ class ServerStore(private val context: Context) {
         dao.findByHostPort(server.host, server.port)?.let { dao.delete(it) }
     }
 
-    suspend fun resolveId(serverId: Long, host: String, port: Int): Long {
+    override suspend fun resolveId(serverId: Long, host: String, port: Int): Long {
         if (serverId > 0L && dao.getById(serverId) != null) return serverId
         return dao.findByHostPort(host, port)?.id ?: 0L
     }
@@ -89,14 +89,14 @@ class ServerStore(private val context: Context) {
         dao.touchLastConnected(id, now)
     }
 
-    suspend fun getLastChannel(serverId: Long): LastChannel? {
+    override suspend fun getLastChannel(serverId: Long): LastChannel? {
         if (serverId <= 0L) return null
         val row = dao.getById(serverId) ?: return null
         val id = row.lastChannelId ?: return null
         return LastChannel(id, row.lastChannelName)
     }
 
-    suspend fun setLastChannel(serverId: Long, channelId: Int, channelName: String) {
+    override suspend fun setLastChannel(serverId: Long, channelId: Int, channelName: String) {
         if (serverId <= 0L) return
         dao.setLastChannel(serverId, channelId, channelName)
     }
