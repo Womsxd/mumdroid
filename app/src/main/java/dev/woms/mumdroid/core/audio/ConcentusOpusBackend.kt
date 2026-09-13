@@ -14,10 +14,6 @@ internal class ConcentusOpusBackend : OpusBackend {
 
     companion object {
         private const val TAG = "ConcentusOpus"
-        private const val DECODER_TTL_MS = 30_000L
-        private const val MAX_DECODERS = 32
-        private const val REAP_INTERVAL_MS = 10_000L
-        private const val REAP_SESSION_INTERVAL = 16
     }
 
     /**
@@ -36,11 +32,10 @@ internal class ConcentusOpusBackend : OpusBackend {
     private var lastBitrate = 0
     private val outBuffer = ByteArray(OpusCodec.MAX_PACKET)
 
-    private val decoderLock = Any()
-    private val decoders = java.util.concurrent.ConcurrentHashMap<Int, DecoderHandle>()
-    private val decoderLastUse = java.util.concurrent.ConcurrentHashMap<Int, Long>()
-    private var lastReapMs = 0L
-    private var newSessionsSinceReap = 0
+    private val decoderPool = DecoderPool<DecoderHandle>()
+
+    /** Live per-session decoders; test seam for the cap/eviction behaviour. */
+    internal val decoderCount: Int get() = decoderPool.size
 
     init {
         try {
@@ -154,58 +149,24 @@ internal class ConcentusOpusBackend : OpusBackend {
     }
 
     override fun resetDecoder(session: Int) {
-        decoders[session]?.let { handle ->
+        decoderPool.get(session)?.let { handle ->
             synchronized(handle) { try { handle.decoder.resetState() } catch (_: Exception) {} }
         }
     }
 
     override fun close() {
-        decoders.clear()
-        decoderLastUse.clear()
+        decoderPool.clear()
     }
 
-    private fun reapIdleDecoders(now: Long) {
-        val it = decoderLastUse.entries.iterator()
-        while (it.hasNext()) {
-            val e = it.next()
-            if (now - e.value > DECODER_TTL_MS) {
-                decoders.remove(e.key)
-                it.remove()
-            }
-        }
-        if (decoders.size <= MAX_DECODERS) return
-        val excess = decoders.size - MAX_DECODERS
-        val oldest = decoderLastUse.entries.sortedBy { it.value }.take(excess)
-        for (e in oldest) {
-            decoders.remove(e.key)
-            decoderLastUse.remove(e.key)
-        }
-    }
-
-    private fun noteDecoderUse(session: Int, now: Long) {
-        if (decoderLastUse.put(session, now) == null) newSessionsSinceReap++
-        val dueByTime = now - lastReapMs >= REAP_INTERVAL_MS
-        val dueByCount = newSessionsSinceReap >= REAP_SESSION_INTERVAL
-        if (!dueByTime && !dueByCount) return
-        lastReapMs = now
-        newSessionsSinceReap = 0
-        reapIdleDecoders(now)
-    }
-
-    private fun getOrCreateDecoder(session: Int): DecoderHandle? {
-        synchronized(decoderLock) {
-            noteDecoderUse(session, System.currentTimeMillis())
-            return try {
-                decoders.computeIfAbsent(session) {
-                    DecoderHandle(OpusDecoder(OpusCodec.SAMPLE_RATE, OpusCodec.CHANNELS))
-                }
+    private fun getOrCreateDecoder(session: Int): DecoderHandle? =
+        decoderPool.acquire(session) {
+            try {
+                DecoderHandle(OpusDecoder(OpusCodec.SAMPLE_RATE, OpusCodec.CHANNELS))
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to create Opus decoder for session $session", e)
-                decoderLastUse.remove(session)
                 null
             }
         }
-    }
 
     private fun OpusApplicationMode.toConcentus(): OpusApplication = when (this) {
         OpusApplicationMode.VOIP -> OpusApplication.OPUS_APPLICATION_VOIP
