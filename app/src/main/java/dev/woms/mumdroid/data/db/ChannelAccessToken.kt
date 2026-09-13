@@ -13,6 +13,10 @@ import androidx.room.Update
  * A channel password (official access token) remembered for one server
  * address and one channel. Distinct from the server login password on
  * [ServerEntity]. Shared across favorites of the same host:port.
+ *
+ * `token` is plaintext TEXT to match the desktop client (channel passwords use
+ * the same token mechanism), not by oversight; see [ServerEntity.password] for
+ * why at-rest hardening is a whole-database change.
  */
 @Entity(
     tableName = "channel_access_tokens",

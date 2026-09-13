@@ -22,8 +22,12 @@ import kotlinx.coroutines.flow.Flow
  *   row (desktop favorites are not unique on address).
  * @property port the Mumble port (default 64738).
  * @property username pre-filled username for the connection.
- * @property password stored password (kept plain for now, mirroring the
- *   previous DataStore behaviour).
+ * @property password stored password, as plaintext TEXT. This deliberately
+ *   matches the official desktop client's own storage of this value (see also
+ *   the access-token tables) — it is not an oversight. Encrypting this column
+ *   alone would be no real protection, since the same database holds the
+ *   tokens; hardening the at-rest format is a whole-database migration, not a
+ *   per-column change.
  * @property certificateAlias the alias of the pinned certificate for this
  *   server, if any (references [CertificateEntity.alias]).
  * @property lastConnectedAt epoch millis of the last successful connect, used

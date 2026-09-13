@@ -13,6 +13,9 @@ import androidx.room.Transaction
  * (`digest` + `token`). Shared by every favorite of that host:port — not
  * isolated by local username, because a registered client certificate still
  * authenticates as the same server-side user.
+ *
+ * `token` is plaintext TEXT to match the desktop client, not by oversight; see
+ * [ServerEntity.password] for why at-rest hardening is a whole-database change.
  */
 @Entity(
     tableName = "server_access_tokens",
