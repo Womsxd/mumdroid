@@ -20,7 +20,13 @@ internal class DecoderPool<T : Any>(
     private val ttlMs: Long = DEFAULT_TTL_MS,
     private val sweepIntervalMs: Long = DEFAULT_SWEEP_INTERVAL_MS,
     private val sweepAfterNewSessions: Int = DEFAULT_SWEEP_AFTER_NEW_SESSIONS,
-    private val clock: () -> Long = System::currentTimeMillis,
+    // Monotonic (immune to NTP steps and user clock changes) yet
+    // framework-free: this pool is shared with the pure-Java Concentus backend
+    // that JVM unit tests exercise directly, where an android.os.SystemClock
+    // call would be an unmocked framework call (see app/build.gradle.kts
+    // testOptions). System.nanoTime is CLOCK_MONOTONIC, the same base as the
+    // official QElapsedTimer the other voice clocks mirror.
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
     private val onEvict: (T) -> Unit = {},
 ) {
 
@@ -35,6 +41,15 @@ internal class DecoderPool<T : Any>(
     private val decoders = HashMap<Int, T>()
     private val lastUse = HashMap<Int, Long>()
     private var lastSweepMs = 0L
+
+    /**
+     * Explicit rather than a zero sentinel: a monotonic clock has an arbitrary
+     * origin (`System.nanoTime` can even read negative) and tests certainly
+     * read 0, so `lastSweepMs == 0L` says nothing about whether a sweep has
+     * happened and would leave the time gate open until `sweepIntervalMs`
+     * elapsed from that origin.
+     */
+    private var sweepPrimed = false
     private var newSessionsSinceSweep = 0
 
     /** Number of live decoders. */
@@ -51,6 +66,12 @@ internal class DecoderPool<T : Any>(
      */
     fun acquire(session: Int, create: () -> T?): T? = synchronized(lock) {
         val now = clock()
+        // Prime on first use so the interval is measured from then rather than
+        // from an unset baseline.
+        if (!sweepPrimed) {
+            sweepPrimed = true
+            lastSweepMs = now
+        }
         if (lastUse.put(session, now) == null) newSessionsSinceSweep++
         if (sweepDue(now)) sweep(now)
         decoders[session]?.let { return it }
