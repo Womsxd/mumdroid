@@ -87,7 +87,9 @@ class SpeexDspProcessor(private val frameSize: Int, private val sampleRate: Int)
         if (nativeHandle != 0L) nativeSetAgcIncrement(nativeHandle, dbPerSec)
     }
 
-    /** Maximal AGC gain decrease in dB/second (desktop: 60). */
+    /** Maximal AGC gain decrease in dB/second. Negative by definition, like the
+     *  desktop client's -60: speexdsp uses it as the multiplier that limits a
+     *  gain drop, so a positive value would make the AGC raise the gain. */
     fun setAgcDecrement(dbPerSec: Int) {
         if (nativeHandle != 0L) nativeSetAgcDecrement(nativeHandle, dbPerSec)
     }

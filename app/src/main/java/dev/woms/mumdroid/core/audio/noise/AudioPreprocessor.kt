@@ -253,18 +253,21 @@ class AudioPreprocessor(
 
     /**
      * Enables/disables the speexdsp pre-processor's built-in AGC with the
-     * desktop client's adaptation parameters (target 30000, 12/60 dB per
-     * second rates) and a user-selectable maximal gain. This replaces the
-     * former hand-written Kotlin AGC: gain control now happens either here
-     * (native, [AgcMode.SPEEX]) or via the platform AutomaticGainControl
-     * effect ([AgcMode.SYSTEM]).
+     * desktop client's adaptation parameters (target 30000, +12 dB/s maximal
+     * increase, -60 dB/s maximal decrease) and a user-selectable maximal gain.
+     * Both rates are signed the way speexdsp stores them, and the decrease rate
+     * must be negative: it becomes the gain multiplier that caps how fast the
+     * gain may drop, so a positive value inverts that clamp and makes the AGC
+     * ramp the gain up instead. This replaces the former hand-written Kotlin
+     * AGC: gain control now happens either here (native, [AgcMode.SPEEX]) or via
+     * the platform AutomaticGainControl effect ([AgcMode.SYSTEM]).
      */
     fun setNativeAgc(enable: Boolean, maxGainDb: Int = 30) {
         val dsp = speexDsp ?: return
         dsp.setAgcTarget(30000)
         dsp.setAgcMaxGain(maxGainDb.coerceIn(0, 90))
         dsp.setAgcIncrement(12)
-        dsp.setAgcDecrement(60)
+        dsp.setAgcDecrement(-60)
         dsp.setAgc(enable)
     }
 
