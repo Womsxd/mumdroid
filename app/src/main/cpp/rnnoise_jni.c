@@ -6,9 +6,14 @@
  * the same backend used by the desktop Mumble client.
  *
  * The processing frame is 480 samples (10 ms at 48 kHz) and the native API
- * operates on floats in [-1, 1]; this binding converts from/to 16-bit PCM and
- * accepts any positive multiple of 480 samples (10/20/40/60 ms Opus frames),
- * processing them as consecutive 10 ms sub-frames.
+ * operates on floats whose values are the raw 16-bit PCM samples (roughly
+ * [-32768, 32767]), NOT a [-1, 1] normalisation: upstream's
+ * examples/rnnoise_demo.c, the desktop client and the training feature dumper
+ * all feed that magnitude, and the internal silence gate (E < 0.04) plus the
+ * trained feature scaling are calibrated for it. This binding therefore
+ * converts from/to 16-bit PCM without rescaling and accepts any positive
+ * multiple of 480 samples (10/20/40/60 ms Opus frames), processing them as
+ * consecutive 10 ms sub-frames.
  */
 
 #include <jni.h>
@@ -124,16 +129,17 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeProcess(
     for (int sub = 0; sub < frames; sub++) {
         const jshort *src = inEl + sub * RNNOISE_FRAME;
 
-        /* Convert 16-bit PCM to float in the range [-1, 1]. */
+        /* Keep the raw 16-bit PCM magnitude: RNNoise's silence gate and its
+         * trained features assume int16-scale floats, not [-1, 1]. */
         for (int i = 0; i < RNNOISE_FRAME; i++) {
-            h->inBuf[i] = (float)src[i] / 32768.0f;
+            h->inBuf[i] = (float)src[i];
         }
 
         float vad = rnnoise_process_frame(h->state, h->outBuf, h->inBuf);
 
         jshort *dst = outEl + sub * RNNOISE_FRAME;
         for (int i = 0; i < RNNOISE_FRAME; i++) {
-            float v = h->outBuf[i] * 32768.0f;
+            float v = h->outBuf[i];
             if (v > 32767.0f) v = 32767.0f;
             if (v < -32768.0f) v = -32768.0f;
             dst[i] = (jshort)v;
