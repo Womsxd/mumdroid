@@ -182,14 +182,27 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeRun(
 
 JNIEXPORT jlong JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCreate(
-        JNIEnv *env, jclass clazz, jint frame_size, jint filter_length) {
+        JNIEnv *env, jclass clazz, jint frame_size, jint filter_length, jint sample_rate) {
     (void) env;
     (void) clazz;
-    if (frame_size <= 0 || filter_length <= 0) {
+    if (frame_size <= 0 || filter_length <= 0 || sample_rate <= 0) {
         return 0;
     }
     SpeexEchoState *st = speex_echo_state_init((int) frame_size, (int) filter_length);
-    return st ? (jlong) (intptr_t) st : 0;
+    if (st == NULL) {
+        return 0;
+    }
+    /* speex_echo_state_init*() starts from st->sampling_rate = 8000 and derives
+     * notch_radius / beta0 / beta_max / spec_average from it (mdf.c:427-434,
+     * 500-505). SPEEX_ECHO_SET_SAMPLING_RATE is the only thing that recomputes
+     * them (mdf.c:1231-1246), so without this call the canceller adapts as if
+     * it ran at 8 kHz: notch_radius 0.9 instead of 0.992 (a much wider DC
+     * notch, which eats the low end of the near-end signal) and beta0/beta_max
+     * 6x too large for a 48 kHz / 480-sample frame. The desktop client makes
+     * the same call right after speex_echo_state_init_mc() (AudioInput.cpp). */
+    int rate = (int) sample_rate;
+    speex_echo_ctl(st, SPEEX_ECHO_SET_SAMPLING_RATE, &rate);
+    return (jlong) (intptr_t) st;
 }
 
 JNIEXPORT void JNICALL

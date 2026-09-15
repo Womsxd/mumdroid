@@ -63,7 +63,7 @@ class SpeexEchoCanceller(
     fun start(): Boolean {
         if (!isAvailable) return false
         if (nativeHandle != 0L) return true
-        nativeHandle = nativeCreate(frameSize, sampleRate * filterLengthMs / 1000)
+        nativeHandle = nativeCreate(frameSize, sampleRate * filterLengthMs / 1000, sampleRate)
         if (nativeHandle == 0L) {
             Log.e(TAG, "Failed to create native echo canceller state")
         }
@@ -138,7 +138,7 @@ class SpeexEchoCanceller(
 
     // --- native methods (JNI, see app/src/main/cpp/speexdsp_jni.c) ---
 
-    private external fun nativeCreate(frameSize: Int, filterLength: Int): Long
+    private external fun nativeCreate(frameSize: Int, filterLength: Int, sampleRate: Int): Long
     private external fun nativeDestroy(handle: Long)
     private external fun nativeCancel(handle: Long, near: ShortArray, far: ShortArray, out: ShortArray): Boolean
 }
