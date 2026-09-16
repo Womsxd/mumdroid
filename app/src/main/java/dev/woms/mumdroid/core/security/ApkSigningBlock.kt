@@ -345,17 +345,34 @@ object ApkSigningBlock {
     // low-level readers
     // ---------------------------------------------------------------------
 
-    /** Finds the EOCD record inside the tail [window] read by [readBlock]. */
+    /**
+     * Finds the EOCD record inside the tail [window] read by [readBlock].
+     *
+     * Candidates are scanned backwards, as ZIP requires, but a candidate is only
+     * accepted when the comment length it declares ends exactly at the end of
+     * the file. That is what makes the bytes an EOCD *record* rather than bytes
+     * that merely look like one — and the ZIP comment is attacker-controlled
+     * data. Without the check, a `PK\x05\x06` planted in the comment wins the
+     * backwards scan, and the central-directory offset [readBlock] then reads
+     * from it is whatever the attacker wrote there (a parse failure on an
+     * "implausible offset").
+     */
     private fun findEocd(window: ByteArray): Int {
         val sig = byteArrayOf(0x50, 0x4b, 0x05, 0x06)
         for (i in window.size - EOCD_MIN_SIZE downTo 0) {
             if (window[i] == sig[0] && window[i + 1] == sig[1] &&
-                window[i + 2] == sig[2] && window[i + 3] == sig[3]
+                window[i + 2] == sig[2] && window[i + 3] == sig[3] &&
+                i + EOCD_MIN_SIZE + readUInt16(window, i + 20) == window.size
             ) {
                 return i
             }
         }
         throw IOException("no End-Of-Central-Directory record")
+    }
+
+    private fun readUInt16(buf: ByteArray, offset: Int): Int {
+        if (offset < 0 || offset + 2 > buf.size) throw IOException("read past end at $offset")
+        return (buf[offset].toInt() and 0xFF) or ((buf[offset + 1].toInt() and 0xFF) shl 8)
     }
 
     private fun readLong(buf: ByteArray, offset: Int): Long {

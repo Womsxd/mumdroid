@@ -132,6 +132,23 @@ android {
     }
 }
 
+// The APK signature fixtures (src/test/resources/apk-signatures/) are generated
+// by tools/make-signature-fixtures.sh and deliberately not committed, so the
+// tests that need them skip themselves when they are absent. Gradle swallows
+// test stdout, so the reason is announced here instead of only in the report.
+tasks.withType<Test>().configureEach {
+    val fixtures = layout.projectDirectory.dir("src/test/resources/apk-signatures").asFile
+    doFirst {
+        if (fixtures.listFiles()?.any { it.extension == "apk" } != true) {
+            logger.warn(
+                "APK signature fixtures not generated: no .apk files in $fixtures, so the " +
+                    "signature tests will skip. Generate them once with: " +
+                    "ANDROID_HOME=<sdk> tools/make-signature-fixtures.sh",
+            )
+        }
+    }
+}
+
 protobuf {
     protoc {
         artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"

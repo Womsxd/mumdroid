@@ -60,12 +60,14 @@ class MainActivity : BaseActivity() {
     @Composable
     override fun Content(vm: MainViewModel) {
         val servers by vm.servers.collectAsStateWithLifecycle()
-        // --- APK tamper check: warn when the running signature does not match
-        // the one this build was signed with. ---
+        // --- APK tamper check: warn unless the running build was actually
+        // verified against the signature it was compiled with. Ask for the
+        // positive result, not for "is it tampered": a verification that could
+        // not be carried out must warn as well. ---
         val context = LocalContext.current
         var showTamperDialog by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
-            showTamperDialog = SignatureVerifier.isApkTampered(context)
+            showTamperDialog = !SignatureVerifier.verify(context).status.isTrusted
         }
 
         val serverPings by vm.serverPings.collectAsStateWithLifecycle()

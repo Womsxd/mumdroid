@@ -23,3 +23,9 @@ keystore.properties
 *.keystore
 *.p12
 *.pem
+
+# --- Generated APK test fixtures (tools/make-signature-fixtures.sh) ---
+# apksigner output whose keys are minted fresh on every run, so the certificates
+# (and the digests derived from them) are per-machine artifacts. Generate them
+# once locally; the signature tests skip themselves with an INFO notice without.
+app/src/test/resources/apk-signatures/

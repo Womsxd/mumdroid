@@ -8,7 +8,6 @@ import androidx.annotation.RequiresApi
 import dev.woms.mumdroid.BuildConfig
 import dev.woms.mumdroid.core.security.SignatureVerifier.decide
 import dev.woms.mumdroid.core.security.SignatureVerifier.expectedDigests
-import dev.woms.mumdroid.core.security.SignatureVerifier.isApkTampered
 import dev.woms.mumdroid.core.security.SignatureVerifier.verify
 import java.io.File
 import java.security.MessageDigest
@@ -77,13 +76,23 @@ import java.security.MessageDigest
  * the whitelist requires possessing its private key, i.e. the developer
  * authorised it.
  *
+ * ## Failing closed
+ *
+ * "Could not verify" is not "verified". [Status.isTrusted] accepts a positive
+ * [Status.OK] and the deliberate [Status.SKIPPED], and nothing else:
+ * [Status.UNREADABLE] reaches the user as the same warning as
+ * [Status.TAMPERED]. A check that fails open is worse than no check at all,
+ * because forcing it to fail is much easier than forging a signature — the
+ * signing block simply has to stay unparsed (see [ApkSigningBlock] for how
+ * little that takes). Callers therefore must not ask "is this APK tampered?"
+ * (a question whose "no" also covers "unknown"), only "was this APK verified?".
+ *
  * ## Release-only safeguard
  *
  * Debug builds use the auto-generated debug keystore and never match the
- * release digest, so [isApkTampered] short-circuits to `false` whenever
- * `BuildConfig.DEBUG` is true. When no release keystore was configured the
- * expected digest is empty and the check is skipped as well, leaving normal
- * development unaffected.
+ * release digest, so [verify] reports [Status.SKIPPED] for them and the warning
+ * stays off. When no release keystore was configured the expected digest is
+ * empty and the check is skipped as well, leaving normal development unaffected.
  */
 object SignatureVerifier {
 
@@ -98,17 +107,22 @@ object SignatureVerifier {
         /** The APK is signed with something other than the expected certificate. */
         TAMPERED,
 
-        /** The signature material could not be read or parsed. */
-        UNREADABLE,
-    }
+        /** The signature material could not be read or parsed. Not a pass — see [isTrusted]. */
+        UNREADABLE;
 
-    /**
-     * Whether the running APK appears to be tampered with.
-     *
-     * Callers that only need a boolean can keep using this; [verify] exposes the
-     * fuller [Status] for diagnostics.
-     */
-    fun isApkTampered(context: Context): Boolean = verify(context).status == Status.TAMPERED
+        /**
+         * Whether an APK in this state may run without warning the user.
+         *
+         * Fails closed by design: only a verification that actually succeeded
+         * ([OK]), or one that was deliberately not applicable ([SKIPPED]: debug
+         * build, or no expected digest configured), counts as trusted.
+         * [UNREADABLE] is *not* a pass. "We could not check" is exactly the state
+         * an attacker who repackaged the APK can force — [ApkSigningBlock] shows
+         * how little that takes — so reporting it as a clean result would make
+         * the check a formality for anyone who bothers to break it.
+         */
+        val isTrusted: Boolean get() = this == OK || this == SKIPPED
+    }
 
     /** Result of [verify]. */
     data class Report(
