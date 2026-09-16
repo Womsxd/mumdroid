@@ -10,6 +10,7 @@ import dev.woms.mumdroid.core.security.SignatureVerifier.decide
 import dev.woms.mumdroid.core.security.SignatureVerifier.expectedDigests
 import dev.woms.mumdroid.core.security.SignatureVerifier.isApkTampered
 import dev.woms.mumdroid.core.security.SignatureVerifier.verify
+import java.io.File
 import java.security.MessageDigest
 
 /**
@@ -134,14 +135,10 @@ object SignatureVerifier {
         val path = apkPath ?: context.applicationInfo?.sourceDir
         if (path.isNullOrBlank()) return Report(Status.UNREADABLE, "no APK path")
 
-        // The signing block sits at the end of the file, but its offsets are
-        // relative to the whole APK, so we read it in full. This runs once per
-        // process start and the file is already in the page cache.
-        val apkBytes = try {
-            java.io.File(path).readBytes()
-        } catch (e: Exception) {
-            return Report(Status.UNREADABLE, "cannot read APK: ${e.message}")
-        }
+        // Only the End-Of-Central-Directory tail and the signing block are ever
+        // read (see [ApkSigningBlock.parse]), so a 20-80 MB APK is not copied
+        // into memory. This runs once per process start.
+        val apk = File(path)
 
         // The platform's own view, used as a cross-check below.
         val platform = try {
@@ -150,25 +147,25 @@ object SignatureVerifier {
             return Report(Status.UNREADABLE, "cannot read platform signature: ${e.message}")
         }
 
-        return decide(apkBytes, expected, platform)
+        return decide(apk, expected, platform)
     }
 
     /**
      * The full decision, kept free of Android types so it can be unit-tested
      * against real APK fixtures.
      *
-     * @param apkBytes the APK to inspect.
+     * @param apk the APK to inspect; only its tail and signing block are read.
      * @param expected the accepted certificate digests (colon-separated hex).
      * @param platformDigests what `PackageManager` reported, if available.
      */
     internal fun decide(
-        apkBytes: ByteArray,
+        apk: File,
         expected: Collection<String>,
         platformDigests: List<String>,
     ): Report {
         // 1) Parse the signing block ourselves and enumerate every signer.
         val block = try {
-            ApkSigningBlock.parse(apkBytes)
+            ApkSigningBlock.parse(apk)
         } catch (e: Exception) {
             return Report(Status.UNREADABLE, "cannot parse signing block: ${e.message}")
         }

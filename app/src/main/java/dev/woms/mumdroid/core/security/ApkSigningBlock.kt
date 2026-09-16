@@ -1,6 +1,10 @@
 package dev.woms.mumdroid.core.security
 
+import dev.woms.mumdroid.core.security.ApkSigningBlock.parse
+import dev.woms.mumdroid.core.security.ApkSigningBlock.readBlock
+import java.io.File
 import java.io.IOException
+import java.io.RandomAccessFile
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
@@ -45,11 +49,20 @@ import java.security.cert.X509Certificate
  *
  * This class is pure JVM: it has no Android dependencies and is unit-testable
  * on a plain JVM.
+ *
+ * Only the bytes that matter are read: the End-Of-Central-Directory window at
+ * the end of the file, and then the signing block itself. See [parse].
  */
 object ApkSigningBlock {
 
     /** 16-byte trailer that anchors the signing block. */
     private val MAGIC = "APK Sig Block 42".toByteArray(Charsets.US_ASCII)
+
+    /** Minimum End-Of-Central-Directory record size (with an empty comment). */
+    private const val EOCD_MIN_SIZE = 22
+
+    /** Maximum ZIP comment, which can follow the EOCD record. */
+    private const val MAX_COMMENT = 0xFFFF
 
     /**
      * Pair ids, stored as their **little-endian** 4-byte form (which is how
@@ -154,15 +167,23 @@ object ApkSigningBlock {
     }
 
     /**
-     * Parses the signing block out of a whole APK file.
+     * Parses the signing block out of an APK file.
+     *
+     * Only the tail of the file is read — the (at most 64 KiB + 22 byte)
+     * End-Of-Central-Directory window, and then the signing block itself, which
+     * sits between the last ZIP entry and the central directory. A 20–80 MB APK
+     * therefore costs a few kilobytes of allocation rather than a full copy.
      *
      * @throws IOException when the block is missing, malformed, or its declared
      *   size disagrees with the bytes actually present.
      */
     @Throws(IOException::class)
-    fun parse(apk: ByteArray): Result {
-        val (blockStart, blockEnd) = locateBlock(apk)
-        val pairs = readPairs(apk, blockStart, blockEnd)
+    fun parse(apk: File): Result = RandomAccessFile(apk, "r").use { parseBlock(readBlock(it)) }
+
+    /** Parses the pairs out of a signing block that has already been read. */
+    @Throws(IOException::class)
+    private fun parseBlock(block: ByteArray): Result {
+        val pairs = readPairs(block)
         val signers = pairs.mapNotNull { pair ->
             parseSigners(pair)?.map { Signer(pair.idHex, it) }
         }.flatten()
@@ -170,61 +191,93 @@ object ApkSigningBlock {
     }
 
     /**
-     * Finds the signing block by walking from the End-Of-Central-Directory
-     * record backwards, exactly like `apksig` does.
+     * Reads the signing block and nothing else, walking from the
+     * End-Of-Central-Directory record backwards exactly like `apksig` does.
      *
-     * @return `(blockStart, blockEnd)` where `blockStart` is the offset of the
-     *   leading `u64 size` and `blockEnd` is one past the magic trailer.
+     * @return the block, from its leading `u64 size` through the 16-byte magic.
      */
     @Throws(IOException::class)
-    private fun locateBlock(apk: ByteArray): IntArray {
-        val eocd = findEocd(apk)
-        val centralDirectoryOffset = readInt(apk, eocd + 16)
-        if (centralDirectoryOffset <= 0 || centralDirectoryOffset > apk.size) {
-            throw IOException("implausible central directory offset: $centralDirectoryOffset")
+    private fun readBlock(file: RandomAccessFile): ByteArray {
+        // 1) The EOCD is at most 22 bytes, optionally followed by a comment of
+        //    up to 64 KiB, so the whole record lives in this tail window.
+        val fileLength = file.length()
+        val windowLength = minOf(fileLength, (EOCD_MIN_SIZE + MAX_COMMENT).toLong()).toInt()
+        val window = ByteArray(windowLength)
+        file.seek(fileLength - windowLength)
+        file.readFully(window)
+        val eocd = findEocd(window)
+
+        // 2) Its central-directory offset is exactly where the block ends.
+        val blockEnd = readInt(window, eocd + 16).toLong() and 0xFFFFFFFFL
+        if (blockEnd <= 0 || blockEnd > fileLength) {
+            throw IOException("implausible central directory offset: $blockEnd")
         }
-        // The signing block sits between the last local file entry and the
-        // central directory, and ends with the 16-byte magic.
-        val blockEnd = centralDirectoryOffset
         val magicOffset = blockEnd - MAGIC.size
-        if (magicOffset < 0 || !matchesAt(apk, magicOffset, MAGIC)) {
+        if (magicOffset < 0) {
+            throw IOException("no room for an APK Signing Block before $blockEnd")
+        }
+
+        // 3) The block is anchored by its 16-byte magic trailer.
+        val magic = ByteArray(MAGIC.size)
+        file.seek(magicOffset)
+        file.readFully(magic)
+        if (!magic.contentEquals(MAGIC)) {
             throw IOException("no APK Signing Block magic before the central directory")
         }
-        val size = readLong(apk, magicOffset - 8)
+
         // `size` counts the bytes after the leading u64 up to and including
         // the trailing u64 that precedes the magic, hence the `+ 8`.
+        val size = readLongAt(file, magicOffset - 8)
         if (size < 24 || size > magicOffset) {
             throw IOException("implausible APK Signing Block size: $size")
         }
         val start = magicOffset + 8 - size
-        if (start < 0 || start > Int.MAX_VALUE) {
+        if (start < 0) {
             throw IOException("APK Signing Block starts before the file")
         }
-        val startOffset = start.toInt()
-        if (readLong(apk, startOffset) != size) {
+        if (readLongAt(file, start) != size) {
             throw IOException("APK Signing Block size fields disagree")
         }
-        return intArrayOf(startOffset, blockEnd)
+        if (size + 8 > Int.MAX_VALUE) {
+            throw IOException("APK Signing Block is too large: $size")
+        }
+
+        val block = ByteArray((size + 8).toInt())
+        file.seek(start)
+        file.readFully(block)
+        return block
     }
 
-    /** Reads every id-value pair between the two size fields. */
+    /** Reads a little-endian `u64` at [offset]. */
     @Throws(IOException::class)
-    private fun readPairs(apk: ByteArray, start: Int, end: Int): List<Pair> {
+    private fun readLongAt(file: RandomAccessFile, offset: Long): Long {
+        val buf = ByteArray(8)
+        file.seek(offset)
+        file.readFully(buf)
+        return readLong(buf, 0)
+    }
+
+    /**
+     * Reads every id-value pair between the two size fields of [block], which
+     * starts at the leading `u64 size`.
+     */
+    @Throws(IOException::class)
+    private fun readPairs(block: ByteArray): List<Pair> {
         val out = ArrayList<Pair>()
-        var pos = start + 8
-        val stop = end - MAGIC.size - 8
+        var pos = 8
+        val stop = block.size - MAGIC.size - 8
         while (pos < stop) {
             if (pos + 12 > stop) throw IOException("truncated pair header at $pos")
-            val len = readLong(apk, pos)
+            val len = readLong(block, pos)
             if (len < 0 || len > (stop - pos - 8).toLong()) {
                 throw IOException("pair length $len overflows the signing block at $pos")
             }
-            val id = apk.copyOfRange(pos + 8, pos + 12)
+            val id = block.copyOfRange(pos + 8, pos + 12)
             // `len` counts the 4-byte id as well, so the value is only
             // `len - 4` bytes long. Reading `len` bytes would pull in the
             // start of the next pair (or the trailer for the last pair) and
             // can truncate the final signer's length-prefixed data.
-            val value = apk.copyOfRange(pos + 12, (pos + 8 + len).toInt())
+            val value = block.copyOfRange(pos + 12, (pos + 8 + len).toInt())
             out.add(Pair(id, value))
             pos += (8 + len).toInt()
         }
@@ -292,27 +345,17 @@ object ApkSigningBlock {
     // low-level readers
     // ---------------------------------------------------------------------
 
-    private fun findEocd(apk: ByteArray): Int {
-        // The EOCD is at least 22 bytes and may be followed by a comment of up
-        // to 64 KiB, so scan a window from the end.
+    /** Finds the EOCD record inside the tail [window] read by [readBlock]. */
+    private fun findEocd(window: ByteArray): Int {
         val sig = byteArrayOf(0x50, 0x4b, 0x05, 0x06)
-        val minPos = (apk.size - 22 - 0xFFFF).coerceAtLeast(0)
-        for (i in apk.size - 22 downTo minPos) {
-            if (apk[i] == sig[0] && apk[i + 1] == sig[1] &&
-                apk[i + 2] == sig[2] && apk[i + 3] == sig[3]
+        for (i in window.size - EOCD_MIN_SIZE downTo 0) {
+            if (window[i] == sig[0] && window[i + 1] == sig[1] &&
+                window[i + 2] == sig[2] && window[i + 3] == sig[3]
             ) {
                 return i
             }
         }
         throw IOException("no End-Of-Central-Directory record")
-    }
-
-    private fun matchesAt(buf: ByteArray, offset: Int, needle: ByteArray): Boolean {
-        if (offset < 0 || offset + needle.size > buf.size) return false
-        for (i in needle.indices) {
-            if (buf[offset + i] != needle[i]) return false
-        }
-        return true
     }
 
     private fun readLong(buf: ByteArray, offset: Int): Long {
