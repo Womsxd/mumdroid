@@ -139,6 +139,25 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcDecrement(
 }
 
 /*
+ * The AGC's current gain in dB (0 until it has adapted). speexdsp keeps it as a
+ * linear multiplier, so this is the same conversion SPEEX_PREPROCESS_GET_AGC_GAIN
+ * performs. Used to compensate the noise-suppression floor for the AGC boost.
+ */
+JNIEXPORT jint JNICALL
+Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeGetAgcGain(
+        JNIEnv *env, jclass clazz, jlong handle) {
+    (void) env;
+    (void) clazz;
+    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
+    if (st == NULL) {
+        return 0;
+    }
+    int gain = 0;
+    speex_preprocess_ctl(st, SPEEX_PREPROCESS_GET_AGC_GAIN, &gain);
+    return (jint) gain;
+}
+
+/*
  * Runs one frame of 16-bit PCM through the preprocessor in place.
  *
  * @return 1 when speech was detected by the internal VAD, 0 for non-speech,

@@ -47,6 +47,9 @@ class AudioPreprocessor(
 
     companion object {
         private const val DEFAULT_NOISE_SUPPRESS_DB = -15.0
+
+        /** AGC increase rate while speech is being sent, in dB/second (desktop: 12). */
+        private const val AGC_INCREMENT_DBPS = 12
     }
 
     // --- configuration ---
@@ -65,6 +68,10 @@ class AudioPreprocessor(
 
     // native speexdsp preprocessor (used when mode involves Speex).
     private var speexDsp: SpeexDspProcessor? = null
+
+    // Whether the native speexdsp AGC is currently enabled; drives the per-frame
+    // noise-suppress compensation and the idle increment hold (see applyNativeAgc).
+    private var nativeAgcEnabled = false
 
     // --- dsp state ---
     private var initialized = false
@@ -258,15 +265,20 @@ class AudioPreprocessor(
      * Both rates are signed the way speexdsp stores them, and the decrease rate
      * must be negative: it becomes the gain multiplier that caps how fast the
      * gain may drop, so a positive value inverts that clamp and makes the AGC
-     * ramp the gain up instead. This replaces the former hand-written Kotlin
-     * AGC: gain control now happens either here (native, [AgcMode.SPEEX]) or via
-     * the platform AutomaticGainControl effect ([AgcMode.SYSTEM]).
+     * ramp the gain up instead. The increase rate is only the resting value —
+     * [applyNativeAgc] adjusts it per frame. This replaces the former
+     * hand-written Kotlin AGC: gain control now happens either here (native,
+     * [AgcMode.SPEEX]) or via the platform AutomaticGainControl effect
+     * ([AgcMode.SYSTEM]).
      */
     fun setNativeAgc(enable: Boolean, maxGainDb: Int = 30) {
+        nativeAgcEnabled = enable
         val dsp = speexDsp ?: return
+        // Disabling stops the per-frame compensation, so put the plain level back.
+        if (!enable) dsp.setNoiseSuppress(noiseSuppressDb.roundToInt())
         dsp.setAgcTarget(30000)
         dsp.setAgcMaxGain(maxGainDb.coerceIn(0, 90))
-        dsp.setAgcIncrement(12)
+        dsp.setAgcIncrement(AGC_INCREMENT_DBPS)
         dsp.setAgcDecrement(-60)
         dsp.setAgc(enable)
     }
@@ -298,8 +310,29 @@ class AudioPreprocessor(
     private fun applySpeexStage(samples: ShortArray) {
         val dsp = speexDsp
         if (dsp != null && dsp.isInitialized) {
+            applyNativeAgc(dsp)
             dsp.run(samples)
         }
+    }
+
+    /**
+     * Per-frame AGC bookkeeping, mirroring what the desktop client does right
+     * before it runs the preprocessor:
+     *
+     *  - noise-suppress compensation: speexdsp applies the AGC *after* the
+     *    denoiser has computed its spectral gains, so an AGC boost raises the
+     *    residual noise floor by the same amount. Deepening the suppression
+     *    floor by the current AGC gain keeps the absolute floor where the user
+     *    set it, leaving [noiseSuppressDb] meaning "the strength at 0 dB gain".
+     *  - idle hold: while the VAD reports no speech the increase rate is 0, so
+     *    the AGC cannot wind the gain — and the noise floor with it — up during
+     *    silence. As in the desktop client the rate is derived from the VAD
+     *    result already computed, so it takes effect on the following frame.
+     */
+    private fun applyNativeAgc(dsp: SpeexDspProcessor) {
+        if (!nativeAgcEnabled) return
+        dsp.setNoiseSuppress((noiseSuppressDb - dsp.getAgcGain()).roundToInt())
+        dsp.setAgcIncrement(if (lastDetectedVoice) AGC_INCREMENT_DBPS else 0)
     }
 
     // --- VAD ---

@@ -94,6 +94,9 @@ class SpeexDspProcessor(private val frameSize: Int, private val sampleRate: Int)
         if (nativeHandle != 0L) nativeSetAgcDecrement(nativeHandle, dbPerSec)
     }
 
+    /** The AGC's current gain in dB (0 until it has adapted). */
+    fun getAgcGain(): Int = if (nativeHandle != 0L) nativeGetAgcGain(nativeHandle) else 0
+
     /**
      * Associates an echo canceller state so the preprocessor can use its
      * residual-echo suppression. Pass the raw handle of a
@@ -122,6 +125,7 @@ class SpeexDspProcessor(private val frameSize: Int, private val sampleRate: Int)
     private external fun nativeSetAgcMaxGain(handle: Long, db: Int)
     private external fun nativeSetAgcIncrement(handle: Long, dbPerSec: Int)
     private external fun nativeSetAgcDecrement(handle: Long, dbPerSec: Int)
+    private external fun nativeGetAgcGain(handle: Long): Int
     private external fun nativeSetEchoState(handle: Long, echoHandle: Long)
     private external fun nativeRun(handle: Long, samples: ShortArray): Int
 }
