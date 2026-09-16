@@ -54,24 +54,31 @@ class AudioInput {
 
     /**
      * Applies a configuration snapshot to the shared capture engine.
+     *
+     * Parameters left out keep the engine's current value, so a caller that
+     * only cares about a subset (the noise / AGC stage, say) cannot silently
+     * reset the rest. That matters most for [framesPerPacket], which also
+     * determines the capture frame size: changing it on a live engine desyncs
+     * it from the capture loop's buffer and from the framing the bandwidth
+     * controller reports, so it must only move together with a capture restart.
      */
     fun applySettings(
         noiseEnabled: Boolean,
         mode: NoiseSuppressionMode,
         suppressionDb: Int,
         agcMode: AgcMode,
-        agcEnabled: Boolean = true,
-        agcMaxGainDb: Int = 30,
-        inputVolume: Int = 100,
-        aecMode: AecMode = AecMode.SYSTEM,
-        aecEnabled: Boolean = false,
-        micSource: MicSource = MicSource.MIC,
-        vadGating: Boolean = false,
-        vadMethod: VadMethod = VadMethod.AMPLITUDE,
-        vadSpeechThreshold: Int = 98,
-        vadSilenceThreshold: Int = 80,
-        vadHoldFrames: Int = 20,
-        framesPerPacket: Int = 2,
+        agcEnabled: Boolean = engine.agcEnabled,
+        agcMaxGainDb: Int = engine.agcMaxGainDb,
+        inputVolume: Int = engine.inputVolume,
+        aecMode: AecMode = engine.aecMode,
+        aecEnabled: Boolean = engine.aecEnabled,
+        micSource: MicSource = engine.micSource,
+        vadGating: Boolean = engine.vadGating,
+        vadMethod: VadMethod = engine.vadMethod,
+        vadSpeechThreshold: Int = engine.vadSpeechThreshold,
+        vadSilenceThreshold: Int = engine.vadSilenceThreshold,
+        vadHoldFrames: Int = engine.vadHoldFrames,
+        framesPerPacket: Int = engine.framesPerPacket,
     ) {
         engine.applySettings(
             micSource = micSource,
