@@ -461,6 +461,8 @@
     </plurals>
     <string name="certificate_pinning">证书固定</string>
     <string name="certificate_pinning_sub">校验服务器证书指纹</string>
+    <string name="hide_client_info">不发送客户端信息</string>
+    <string name="hide_client_info_sub">连接时只上报协议版本号，下次连接生效</string>
 
     <!-- Certificate pinning prompt -->
     <string name="certificate_prompt_title">证书异常</string>

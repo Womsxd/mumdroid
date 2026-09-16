@@ -373,6 +373,7 @@ class MumbleService : Service() {
                 val prepared = connectionFactory.create(
                     params,
                     state.currentSettings.certificatePinning,
+                    state.currentSettings.hideClientInfo,
                     events,
                 )
                 state.connectedServerId = prepared.resolvedServerId

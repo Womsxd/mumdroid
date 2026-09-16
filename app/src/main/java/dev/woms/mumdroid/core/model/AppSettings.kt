@@ -30,6 +30,12 @@ import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
  * @property defaultUsername username pre-filled for the connect dialog.
  * @property certificatePinning when true, the server certificate fingerprint
  *   captured on the first connection is pinned for subsequent connections.
+ * @property hideClientInfo hides this client's identity from the server: the
+ *   connect handshake leaves the operating system name and version out of the
+ *   `Version` message and reports the protocol version instead of the client
+ *   name, so the server learns nothing about the platform or the build. Read
+ *   when a connection is built, like [certificatePinning], so a change only
+ *   takes effect on the next connect.
  * @property backupUserCertificates when true, the user-certificate private-key
  *   files are kept in a location covered by system/vendor cloud backup. When
  *   false (the default), they are stored in no-backup storage so they are
@@ -116,6 +122,7 @@ data class AppSettings(
     val autoReconnect: Boolean = false,
     val defaultUsername: String = "",
     val certificatePinning: Boolean = true,
+    val hideClientInfo: Boolean = false,
     val backupUserCertificates: Boolean = false,
     val inputVolume: Int = 100,
     val transmitQuality: Int = 40,

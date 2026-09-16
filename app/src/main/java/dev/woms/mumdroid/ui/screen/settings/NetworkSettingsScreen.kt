@@ -37,6 +37,12 @@ internal fun NetworkSettingsScreen(settings: AppSettings, onChanged: (AppSetting
             onCheckedChange = { onChanged(settings.copy(certificatePinning = it)) },
         )
         SwitchRow(
+            title = stringResource(R.string.hide_client_info),
+            subtitle = stringResource(R.string.hide_client_info_sub),
+            checked = settings.hideClientInfo,
+            onCheckedChange = { onChanged(settings.copy(hideClientInfo = it)) },
+        )
+        SwitchRow(
             title = stringResource(R.string.auto_server_ping),
             subtitle = stringResource(R.string.auto_server_ping_sub),
             checked = settings.autoServerPing,

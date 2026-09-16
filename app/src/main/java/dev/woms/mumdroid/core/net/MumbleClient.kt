@@ -1,9 +1,12 @@
 package dev.woms.mumdroid.core.net
 
+import android.os.Build
 import android.util.Log
 import com.google.protobuf.MessageLite
 import dev.woms.mumdroid.BuildConfig
+import dev.woms.mumdroid.core.model.MumbleVersion
 import dev.woms.mumdroid.core.net.MumbleClient.Companion.BODY_CHUNK_BYTES
+import dev.woms.mumdroid.core.net.MumbleClient.Companion.CLIENT_VERSION
 import dev.woms.mumdroid.core.proto.Authenticate
 import dev.woms.mumdroid.core.proto.Ping
 import dev.woms.mumdroid.core.proto.Version
@@ -45,6 +48,8 @@ class MumbleClient internal constructor(
     initialAccessTokens: List<String> = emptyList(),
     private val certificatePinning: Boolean = true,
     private val pinnedFingerprint: String? = null,
+    /** Report nothing but the protocol version in the handshake — no OS, no client name. */
+    private val hideClientInfo: Boolean = false,
     /**
      * Message assembly for the typed sender API (official `ServerHandler`),
      * mixed into this class by delegation. Must be a constructor parameter: a
@@ -128,6 +133,48 @@ class MumbleClient internal constructor(
             versionName: String = BuildConfig.VERSION_NAME,
             gitHash: String = BuildConfig.GIT_HASH,
         ): String = "mumdroid $versionName-$gitHash"
+
+        /**
+         * The `Version` handshake message.
+         *
+         * [hideClientInfo] corresponds to Mumble's "do not send OS information"
+         * option (official `Settings::bHideOS`), widened to the whole client
+         * identity: the `os` / `os_version` fields are left out entirely, and
+         * `release` reports the protocol version instead of naming this client
+         * and its build. Both fields are `optional` in the proto, and the
+         * official client omits `os` / `os_version` exactly this way.
+         *
+         * The numeric versions are always sent: the server picks the UDP framing
+         * from them (see [CLIENT_VERSION]), and they are what a hiding client's
+         * `release` merely repeats.
+         */
+        internal fun buildVersion(
+            hideClientInfo: Boolean,
+            release: String = clientRelease(),
+            osVersion: String = Build.VERSION.RELEASE ?: "unknown",
+        ): Version {
+            // `release` is informational: the server stores it to display and to
+            // forward to other clients (`Server::msgUserState`) and derives all
+            // behaviour from the numeric version, so replacing it breaks nothing.
+            // formatLegacyVersion is null only for version 0, which CLIENT_VERSION
+            // is not; the normal release is the harmless fallback.
+            val reportedRelease = if (hideClientInfo) {
+                MumbleVersion.formatLegacyVersion(CLIENT_VERSION) ?: release
+            } else {
+                release
+            }
+            return Version.newBuilder()
+                .setVersionV1(CLIENT_VERSION)
+                .setRelease(reportedRelease)
+                .setVersionV2(CLIENT_VERSION_V2)
+                .apply {
+                    if (!hideClientInfo) {
+                        setOs(CLIENT_OS)
+                        setOsVersion(osVersion)
+                    }
+                }
+                .build()
+        }
 
         /**
          * Reads a message body of [size] bytes: small bodies land in one
@@ -559,14 +606,7 @@ class MumbleClient internal constructor(
     // ---- Handshake ----
 
     private fun sendVersion() {
-        val version = Version.newBuilder()
-            .setVersionV1(CLIENT_VERSION)
-            .setRelease(clientRelease())
-            .setOs(CLIENT_OS)
-            .setOsVersion(android.os.Build.VERSION.RELEASE ?: "unknown")
-            .setVersionV2(CLIENT_VERSION_V2)
-            .build()
-        sendMessage(MessageType.VERSION, version)
+        sendMessage(MessageType.VERSION, buildVersion(hideClientInfo))
     }
 
     private fun sendAuthenticate() {

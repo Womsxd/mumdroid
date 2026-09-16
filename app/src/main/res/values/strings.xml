@@ -466,6 +466,8 @@
     </plurals>
     <string name="certificate_pinning">Certificate pinning</string>
     <string name="certificate_pinning_sub">Verify the server certificate fingerprint</string>
+    <string name="hide_client_info">Don\'t send client information</string>
+    <string name="hide_client_info_sub">Report only the protocol version at connect time; applies on the next connection</string>
 
     <!-- Certificate pinning prompt -->
     <string name="certificate_prompt_title">Certificate problem</string>

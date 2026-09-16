@@ -108,7 +108,12 @@ class ConnectionFactoryTest {
         val listener = NoopListener()
 
         val prepared = runBlocking {
-            factory().create(params(), certificatePinning = true, listener = listener)
+            factory().create(
+                params(),
+                certificatePinning = true,
+                hideClientInfo = false,
+                listener = listener,
+            )
         }
 
         assertEquals(42L, prepared.resolvedServerId)
@@ -131,11 +136,32 @@ class ConnectionFactoryTest {
         pins.fingerprint = "FP"
 
         val prepared = runBlocking {
-            factory().create(params(), certificatePinning = false, listener = NoopListener())
+            factory().create(
+                params(),
+                certificatePinning = false,
+                hideClientInfo = false,
+                listener = NoopListener(),
+            )
         }
 
         assertEquals("pinning off must not read the store", 0, pins.calls)
         assertNull(requireNotNull(captured).pinnedFingerprint)
         assertEquals(0L, prepared.resolvedServerId)
+    }
+
+    @Test
+    fun create_carriesTheOsInfoPreferenceIntoTheSpec() {
+        // The handshake reads it from the client, so it has to survive the trip
+        // from the connect call to the spec.
+        runBlocking {
+            factory().create(
+                params(),
+                certificatePinning = true,
+                hideClientInfo = true,
+                listener = NoopListener(),
+            )
+        }
+
+        assertTrue(requireNotNull(captured).hideClientInfo)
     }
 }
