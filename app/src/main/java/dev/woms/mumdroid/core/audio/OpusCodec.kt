@@ -125,7 +125,18 @@ class OpusCodec(
     var implementation: OpusImplementation = implementation
         private set
 
-    /** The current encode frame size in samples (default 20 ms = 960). */
+    /**
+     * The current encode frame size in samples (default 20 ms = 960).
+     *
+     * [setFrameSize] writes it under [encodeLock], but [getFrameSize] reads it
+     * without that lock: the send thread sizes its end-of-transmission silence
+     * packet (UdpVoiceManager.encodeSilence) while VoiceBandwidthController
+     * may be resizing the frame, so the field must be `@Volatile` — otherwise
+     * the write is not guaranteed to be visible to that read. A stale value
+     * only sizes that one terminator packet, but the unsynchronised access
+     * itself is a data race.
+     */
+    @Volatile
     private var frameSize: Int = FRAME_SIZE_10MS * 2
 
     /** User "Low latency mode" flag (`bAllowLowDelay`). Actual application
@@ -136,6 +147,18 @@ class OpusCodec(
     private var currentBitrate = 0
 
     private val encodeLock = Any()
+
+    /**
+     * Guards the decode side (and [close]) against a backend swap.
+     *
+     * `backend` is swapped and the old one closed while the callback side may
+     * still be inside `backend.decode` on the playback thread — freeing the
+     * native decoders under a call that already read them would be a
+     * use-after-free. Decode does not take [encodeLock] on purpose: that would
+     * serialise every playback frame against the capture thread's encode. Only
+     * the rare swap/close takes both.
+     */
+    private val decodeLock = Any()
 
     init {
         backend.ensureEncoder(desiredApplication(), currentBitrate)
@@ -148,11 +171,13 @@ class OpusCodec(
     fun setImplementation(implementation: OpusImplementation) {
         synchronized(encodeLock) {
             if (this.implementation == implementation) return
-            val old = backend
-            backend = createBackend(implementation)
-            this.implementation = implementation
-            backend.ensureEncoder(desiredApplication(), currentBitrate)
-            old.close()
+            synchronized(decodeLock) {
+                val old = backend
+                backend = createBackend(implementation)
+                this.implementation = implementation
+                backend.ensureEncoder(desiredApplication(), currentBitrate)
+                old.close()
+            }
         }
     }
 
@@ -168,7 +193,11 @@ class OpusCodec(
         }
     }
 
-    /** The current frame size in samples. */
+    /**
+     * The current frame size in samples. Deliberately lock-free — [frameSize]
+     * is `@Volatile`, so this needs no [encodeLock] and must not take one: the
+     * terminator packet has no reason to serialise against [encode].
+     */
     fun getFrameSize(): Int = frameSize
 
     /**
@@ -255,7 +284,7 @@ class OpusCodec(
      *                     the decoder is reset afterwards to avoid state bleed.
      */
     fun decodeForSession(session: Int, packet: ByteArray, isTerminator: Boolean = false): ShortArray? =
-        backend.decode(session, packet, isTerminator)
+        synchronized(decodeLock) { backend.decode(session, packet, isTerminator) }
 
     /**
      * Packet-loss concealment: synthesizes replacement PCM for a lost frame
@@ -263,14 +292,20 @@ class OpusCodec(
      * for PLC.
      */
     fun decodePlc(session: Int, frameSize: Int): ShortArray? =
-        backend.decodePlc(session, frameSize)
+        synchronized(decodeLock) { backend.decodePlc(session, frameSize) }
 
     /** Resets (or drops) the decoder for [session], e.g. on terminator. */
     fun resetDecoder(session: Int) {
-        backend.resetDecoder(session)
+        synchronized(decodeLock) { backend.resetDecoder(session) }
     }
 
+    /**
+     * Releases the backend. Takes both locks: a swap or teardown must not free
+     * the native encoder or decoders under an in-flight encode/decode.
+     */
     fun close() {
-        backend.close()
+        synchronized(encodeLock) {
+            synchronized(decodeLock) { backend.close() }
+        }
     }
 }
