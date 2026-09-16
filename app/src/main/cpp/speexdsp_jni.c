@@ -4,10 +4,14 @@
  * speexdsp (BSD-3, see COPYING in the cpp dir) provides the same noise
  * suppression / pre-processing backend used by the desktop Mumble client
  * (SpeexPreprocessState). This wrapper exposes exactly what mumdroid needs:
- * denoise with a configurable suppression level, plus an optional VAD flag
- * read back per frame. AGC/VAD inside speexdsp are intentionally left off;
- * mumdroid applies its own AGC and VAD stages so behaviour stays consistent
- * across all suppression modes.
+ * denoise with a configurable suppression level, the built-in AGC, and a VAD
+ * flag read back per frame. speexdsp's own VAD stays off — mumdroid runs its
+ * own threshold-driven detector — while the AGC is used for the Speex AGC mode
+ * and driven per frame by AudioPreprocessor (gain compensation + idle hold).
+ *
+ * As in opus_jni.c, the per-frame PCM arrays are pinned with
+ * GetPrimitiveArrayCritical to avoid a copy on the audio hot path, falling
+ * back to GetShortArrayElements.
  */
 
 #include <jni.h>
@@ -16,6 +20,25 @@
 
 #include "speex/speex_preprocess.h"
 #include "speex/speex_echo.h"
+
+static jshort *lock_shorts(JNIEnv *env, jshortArray arr, jboolean *critical) {
+    *critical = JNI_TRUE;
+    jshort *ptr = (*env)->GetPrimitiveArrayCritical(env, arr, NULL);
+    if (ptr != NULL) {
+        return ptr;
+    }
+    *critical = JNI_FALSE;
+    return (*env)->GetShortArrayElements(env, arr, NULL);
+}
+
+static void unlock_shorts(JNIEnv *env, jshortArray arr, jshort *ptr,
+                          jboolean critical, jint mode) {
+    if (critical) {
+        (*env)->ReleasePrimitiveArrayCritical(env, arr, ptr, mode);
+    } else {
+        (*env)->ReleaseShortArrayElements(env, arr, ptr, mode);
+    }
+}
 
 JNIEXPORT jlong JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeCreate(
@@ -178,7 +201,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeRun(
         return -1;
     }
 
-    jshort *elements = (*env)->GetShortArrayElements(env, frame, NULL);
+    jboolean frameCrit = JNI_FALSE;
+    jshort *elements = lock_shorts(env, frame, &frameCrit);
     if (elements == NULL) {
         return -1;
     }
@@ -187,7 +211,7 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeRun(
      * VAD decision for this frame (1 = speech probable). */
     int vad = speex_preprocess_run(st, elements);
 
-    (*env)->ReleaseShortArrayElements(env, frame, elements, 0);
+    unlock_shorts(env, frame, elements, frameCrit, 0);
     return vad;
 }
 
@@ -273,20 +297,29 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCancel(
         return JNI_FALSE;
     }
 
-    jshort *nearEl = (*env)->GetShortArrayElements(env, near_arr, NULL);
-    jshort *farEl = (*env)->GetShortArrayElements(env, far_arr, NULL);
-    jshort *outEl = (*env)->GetShortArrayElements(env, out_arr, NULL);
-    if (nearEl == NULL || farEl == NULL || outEl == NULL) {
-        if (nearEl != NULL) (*env)->ReleaseShortArrayElements(env, near_arr, nearEl, JNI_ABORT);
-        if (farEl != NULL) (*env)->ReleaseShortArrayElements(env, far_arr, farEl, JNI_ABORT);
-        if (outEl != NULL) (*env)->ReleaseShortArrayElements(env, out_arr, outEl, JNI_ABORT);
+    jboolean nearCrit = JNI_FALSE;
+    jshort *nearEl = lock_shorts(env, near_arr, &nearCrit);
+    if (nearEl == NULL) {
+        return JNI_FALSE;
+    }
+    jboolean farCrit = JNI_FALSE;
+    jshort *farEl = lock_shorts(env, far_arr, &farCrit);
+    if (farEl == NULL) {
+        unlock_shorts(env, near_arr, nearEl, nearCrit, JNI_ABORT);
+        return JNI_FALSE;
+    }
+    jboolean outCrit = JNI_FALSE;
+    jshort *outEl = lock_shorts(env, out_arr, &outCrit);
+    if (outEl == NULL) {
+        unlock_shorts(env, far_arr, farEl, farCrit, JNI_ABORT);
+        unlock_shorts(env, near_arr, nearEl, nearCrit, JNI_ABORT);
         return JNI_FALSE;
     }
 
     speex_echo_cancellation(st, nearEl, farEl, outEl);
 
-    (*env)->ReleaseShortArrayElements(env, near_arr, nearEl, JNI_ABORT);
-    (*env)->ReleaseShortArrayElements(env, far_arr, farEl, JNI_ABORT);
-    (*env)->ReleaseShortArrayElements(env, out_arr, outEl, 0);
+    unlock_shorts(env, near_arr, nearEl, nearCrit, JNI_ABORT);
+    unlock_shorts(env, far_arr, farEl, farCrit, JNI_ABORT);
+    unlock_shorts(env, out_arr, outEl, outCrit, 0);
     return JNI_TRUE;
 }

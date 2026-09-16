@@ -14,6 +14,10 @@
  * converts from/to 16-bit PCM without rescaling and accepts any positive
  * multiple of 480 samples (10/20/40/60 ms Opus frames), processing them as
  * consecutive 10 ms sub-frames.
+ *
+ * As in opus_jni.c, the per-frame PCM arrays are pinned with
+ * GetPrimitiveArrayCritical to avoid a copy on the audio hot path, falling
+ * back to GetShortArrayElements.
  */
 
 #include <jni.h>
@@ -48,6 +52,25 @@ static RnNoiseHandle *to_handle(JNIEnv *env, jobject obj) {
     }
     jlong ptr = (*env)->GetLongField(env, obj, fid);
     return (RnNoiseHandle *)(intptr_t)ptr;
+}
+
+static jshort *lock_shorts(JNIEnv *env, jshortArray arr, jboolean *critical) {
+    *critical = JNI_TRUE;
+    jshort *ptr = (*env)->GetPrimitiveArrayCritical(env, arr, NULL);
+    if (ptr != NULL) {
+        return ptr;
+    }
+    *critical = JNI_FALSE;
+    return (*env)->GetShortArrayElements(env, arr, NULL);
+}
+
+static void unlock_shorts(JNIEnv *env, jshortArray arr, jshort *ptr,
+                          jboolean critical, jint mode) {
+    if (critical) {
+        (*env)->ReleasePrimitiveArrayCritical(env, arr, ptr, mode);
+    } else {
+        (*env)->ReleaseShortArrayElements(env, arr, ptr, mode);
+    }
 }
 
 JNIEXPORT jint JNICALL
@@ -116,11 +139,15 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeProcess(
         return -1;
     }
 
-    jshort *inEl = (*env)->GetShortArrayElements(env, in, NULL);
-    jshort *outEl = (*env)->GetShortArrayElements(env, out, NULL);
-    if (inEl == NULL || outEl == NULL) {
-        if (inEl != NULL) (*env)->ReleaseShortArrayElements(env, in, inEl, JNI_ABORT);
-        if (outEl != NULL) (*env)->ReleaseShortArrayElements(env, out, outEl, JNI_ABORT);
+    jboolean inCrit = JNI_FALSE;
+    jshort *inEl = lock_shorts(env, in, &inCrit);
+    if (inEl == NULL) {
+        return -1;
+    }
+    jboolean outCrit = JNI_FALSE;
+    jshort *outEl = lock_shorts(env, out, &outCrit);
+    if (outEl == NULL) {
+        unlock_shorts(env, in, inEl, inCrit, JNI_ABORT);
         return -1;
     }
 
@@ -150,8 +177,8 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeProcess(
         }
     }
 
-    (*env)->ReleaseShortArrayElements(env, in, inEl, JNI_ABORT);
-    (*env)->ReleaseShortArrayElements(env, out, outEl, 0);
+    unlock_shorts(env, in, inEl, inCrit, JNI_ABORT);
+    unlock_shorts(env, out, outEl, outCrit, 0);
     return speech;
 }
 
