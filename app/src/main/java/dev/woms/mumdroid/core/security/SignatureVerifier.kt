@@ -10,7 +10,6 @@ import dev.woms.mumdroid.core.security.SignatureVerifier.decide
 import dev.woms.mumdroid.core.security.SignatureVerifier.expectedDigests
 import dev.woms.mumdroid.core.security.SignatureVerifier.verify
 import java.io.File
-import java.security.MessageDigest
 
 /**
  * Verifies that the running APK was signed with the certificate(s) this build
@@ -268,11 +267,6 @@ object SignatureVerifier {
             .distinct()
     }
 
-    private fun sha256Hex(bytes: ByteArray): String {
-        val md = MessageDigest.getInstance("SHA-256")
-        return md.digest(bytes).joinToString(":") { "%02X".format(it) }
-    }
-
     /**
      * Gathers the platform's view of the signing certificates.
      *
@@ -291,7 +285,7 @@ object SignatureVerifier {
             @Suppress("DEPRECATION")
             pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures?.toList().orEmpty()
         }
-        return certs.map { sha256Hex(it.toByteArray()) }.distinct()
+        return certs.map { certificateSha256Hex(it.toByteArray()) }.distinct()
     }
 
     @RequiresApi(Build.VERSION_CODES.P)

@@ -5,7 +5,6 @@ import dev.woms.mumdroid.core.security.ApkSigningBlock.readBlock
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
-import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 
@@ -114,13 +113,9 @@ object ApkSigningBlock {
 
     /** One signer of one scheme, already reduced to a certificate. */
     data class Signer(val schemeId: String, val certificate: X509Certificate) {
-        /** SHA-256 of the DER-encoded certificate. */
-        val sha256: ByteArray
-            get() = MessageDigest.getInstance("SHA-256").digest(certificate.encoded)
-
         /** SHA-256 of the DER-encoded certificate, as uppercase colon-hex. */
         val sha256Hex: String
-            get() = sha256.joinToString(":") { "%02X".format(it) }
+            get() = certificateSha256Hex(certificate.encoded)
     }
 
     /**
