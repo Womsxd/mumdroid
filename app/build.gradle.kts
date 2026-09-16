@@ -44,8 +44,8 @@ android {
         applicationId = "dev.woms.mumdroid"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.1.2"
         buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
         buildConfigField("Long", "BUILD_TIME", "${System.currentTimeMillis()}L")
         buildConfigField("String", "versionCodeName", "\"Liyue\"")
