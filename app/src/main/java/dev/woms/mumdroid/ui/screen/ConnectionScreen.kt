@@ -140,12 +140,14 @@ fun ConnectionScreen(
                 connected = state.connected,
                 canEditRegisteredUsers = commands.canEditRegisteredUsers(),
                 canBan = commands.canBanUser(),
+                loopback = state.loopbackMode,
                 onBack = onBack,
                 onDisconnect = onDisconnect,
                 onShowServerInfo = onShowServerInfo,
                 onShowAccessTokens = onShowAccessTokens,
                 onOpenRegisteredUsers = onOpenRegisteredUsers,
                 onOpenBanList = onOpenBanList,
+                onSetLoopback = commands::setLoopback,
             )
         },
         contentWindowInsets = WindowInsets.safeDrawing.only(
@@ -244,8 +246,6 @@ fun ConnectionScreen(
                         )
                     },
                     activeShoutChannelId = activeShoutChannelId,
-                    loopback = state.loopbackMode,
-                    onSetLoopback = commands::setLoopback,
                     onWhisperToUsers = { screen.whisperPicker = true },
                     onShoutToChannelPicker = { screen.shoutPicker = true },
                 )

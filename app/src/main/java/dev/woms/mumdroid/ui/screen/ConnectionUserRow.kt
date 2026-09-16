@@ -15,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.core.model.ChannelPick
-import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.User
 
 /**
@@ -60,8 +59,6 @@ internal fun UserRow(
         onStopVoiceTarget = actions.onStopVoiceTarget,
         whisperSessions = actions.whisperSessions,
         mayWhisper = actions.mayWhisper,
-        loopback = actions.loopback,
-        onSetLoopback = actions.onSetLoopback,
         onWhisperToUsers = actions.onWhisperToUsers,
         onShoutToChannel = actions.onShoutToChannelPicker,
     )
@@ -101,8 +98,6 @@ internal fun UserRow(
     onStopVoiceTarget: () -> Unit,
     whisperSessions: Set<Int>,
     mayWhisper: (Int) -> Boolean,
-    loopback: LoopbackMode,
-    onSetLoopback: (LoopbackMode) -> Unit,
     onWhisperToUsers: () -> Unit,
     onShoutToChannel: () -> Unit,
 ) {
@@ -185,12 +180,6 @@ internal fun UserRow(
             canTextMessage = canTextMessage,
             showWhisper = showWhisper,
             whisperActive = whisperActive,
-            // The self-test only makes sense on your own row: it loops your own
-            // microphone back to you, it is not a per-user action on somebody
-            // else.
-            showLoopback = user.isLocalUser,
-            loopback = loopback,
-            onSetLoopback = onSetLoopback,
             voiceTargetSubOpen = voiceTargetSubOpen,
             onVoiceTargetSubOpenChange = { voiceTargetSubOpen = it },
             onWhisperToUsers = onWhisperToUsers,

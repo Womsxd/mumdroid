@@ -3,7 +3,6 @@ package dev.woms.mumdroid.ui.screen
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelPick
-import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.User
 
 /** Shared join / roster / channel-admin callbacks for the recursive channel tree. */
@@ -67,10 +66,6 @@ internal class ChannelTreeActions(
     val whisperSessions: Set<Int>,
     /** Whispering to this channel may be offered (`ChanACL::Whisper`). */
     val mayWhisper: (Int) -> Boolean,
-    /** Audio self-test mode, offered from the local user's long-press menu. */
-    val loopback: LoopbackMode,
-    /** Switches the audio self-test on/off and between its two modes. */
-    val onSetLoopback: (LoopbackMode) -> Unit,
     /** Opens the multi-select whisper picker. */
     val onWhisperToUsers: () -> Unit,
     /** Opens the channel picker for a shout target. */

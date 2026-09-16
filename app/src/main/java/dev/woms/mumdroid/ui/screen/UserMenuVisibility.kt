@@ -36,7 +36,8 @@ internal data class UserMenuVisibility(
     val showBlockActions: Boolean,
     val showWhisper: Boolean,
     val showSendMessage: Boolean,
-    val showLoopback: Boolean,
+    /** Whisper / shout pickers, which only make sense off your own row. */
+    val showVoiceTargetPickers: Boolean,
     val showRegister: Boolean,
 ) {
     /** The moderation submenu is worth rendering when at least one entry shows. */
@@ -60,21 +61,19 @@ internal data class UserMenuVisibility(
 
     /** Divider above the always-present user-information entry. */
     val dividerBeforeFooter: Boolean
-        get() = showBlockActions || showWhisper || showSendMessage || showLoopback
+        get() = showBlockActions || showWhisper || showSendMessage || showVoiceTargetPickers
 
     companion object {
         /**
-         * Evaluates every entry flag for [user]. [showWhisper] and [showLoopback]
-         * are not derived here: whisper depends on the row's own talk-state
-         * handling and the self-test is only offered on the local user's row,
-         * so the caller decides those two.
+         * Evaluates every entry flag for [user]. [showWhisper] is not derived
+         * here: it depends on the row's own talk-state handling, so the caller
+         * decides it.
          */
         fun of(
             user: User,
             localChannelId: Int,
             moveDests: List<ChannelPick>,
             showWhisper: Boolean,
-            showLoopback: Boolean,
             canAdministerChannel: (Int) -> Boolean,
             canMuteUser: (User) -> Boolean,
             canPrioritySpeaker: (User) -> Boolean,
@@ -107,7 +106,7 @@ internal data class UserMenuVisibility(
                 showSendMessage = !user.isLocalUser && canTextMessage(
                     if (isListener) user.listenerChannelId else user.channelId,
                 ),
-                showLoopback = showLoopback,
+                showVoiceTargetPickers = user.isLocalUser,
                 showRegister = !isListener && canRegisterUser(user),
             )
         }

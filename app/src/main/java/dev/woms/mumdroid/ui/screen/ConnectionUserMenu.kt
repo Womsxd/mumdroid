@@ -16,7 +16,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.ChannelPick
-import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.User
 
 /**
@@ -24,10 +23,10 @@ import dev.woms.mumdroid.core.model.User
  * so the long-press list stays short on a phone. Listener proxies use
  * a shorter menu (desktop `qmListener`).
  *
- * Whisper / shout and the audio self-test both live here instead of in the
- * voice bar: on a phone the target is chosen by pointing at the user or the
- * channel it addresses, and a self-test is a per-user action, so neither needs
- * a permanent button in the bar.
+ * Whisper / shout live here instead of in the voice bar: on a phone the target
+ * is chosen by pointing at the user or the channel it addresses, so neither
+ * needs a permanent button in the bar. The audio self-test is not a per-user
+ * action and opens from the app bar's menu instead.
  *
  * Which entries show — and where the group dividers go — is decided by
  * [UserMenuVisibility]; this composable only renders them.
@@ -68,10 +67,6 @@ internal fun UserContextMenu(
     showWhisper: Boolean,
     whisperActive: Boolean,
     onWhisper: () -> Unit,
-    /** Audio self-test entries: only offered on the local user's own row. */
-    showLoopback: Boolean,
-    loopback: LoopbackMode,
-    onSetLoopback: (LoopbackMode) -> Unit,
     /** Multi-select whisper / channel shout: reachable from your own row. */
     voiceTargetSubOpen: Boolean,
     onVoiceTargetSubOpenChange: (Boolean) -> Unit,
@@ -83,7 +78,6 @@ internal fun UserContextMenu(
         localChannelId = localChannelId,
         moveDests = moveDests,
         showWhisper = showWhisper,
-        showLoopback = showLoopback,
         canAdministerChannel = canAdministerChannel,
         canMuteUser = canMuteUser,
         canPrioritySpeaker = canPrioritySpeaker,
@@ -172,7 +166,7 @@ internal fun UserContextMenu(
         if (visibility.showSendMessage) {
             SendMessageItem(onDismiss = onDismiss, onOpenSendDialog = onOpenSendDialog)
         }
-        if (visibility.showLoopback) {
+        if (visibility.showVoiceTargetPickers) {
             if (visibility.dividerBeforeVoiceTarget) {
                 HorizontalDivider()
             }
@@ -206,11 +200,6 @@ internal fun UserContextMenu(
                     },
                 )
             }
-            LoopbackMenuItems(
-                loopback = loopback,
-                enabled = !user.isChannelListener,
-                onSetLoopback = onSetLoopback,
-            )
         }
         if (visibility.dividerBeforeFooter) {
             HorizontalDivider()

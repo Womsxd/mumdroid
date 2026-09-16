@@ -22,7 +22,6 @@ class UserMenuVisibilityTest {
         user: User,
         moveDests: List<ChannelPick> = dests,
         showWhisper: Boolean = false,
-        showLoopback: Boolean = false,
         canAdministerChannel: (Int) -> Boolean = { true },
         canMuteUser: (User) -> Boolean = { true },
         canPrioritySpeaker: (User) -> Boolean = { true },
@@ -36,7 +35,6 @@ class UserMenuVisibilityTest {
         localChannelId = localChannelId,
         moveDests = moveDests,
         showWhisper = showWhisper,
-        showLoopback = showLoopback,
         canAdministerChannel = canAdministerChannel,
         canMuteUser = canMuteUser,
         canPrioritySpeaker = canPrioritySpeaker,
@@ -57,6 +55,7 @@ class UserMenuVisibilityTest {
         assertTrue(v.showAdminMenu)
         assertTrue(v.showBlockActions)
         assertTrue(v.showSendMessage)
+        assertFalse(v.showVoiceTargetPickers)
     }
 
     @Test
@@ -72,18 +71,17 @@ class UserMenuVisibilityTest {
     }
 
     @Test
-    fun ownRow_offersVoiceTargetAndSelfTest() {
+    fun ownRow_offersVoiceTargetPickers() {
         val v = visibility(
             User(session = 1, name = "me", channelId = localChannelId, isLocalUser = true),
             showWhisper = false,
-            showLoopback = true,
         )
         assertFalse(v.showBlockActions)
         assertFalse(v.showSendMessage)
         assertFalse(v.showKick)
         assertFalse(v.showBan)
         assertFalse(v.showMoveMenu)
-        assertTrue(v.showLoopback)
+        assertTrue(v.showVoiceTargetPickers)
         assertTrue(v.showAdminMenu)
     }
 
@@ -174,16 +172,18 @@ class UserMenuVisibilityTest {
 
     @Test
     fun dividersFollowTheGroupsThatActuallyRender() {
-        // Own row with no voice-target entries: only the administration group
-        // and the footer render, so no divider precedes them.
+        // Own row with no administration entries: the voice-target pickers and
+        // the footer are all that render, so the footer still gets its rule
+        // while nothing above it does.
         val bare = visibility(
             User(session = 1, channelId = localChannelId, isLocalUser = true),
             canMuteUser = { false },
             canPrioritySpeaker = { false },
         )
+        assertFalse(bare.showAdminMenu)
         assertFalse(bare.dividerBeforeAdmin)
         assertFalse(bare.dividerBeforeLocalActions)
-        assertFalse(bare.dividerBeforeFooter)
+        assertTrue(bare.dividerBeforeFooter)
 
         // A full remote user keeps every group divider.
         val full = visibility(User(session = 4, channelId = 2), showWhisper = true)
@@ -199,7 +199,6 @@ class UserMenuVisibilityTest {
         // rule would hang under nothing.
         val ownRow = visibility(
             User(session = 1, channelId = localChannelId, isLocalUser = true),
-            showLoopback = true,
         )
         assertFalse(ownRow.dividerBeforeAdmin)
         // The administration group does render (server mute / priority speaker).

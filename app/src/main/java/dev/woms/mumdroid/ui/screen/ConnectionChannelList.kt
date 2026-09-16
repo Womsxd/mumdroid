@@ -16,7 +16,6 @@ import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelLinks
 import dev.woms.mumdroid.core.model.ChannelPick
 import dev.woms.mumdroid.core.model.ChannelTree
-import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.User
 
 /** Recursive channel list with users. */
@@ -75,8 +74,6 @@ internal fun ChannelList(
     activeShoutChannelId: Int?,
     whisperSessions: Set<Int>,
     mayWhisper: (Int) -> Boolean,
-    loopback: LoopbackMode,
-    onSetLoopback: (LoopbackMode) -> Unit,
     onWhisperToUsers: () -> Unit,
     onShoutToChannelPicker: () -> Unit,
 ) {
@@ -141,8 +138,6 @@ internal fun ChannelList(
         activeShoutChannelId = activeShoutChannelId,
         whisperSessions = whisperSessions,
         mayWhisper = mayWhisper,
-        loopback = loopback,
-        onSetLoopback = onSetLoopback,
         onWhisperToUsers = onWhisperToUsers,
         onShoutToChannelPicker = onShoutToChannelPicker,
     )
