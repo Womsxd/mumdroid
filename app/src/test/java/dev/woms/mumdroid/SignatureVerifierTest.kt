@@ -157,8 +157,7 @@ class SignatureVerifierTest {
 
     @Test
     fun garbageInputIsReportedAsUnreadable() {
-        val garbage = temp.newFile().apply { writeBytes(ByteArray(128) { 0x7A }) }
-        val r = SignatureVerifier.decide(garbage, trusted, listOf(developer))
+        val r = SignatureVerifier.decide(garbageFile(), trusted, listOf(developer))
         assertEquals(Status.UNREADABLE, r.status)
     }
 
@@ -190,4 +189,28 @@ class SignatureVerifierTest {
         assertFalse(Status.TAMPERED.isTrusted)
         assertFalse(Status.UNREADABLE.isTrusted)
     }
+
+    /**
+     * Every untrusted outcome must carry a reason, because that reason is the
+     * only diagnostic there is: the warning dialog says the same sentence
+     * whatever went wrong, and the caller logs this detail for whoever has to
+     * tell a repackaged APK from a setup the check cannot handle. An empty
+     * detail would make that log line say nothing.
+     */
+    @Test
+    fun untrustedResultsCarryAReason() {
+        val results = listOf(
+            SignatureVerifier.decide(fixture("attacker-v3-only.apk"), trusted, listOf(attacker)),
+            SignatureVerifier.decide(garbageFile(), trusted, listOf(developer)),
+            SignatureVerifier.decide(fixture("honest-v2-only.apk"), trusted, emptyList()),
+        )
+        results.forEach { r ->
+            assertFalse(r.status.isTrusted)
+            assertTrue("${r.status} carries no detail", r.detail.isNotBlank())
+        }
+    }
+
+    /** A file that is not an APK at all. */
+    private fun garbageFile(): File =
+        temp.newFile().apply { writeBytes(ByteArray(128) { 0x7A }) }
 }

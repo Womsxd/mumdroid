@@ -127,7 +127,15 @@ object SignatureVerifier {
     /** Result of [verify]. */
     data class Report(
         val status: Status,
-        /** Human-readable reason, empty when [status] is [Status.OK]. */
+        /**
+         * Human-readable reason, empty when [status] is [Status.OK].
+         *
+         * This is the only diagnostic there is: the user-visible warning is one
+         * sentence for every failure, so the reason is what the caller logs
+         * (see MainActivity) for whoever has to tell a repackaged APK from a
+         * setup this check cannot handle — Play App Signing re-signs the
+         * uploaded APK, which reaches us as an unexpected signer.
+         */
         val detail: String = "",
     )
 

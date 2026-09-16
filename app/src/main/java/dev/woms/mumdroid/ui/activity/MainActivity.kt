@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -67,7 +68,17 @@ class MainActivity : BaseActivity() {
         val context = LocalContext.current
         var showTamperDialog by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
-            showTamperDialog = !SignatureVerifier.verify(context).status.isTrusted
+            val report = SignatureVerifier.verify(context)
+            showTamperDialog = !report.status.isTrusted
+            // The dialog says the same sentence for every failure, so the reason
+            // goes to logcat: it is what separates a repackaged APK from a setup
+            // this check cannot handle — Play App Signing re-signs the uploaded
+            // APK with its own certificate, which reaches us as an unexpected
+            // signer, and a repackaging step can break the block layout. A user
+            // report is a screenshot, and this line is what makes it diagnosable.
+            if (!report.status.isTrusted) {
+                Log.w(TAG, "APK signature not verified (${report.status}): ${report.detail}")
+            }
         }
 
         val serverPings by vm.serverPings.collectAsStateWithLifecycle()
@@ -239,5 +250,9 @@ class MainActivity : BaseActivity() {
         if (!granted) {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
+    }
+
+    private companion object {
+        const val TAG = "MainActivity"
     }
 }
