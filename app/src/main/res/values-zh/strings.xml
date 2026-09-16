@@ -560,6 +560,7 @@
     <string name="talking_whisper">私语中</string>
     <string name="talking_shout">喊话中</string>
     <string name="voice_target_label">说话目标</string>
+    <string name="voice_target_selected">已选 %1$d</string>
     <string name="whisper_to_ellipsis">私语给…</string>
     <string name="shout_to_channel_ellipsis">向频道喊话…</string>
     <string name="loopback_self_test">音频自测</string>

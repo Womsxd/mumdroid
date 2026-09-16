@@ -566,6 +566,7 @@
     <string name="talking_whisper">Whispering</string>
     <string name="talking_shout">Shouting</string>
     <string name="voice_target_label">Speaking target</string>
+    <string name="voice_target_selected">%1$d selected</string>
     <string name="whisper_to_ellipsis">Whisper to…</string>
     <string name="shout_to_channel_ellipsis">Shout to a channel…</string>
     <string name="loopback_self_test">Audio self-test</string>

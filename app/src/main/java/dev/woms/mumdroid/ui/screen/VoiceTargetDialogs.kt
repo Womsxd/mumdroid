@@ -1,6 +1,7 @@
 package dev.woms.mumdroid.ui.screen
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.ChannelPick
@@ -80,6 +82,12 @@ internal fun ShoutToChannelDialog(
 /**
  * Multi-select user list for a whisper target. Sessions are the protocol's own
  * addressing scheme for whisper receivers, so the selection is sent as-is.
+ *
+ * A selection list, so the checkbox sits at the trailing edge and the name leads
+ * the row: the box reports state, the whole row toggles it, and the two are not
+ * squeezed together as they are when the box leads. The dialog's own content
+ * padding already insets the rows, so they carry none of their own beyond the
+ * minimum touch-target height.
  */
 @Composable
 internal fun WhisperToUsersDialog(
@@ -96,7 +104,24 @@ internal fun WhisperToUsersDialog(
     var selected by remember { mutableStateOf(setOf<Int>()) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.voice_target_label)) },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(R.string.voice_target_label))
+                // Live count: the list scrolls, so what is already picked must
+                // not depend on it being on screen.
+                if (candidates.isNotEmpty()) {
+                    Text(
+                        text = stringResource(R.string.voice_target_selected, selected.size),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
         text = {
             if (candidates.isEmpty()) {
                 Text(stringResource(R.string.voice_target_unavailable))
@@ -111,21 +136,24 @@ internal fun WhisperToUsersDialog(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .heightIn(min = 48.dp)
                                 .clickable {
                                     selected = if (checked) {
                                         selected - user.session
                                     } else {
                                         selected + user.session
                                     }
-                                }
-                                .padding(vertical = 4.dp),
+                                },
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Checkbox(checked = checked, onCheckedChange = null)
                             Text(
                                 text = user.name,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
                             )
+                            Checkbox(checked = checked, onCheckedChange = null)
                         }
                     }
                 }
