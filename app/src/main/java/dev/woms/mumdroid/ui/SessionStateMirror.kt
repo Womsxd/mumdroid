@@ -105,6 +105,8 @@ internal class SessionStateMirror(private val scope: CoroutineScope) {
         bind(facade.permissionEpoch) { copy(permissionEpoch = it) },
         bind(facade.listeningChannels) { copy(listeningChannels = it) },
         bind(facade.channelAclPassword) { copy(channelAclPassword = it) },
+        bind(facade.channelAcl) { copy(channelAcl = it) },
+        bind(facade.aclUserNames) { copy(aclUserNames = it) },
     )
 
     private fun <T> CoroutineScope.bind(
@@ -144,6 +146,8 @@ internal class SessionStateMirror(private val scope: CoroutineScope) {
         loopbackMode = facade.loopbackMode.value,
         listeningChannels = facade.listeningChannels.value,
         channelAclPassword = facade.channelAclPassword.value,
+        channelAcl = facade.channelAcl.value,
+        aclUserNames = facade.aclUserNames.value,
         favoriteId = facade.favoriteId(),
     )
 }

@@ -64,6 +64,7 @@ internal fun ChannelNode(
         canMakePermanentChannel = actions.canMakePermanentChannel,
         canWriteChannel = actions.canWriteChannel,
         canLinkChannel = actions.canLinkChannel,
+        canEditAcl = actions.canEditAcl,
     )
     val linkMenu = ChannelNodeVisibility.linkMenu(
         channel = channel,
@@ -175,6 +176,7 @@ internal fun ChannelNode(
                 onStopShout = actions.onStopVoiceTarget,
                 showAdd = flags.showAdd,
                 showEdit = flags.showEdit,
+                showAcl = flags.showAcl,
                 showRemove = flags.showRemove,
                 showSend = flags.showSend,
                 linkMenu = linkMenu,
@@ -184,6 +186,7 @@ internal fun ChannelNode(
                 },
                 onAdd = { addDialog = true },
                 onEdit = { editDialog = true },
+                onAcl = { actions.onOpenChannelAcl(channel.id) },
                 onRemove = { removeDialog = true },
                 onLink = { actions.onLinkChannel(channel.id) },
                 onUnlink = { actions.onUnlinkChannel(channel.id) },

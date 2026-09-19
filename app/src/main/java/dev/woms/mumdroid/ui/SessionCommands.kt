@@ -73,6 +73,8 @@ interface SessionCommands {
     fun canTextMessage(channelId: Int): Boolean
     fun canListen(channelId: Int): Boolean
     fun supportsChannelListen(): Boolean
+    /** Whether the server knows the `ResetUserContent` ACL bit (official 1.4.0+). */
+    fun supportsResetUserContentPermission(): Boolean
     fun setChannelListening(channelId: Int, listen: Boolean)
     fun canWriteChannel(channelId: Int): Boolean
     fun canAddChannel(channelId: Int): Boolean

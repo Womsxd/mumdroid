@@ -58,6 +58,27 @@ object ChanACL {
     const val SUPERUSER_EFFECTIVE = ALL and SPEAK.inv() and WHISPER.inv()
 
     /**
+     * Desktop `ACLEditor` permission rows for a regular channel: every named
+     * bit below `1 << 16`. `ChanACL::permName` returns an empty string for the
+     * unnamed bits, so the desktop loop adds no row for them.
+     */
+    val EDITOR_PERMISSIONS_CHANNEL: List<Int> =
+        listOf(
+            WRITE, TRAVERSE, ENTER, SPEAK, MUTE_DEAFEN, MOVE,
+            MAKE_CHANNEL, LINK_CHANNEL, WHISPER, TEXT_MESSAGE,
+            MAKE_TEMP_CHANNEL, LISTEN,
+        )
+
+    /**
+     * Root-channel rows: the desktop loop runs to `1 << 29` there, which
+     * additionally names the five global bits (`Cached` at `1 << 27` has no
+     * name and is skipped).
+     */
+    val EDITOR_PERMISSIONS_ROOT: List<Int> =
+        EDITOR_PERMISSIONS_CHANNEL +
+            listOf(KICK, BAN, REGISTER, SELF_REGISTER, RESET_USER_CONTENT)
+
+    /**
      * Official `ChanACL::Permissions` / `unsigned int` width. `ServerSync.permissions`
      * is proto `uint64` only because of a historical oversight; the desktop
      * client does `static_cast<unsigned int>(msg.permissions())`.

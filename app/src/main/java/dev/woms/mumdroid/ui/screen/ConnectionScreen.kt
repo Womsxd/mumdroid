@@ -87,6 +87,13 @@ fun ConnectionScreen(
             screen.adminPage = AdminPage.BanList
         }
     }
+    val onOpenChannelAcl = remember(commands, screen) {
+        { channelId: Int ->
+            commands.requestChannelAcl(channelId)
+            screen.adminChannelId = channelId
+            screen.adminPage = AdminPage.ChannelAcl
+        }
+    }
 
     LaunchedEffect(state.connected) {
         if (state.connected) commands.ensureChannelPermissions(0)
@@ -119,6 +126,24 @@ fun ConnectionScreen(
                 onBack = { screen.adminPage = null },
                 onReplace = commands::replaceBanList,
                 onRefresh = { commands.requestBanList(clear = false) },
+            )
+            return
+        }
+        AdminPage.ChannelAcl -> {
+            ChannelAclScreen(
+                channelId = screen.adminChannelId,
+                channelName = ChannelTree.find(state.channels, screen.adminChannelId)?.name.orEmpty(),
+                snapshot = state.channelAcl,
+                userNames = state.aclUserNames,
+                onlineUsers = state.users,
+                supportsListen = commands.supportsChannelListen(),
+                supportsResetUserContent = commands.supportsResetUserContentPermission(),
+                onBack = { screen.adminPage = null },
+                onQueryUsersByName = commands::queryAclUsersByName,
+                onSave = { snapshot ->
+                    commands.sendChannelAcl(snapshot)
+                    screen.adminPage = null
+                },
             )
             return
         }
@@ -232,6 +257,8 @@ fun ConnectionScreen(
                     onRemoveChannel = commands::removeChannel,
                     onRequestChannelDescription = commands::requestChannelDescription,
                     onRequestChannelAcl = commands::requestChannelAcl,
+                    canEditAcl = commands::canEditAcl,
+                    onOpenChannelAcl = onOpenChannelAcl,
                     channelAclPassword = state.channelAclPassword,
                     permissionEpoch = state.permissionEpoch,
                     showUserCount = showUserCount,

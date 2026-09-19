@@ -48,6 +48,10 @@ internal class ChannelTreeActions(
     val onRemoveChannel: (Int) -> Unit,
     val onRequestChannelDescription: (Int) -> Unit,
     val onRequestChannelAcl: (Int) -> Unit,
+    /** Whether this channel's ACL may be edited (Write here or on the root). */
+    val canEditAcl: (Int) -> Boolean,
+    /** Opens the full-screen ACL editor for this channel. */
+    val onOpenChannelAcl: (Int) -> Unit,
     val channelAclPassword: ChannelAclPassword?,
     val permissionEpoch: Int,
     val showUserCount: Boolean,

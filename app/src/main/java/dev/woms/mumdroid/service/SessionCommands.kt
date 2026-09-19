@@ -297,6 +297,16 @@ internal class SessionPermissions(
         return UserModeration.supportsChannelListen(c.serverVersionV2, c.serverVersionLegacy)
     }
 
+    /**
+     * Whether the server version knows the `ResetUserContent` bit at all
+     * (official 1.4.0). The ACL editor hides the row on older servers, which
+     * would silently drop it.
+     */
+    fun supportsResetUserContentPermission(): Boolean {
+        val c = state.client ?: return false
+        return UserModeration.supportsResetUserContentPermission(c.serverVersionV2, c.serverVersionLegacy)
+    }
+
     fun canResetUserContent(): Boolean {
         val c = state.client ?: return false
         return UserModeration.canResetUserContent(

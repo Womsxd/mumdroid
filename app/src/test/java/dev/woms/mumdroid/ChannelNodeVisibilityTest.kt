@@ -44,6 +44,7 @@ class ChannelNodeVisibilityTest {
         canMakePermanentChannel: (Int) -> Boolean = { true },
         canWriteChannel: (Int) -> Boolean = { true },
         canLinkChannel: (Int) -> Boolean = { true },
+        canEditAcl: (Int) -> Boolean = { true },
     ) = ChannelNodeVisibility.of(
         channel = channel,
         collapsedIds = collapsedIds,
@@ -60,6 +61,7 @@ class ChannelNodeVisibilityTest {
         canMakePermanentChannel = canMakePermanentChannel,
         canWriteChannel = canWriteChannel,
         canLinkChannel = canLinkChannel,
+        canEditAcl = canEditAcl,
     )
 
     @Test
@@ -87,6 +89,16 @@ class ChannelNodeVisibilityTest {
         assertTrue(flags(channel = channel(4)).showRemove)
         assertFalse(flags(channel = channel(0)).showRemove)
         assertFalse(flags(channel = channel(4), canWriteChannel = { false }).showRemove)
+    }
+
+    @Test
+    fun showAcl_isWiderThanTheChannelPropertiesGate() {
+        // Write on the root channel alone may edit a channel's ACL, so the ACL
+        // entry survives where the channel-properties entry does not.
+        val rootWrite = flags(channel = channel(4), canWriteChannel = { false }, canEditAcl = { true })
+        assertTrue(rootWrite.showAcl)
+        assertFalse(rootWrite.showEdit)
+        assertFalse(flags(canEditAcl = { false }).showAcl)
     }
 
     @Test

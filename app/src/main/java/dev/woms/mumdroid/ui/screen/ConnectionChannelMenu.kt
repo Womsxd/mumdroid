@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -34,6 +35,7 @@ internal fun ChannelContextMenu(
     onStopShout: () -> Unit,
     showAdd: Boolean,
     showEdit: Boolean,
+    showAcl: Boolean,
     showRemove: Boolean,
     showSend: Boolean,
     linkMenu: ChannelLinks.Menu,
@@ -41,13 +43,14 @@ internal fun ChannelContextMenu(
     onToggleListen: () -> Unit,
     onAdd: () -> Unit,
     onEdit: () -> Unit,
+    onAcl: () -> Unit,
     onRemove: () -> Unit,
     onLink: () -> Unit,
     onUnlink: () -> Unit,
     onUnlinkAll: () -> Unit,
     onSend: () -> Unit,
 ) {
-    val showAdmin = showAdd || showEdit || showRemove
+    val showAdmin = showAdd || showEdit || showAcl || showRemove
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
@@ -115,6 +118,16 @@ internal fun ChannelContextMenu(
                 onClick = {
                     onDismiss()
                     onEdit()
+                },
+            )
+        }
+        if (showAcl) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.channel_acl)) },
+                leadingIcon = { Icon(Icons.Filled.Security, contentDescription = null) },
+                onClick = {
+                    onDismiss()
+                    onAcl()
                 },
             )
         }

@@ -15,6 +15,8 @@ internal data class ChannelNodeFlags(
     val showAdd: Boolean,
     val showEdit: Boolean,
     val showRemove: Boolean,
+    /** The channel ACL editor entry: Write here, or Write on the root. */
+    val showAcl: Boolean,
     val forceTemporary: Boolean,
     val canCollapse: Boolean,
     val collapsed: Boolean,
@@ -46,6 +48,7 @@ internal object ChannelNodeVisibility {
         canMakePermanentChannel: (Int) -> Boolean,
         canWriteChannel: (Int) -> Boolean,
         canLinkChannel: (Int) -> Boolean,
+        canEditAcl: (Int) -> Boolean,
     ): ChannelNodeFlags {
         val isCurrentChannel = channel.id == localChannelId
         val listening = channel.id in listeningChannels
@@ -71,6 +74,9 @@ internal object ChannelNodeVisibility {
             showEdit = showEdit,
             // The root channel cannot be removed.
             showRemove = showEdit && channel.id != 0,
+            // Editing a channel's ACL allows Write here or on the root, which is
+            // wider than the channel-properties gate above.
+            showAcl = canEditAcl(channel.id),
             forceTemporary = showAdd && !canMakePermanentChannel(channel.id),
             canCollapse = ChannelTree.canCollapse(channel),
             collapsed = ChannelTree.canCollapse(channel) && channel.id in collapsedIds,

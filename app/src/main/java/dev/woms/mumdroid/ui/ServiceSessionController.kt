@@ -245,6 +245,9 @@ internal class ServiceSessionController(
 
     override fun supportsChannelListen(): Boolean = service?.permissions?.supportsChannelListen() ?: false
 
+    override fun supportsResetUserContentPermission(): Boolean =
+        service?.permissions?.supportsResetUserContentPermission() ?: false
+
     /** Desktop `qaChannelListen`: hear a channel without joining it. */
     override fun setChannelListening(channelId: Int, listen: Boolean) {
         service?.channelCommands?.setChannelListening(channelId, listen)

@@ -30,7 +30,7 @@
 ## Highlights
 
 - **Customizable Android audio routing.** Headset / Bluetooth / loudspeaker / earpiece with a user-ranked priority list and a communication-vs-media playback path.
-- **Server administration.** Channels, access tokens, registered users, bans (timed or permanent, by certificate or IP), kick, move, mute, deafen, priority speaker. Channel access is password-based; a full ACL editor is not included.
+- **Server administration.** Channels, access tokens, registered users, bans (timed or permanent, by certificate or IP), kick, move, mute, deafen, priority speaker, and a full channel ACL editor (per-group and per-user grants, inherited entries, group membership).
 
 ---
 
@@ -63,7 +63,8 @@
 ### Channels, users & admin
 
 - Collapsible **channel / user tree** with join, link/unlink, listen/unlisten, shout-to-channel and whisper-to-user long-press actions, per-channel user counts and talking states (plain talking / whispering / shouting are drawn in different colours).
-- Create, edit, remove and reposition channels — including temporary channels, max-user limits, descriptions and passwords (remembered as access tokens per address). Channel access control is limited to passwords, which are translated into server ACL rules; fine-grained ACL editing (groups, per-user grants) is not implemented.
+- Create, edit, remove and reposition channels — including temporary channels, max-user limits, descriptions and passwords (remembered as access tokens per address).
+- **ACL editor** for any channel you may write (Write on the channel or on the root). The ACL tab edits each entry's target — a group, a built-in meta-group such as `auth` / `in` / `out`, or a registered user looked up by name — its allow/deny matrix over the permission bits, whether it applies to this channel and/or its sub-channels, and the order the entries are evaluated in (later entries win); entries inherited from parent channels are listed read-only. The Groups tab creates groups and manages their members, their exclusions, and the members inherited from a parent. Rows the server version does not know are hidden (Listen and Reset user content need Mumble 1.4.0). Channel passwords remain the shorthand on top of it — a deny-all entry plus a grant to `#password`, still edited from the channel dialog.
 - User context actions: information (versions, address, certificate, Opus support, ping statistics), whisper, mute, deafen, move, kick, ban, register, rename, unregister, priority speaker, ignore messages, local block.
 - **Registered-user list** and **ban list** with search; timed or permanent bans by certificate or IP.
 - **Text chat** to channels and users with history, system notices (joins, leaves, moves, kicks, bans) and notifications with inline reply.
@@ -139,7 +140,7 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 | Key storage | Each certificate lives in its own password-less PKCS#12 keystore file in app-private storage (same as the desktop client); crypt key material is erased on disconnect |
 | Certificate backup | Off by default: the `.p12` sits in `noBackupFilesDir`, which neither Auto Backup nor Android 12+ device transfer reads. Turning "Back up user certificate" on moves it to `filesDir` so the system/vendor may copy it to the cloud or a new device — the key has no password, so whoever can read that backup can present your identity. The move, not a backup rule, is what enforces this (see `res/xml/backup_rules.xml`) |
 | Voice privacy | OCB2-AES128 on every voice datagram sent over UDP. Voice tunneled over TCP (`UDPTunnel`) is not OCB2-encrypted — the TLS channel already protects it, exactly as the official client's force-TCP branch does |
-| Channel access | Channel passwords are converted into server ACL rules (deny-all + grant `#password`); fine-grained ACL editing is not exposed in the UI |
+| Channel access | Server-side ACLs, edited in full in the app: per-group and per-user allow/deny over the permission bits, entries inherited from parent channels, and group membership. A channel password is the shorthand for one deny-all entry plus a grant to `#password`, written from the channel dialog |
 | Minimisation | No telemetry, no analytics, no accounts — the app only talks to the servers you add |
 
 ---
@@ -246,7 +247,7 @@ Toolchain: Android Gradle Plugin 9.3, Kotlin 2.4, Compose BOM 2026.02.01, NDK 30
 ./gradlew :app:test
 ```
 
-The JVM test suite covers the pieces that are easy to get subtly wrong: the UDP/TCP codecs, `PacketDataStream` varint edge cases, OCB2 framing, ping encoding/decoding, jitter-buffer behaviour, VAD thresholds, output routing rules, channel-tree maintenance, ACL permission checks, channel-password handling, bans, and settings migration.
+The JVM test suite covers the pieces that are easy to get subtly wrong: the UDP/TCP codecs, `PacketDataStream` varint edge cases, OCB2 framing, ping encoding/decoding, jitter-buffer behaviour, VAD thresholds, output routing rules, channel-tree maintenance, ACL permission checks, the ACL editor draft rules, channel-password handling, bans, and settings migration.
 
 ---
 

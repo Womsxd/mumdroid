@@ -10,6 +10,8 @@ import dev.woms.mumdroid.core.model.ServerConnectionInfo
 import dev.woms.mumdroid.core.model.ServerRemoval
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.model.VoiceTargetStatus
+import dev.woms.mumdroid.core.net.AclUserNames
+import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.core.net.UserConnectionInfo
 
 /** Low-frequency session snapshot for the UI.
@@ -66,6 +68,10 @@ data class ConnectionState(
     val listeningChannels: Set<Int> = emptySet(),
     /** Password from the last ACL query, used by the channel-edit dialog. */
     val channelAclPassword: ChannelAclPassword? = null,
+    /** Last channel ACL reply; the ACL editor seeds its draft from it. */
+    val channelAcl: ChanAclSnapshot? = null,
+    /** Registered-user id/name cache the ACL editor resolves ids against. */
+    val aclUserNames: AclUserNames = AclUserNames(),
     /** Saved favorite this session was started from (0 if unknown). */
     val favoriteId: Long = 0,
 ) {

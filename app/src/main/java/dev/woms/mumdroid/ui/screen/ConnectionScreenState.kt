@@ -13,6 +13,7 @@ import dev.woms.mumdroid.core.model.ChannelPick
 internal enum class AdminPage {
     RegisteredUsers,
     BanList,
+    ChannelAcl,
 }
 
 /**
@@ -27,6 +28,8 @@ internal enum class AdminPage {
 internal class ConnectionScreenState {
     var tab by mutableIntStateOf(0)
     var adminPage by mutableStateOf<AdminPage?>(null)
+    /** Channel the open administration page acts on (the ACL editor). */
+    var adminChannelId by mutableIntStateOf(0)
     var showServerInfo by mutableStateOf(false)
     var showAccessTokens by mutableStateOf(false)
     var infoSession by mutableStateOf<Int?>(null)
