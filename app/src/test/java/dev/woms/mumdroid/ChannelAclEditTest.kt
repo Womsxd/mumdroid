@@ -39,14 +39,25 @@ class ChannelAclEditTest {
     }
 
     @Test
-    fun inheritedCount_isThePrefixMurmurSendsFirst() {
+    fun ruleBlocks_splitByWhereTheRulesComeFrom() {
+        // [default(inherited), all(inherited), auth(inherited), in]
         val draft = withRules(inheritedRule("all"), inheritedRule("auth"), groupRule("in"))
         assertEquals(3, ChannelAclEdit.inheritedCount(draft))
-        assertEquals(listOf(0, 1, 2, 3), ChannelAclEdit.visibleRules(draft))
-        assertEquals(
-            listOf(0, 3),
-            ChannelAclEdit.visibleRules(ChannelAclEdit.setInheritAcls(draft, false)),
+        assertEquals(listOf(0), ChannelAclEdit.defaultRules(draft))
+        assertEquals(listOf(1, 2), ChannelAclEdit.inheritedRules(draft))
+        assertEquals(listOf(3), ChannelAclEdit.localRules(draft))
+    }
+
+    @Test
+    fun inheritedBlockIsEmptyWhileTheChannelDoesNotInherit() {
+        val draft = ChannelAclEdit.setInheritAcls(
+            withRules(inheritedRule("all"), groupRule("in")),
+            false,
         )
+        // The parents' rows no longer apply, but murmur's baseline always does.
+        assertTrue(ChannelAclEdit.inheritedRules(draft).isEmpty())
+        assertEquals(listOf(0), ChannelAclEdit.defaultRules(draft))
+        assertEquals(listOf(2), ChannelAclEdit.localRules(draft))
     }
 
     @Test

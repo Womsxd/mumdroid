@@ -2,11 +2,16 @@ package dev.woms.mumdroid.ui.screen
 
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -33,6 +38,7 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -58,12 +64,15 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
@@ -71,6 +80,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -82,6 +92,7 @@ import dev.woms.mumdroid.core.net.ChanAclDraft
 import dev.woms.mumdroid.core.net.ChanAclRule
 import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.core.net.ChannelAclEdit
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
@@ -131,14 +142,14 @@ private val PERMISSION_COLUMN = 48.dp
 /** Fixed height of an entries-list row, so a drag maps cleanly onto a distance. */
 private val ENTRY_ROW_HEIGHT = 72.dp
 
-/** Leading slot of an entry row: the drag handle, or its space on a read-only row. */
+/** Leading slot of an editable row, holding the drag handle. */
 private val ENTRY_HANDLE_WIDTH = 40.dp
-
-/** Trailing slot of an entry row: the delete button, or its space on a read-only row. */
-private val ENTRY_ACTION_WIDTH = 48.dp
 
 /** Permission names listed per entry before the summary is cut short. */
 private const val SUMMARY_NAMES = 4
+
+/** Share of a row's width a left swipe must cover before it asks to delete. */
+private const val SWIPE_TRIGGER_FRACTION = 0.35f
 
 /**
  * The channel ACL editor: the desktop `ACLEditor`'s ACL and Groups tabs as a
@@ -175,6 +186,8 @@ fun ChannelAclScreen(
     var selectedGroup by remember { mutableStateOf<String?>(null) }
     var help by remember { mutableStateOf<AclPermission?>(null) }
     var pendingSave by remember { mutableStateOf(false) }
+    /** Entry a swipe asked to remove, waiting for the confirmation. */
+    var pendingDelete by remember { mutableStateOf<Int?>(null) }
 
     val names = remember(userNames, onlineUsers) { ChannelAclEdit.candidates(userNames, onlineUsers) }
     val seed = snapshot?.takeIf { it.channelId == channelId }
@@ -336,9 +349,7 @@ fun ChannelAclScreen(
                                 onMove = { from, to ->
                                     edit { ChannelAclEdit.moveRule(it, from, to) }
                                 },
-                                onDelete = { index ->
-                                    edit { ChannelAclEdit.removeRule(it, index) }
-                                },
+                                onRequestDelete = { pendingDelete = it },
                             )
                         } else {
                             ChannelAclGroupsTab(
@@ -370,6 +381,18 @@ fun ChannelAclScreen(
         PermissionHelpDialog(permission = permission, onDismiss = { help = null })
     }
 
+    val deleting = pendingDelete
+    if (deleting != null && current != null) {
+        DeleteEntryDialog(
+            label = ChannelAclEdit.ruleLabel(current, names, deleting),
+            onConfirm = {
+                edit { ChannelAclEdit.removeRule(it, deleting) }
+                pendingDelete = null
+            },
+            onDismiss = { pendingDelete = null },
+        )
+    }
+
     if (pendingSave && current != null) {
         UnresolvedSaveDialog(
             names = ChannelAclEdit.pendingNames(current).sorted(),
@@ -383,8 +406,13 @@ fun ChannelAclScreen(
 }
 
 /**
- * The entries list: every rule the channel evaluates, the channel's own inherit
- * switch above them, and a way into each rule's editor.
+ * The entries list, split by where each rule comes from: what murmur grants
+ * when nothing else applies, what parent channels hand down, and what this
+ * channel owns.
+ *
+ * The blocks are in evaluation order — murmur walks from the root down and the
+ * last matching entry wins — so the channel's own rules, the only editable
+ * ones, sit at the bottom, right where the add button appends to.
  *
  * A `Column` rather than a `LazyColumn`, so that every row is composed and a
  * drag can be measured against the row height — the same trade-off, and the
@@ -398,25 +426,37 @@ private fun AclEntryList(
     onOpen: (Int) -> Unit,
     onEdit: ((ChanAclDraft) -> ChanAclDraft) -> Unit,
     onMove: (Int, Int) -> Unit,
-    onDelete: (Int) -> Unit,
+    onRequestDelete: (Int) -> Unit,
 ) {
     val names = permissions.map { it.bit to stringResource(it.name) }
+    val rows: @Composable (List<Int>) -> Unit = { indices ->
+        AclRows(
+            indices = indices,
+            draft = draft,
+            userNames = userNames,
+            names = names,
+            onOpen = onOpen,
+            onMove = onMove,
+            onRequestDelete = onRequestDelete,
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 12.dp),
+            .padding(top = 8.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                stringResource(R.string.acl_active),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        AclBlock(stringResource(R.string.acl_section_default)) {
+            rows(ChannelAclEdit.defaultRules(draft))
+        }
+        AclBlock(stringResource(R.string.acl_section_inherited)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     stringResource(R.string.acl_inherit_parent),
                     modifier = Modifier.weight(1f),
@@ -433,35 +473,85 @@ private fun AclEntryList(
                 stringResource(R.string.acl_inherited_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
+            rows(ChannelAclEdit.inheritedRules(draft))
         }
-        HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
-        ChannelAclEdit.visibleRules(draft).forEach { index ->
-            AclEntryRow(
-                draft = draft,
-                index = index,
-                userNames = userNames,
-                names = names,
-                onOpen = onOpen,
-                onMove = onMove,
-                onDelete = onDelete,
+        AclBlock(stringResource(R.string.acl_section_local)) {
+            Text(
+                stringResource(R.string.acl_list_gestures),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
+            rows(ChannelAclEdit.localRules(draft))
         }
         // Room for the add button, so the last entry stays reachable.
         Box(Modifier.padding(bottom = 88.dp))
     }
 }
 
+/** The rows of one block, in the order they are evaluated. */
+@Composable
+private fun AclRows(
+    indices: List<Int>,
+    draft: ChanAclDraft,
+    userNames: AclUserNames,
+    names: List<Pair<Int, String>>,
+    onOpen: (Int) -> Unit,
+    onMove: (Int, Int) -> Unit,
+    onRequestDelete: (Int) -> Unit,
+) {
+    indices.forEach { index ->
+        AclEntryRow(
+            draft = draft,
+            index = index,
+            userNames = userNames,
+            names = names,
+            onOpen = onOpen,
+            onMove = onMove,
+            onRequestDelete = onRequestDelete,
+        )
+    }
+}
+
 /**
- * One row of the list: a handle to reorder it, its label and summary, and the
- * delete action. The handle only exists on rows this channel owns — an
- * inherited row belongs to a parent channel, so it cannot be moved or removed
- * here (desktop `numInheritACL`, `ACLEnableCheck`).
+ * One titled block of the entries list. The rows sit full-bleed (they carry
+ * their own dividers), so this cannot use the editor's [AclSection], which
+ * spaces its content for form fields.
+ */
+@Composable
+private fun AclBlock(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+        )
+        content()
+    }
+}
+
+/**
+ * One row of the list: a handle to reorder it, its label and summary, and a
+ * left swipe that asks to remove it.
+ *
+ * Both gestures only exist on rows this channel owns — an inherited row belongs
+ * to a parent channel, so it can neither be moved nor removed here (desktop
+ * `numInheritACL`, `ACLEnableCheck`).
  *
  * The drag slides the row under the finger and applies the new position on
  * release: unlike the output-device list, the rows here have no stable identity
  * to key the item on, and shuffling them live would tear down the very node
- * holding the gesture.
+ * holding the gesture. The swipe only uncovers the delete colour and springs
+ * back — removing is the confirmation dialog's decision, not the gesture's —
+ * which is also why this is a horizontal drag of its own rather than
+ * `SwipeToDismissBox`: that component's veto hook (`confirmValueChange`) is
+ * deprecated in favour of owning the anchors, which is what this does.
  */
 @Composable
 private fun AclEntryRow(
@@ -471,35 +561,54 @@ private fun AclEntryRow(
     names: List<Pair<Int, String>>,
     onOpen: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
-    onDelete: (Int) -> Unit,
+    onRequestDelete: (Int) -> Unit,
 ) {
     val rule = draft.rules[index]
     val editable = ChannelAclEdit.rowEditable(rule)
     var dragging by remember { mutableStateOf(false) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
-    val rowHeightPx = with(LocalDensity.current) { ENTRY_ROW_HEIGHT.toPx() }
+    var rowWidthPx by remember { mutableIntStateOf(0) }
+    val swipeX = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val rowHeightPx = with(density) { ENTRY_ROW_HEIGHT.toPx() }
     val haptic = LocalHapticFeedback.current
+    val revealedWidth = with(density) { (-swipeX.value).coerceAtLeast(0f).toDp() }
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(ENTRY_ROW_HEIGHT)
-            .zIndex(if (dragging) 1f else 0f)
-            .offset { IntOffset(0, if (dragging) dragOffsetY.roundToInt() else 0) }
-            .background(
-                if (dragging) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
+            .onSizeChanged { rowWidthPx = it.width },
     ) {
-        // The grab area is the whole leading slot, not just the glyph, so the
-        // handle is as easy to catch as a list row's touch target.
-        Box(
+        // Behind the row, so only the strip the row has moved away from shows.
+        DeleteSwipeStrip(revealedWidth)
+        Row(
             modifier = Modifier
-                .width(ENTRY_HANDLE_WIDTH)
-                .fillMaxHeight()
-                .then(
-                    if (editable) {
-                        Modifier.pointerInput(index) {
+                .fillMaxWidth()
+                .height(ENTRY_ROW_HEIGHT)
+                .zIndex(if (dragging) 1f else 0f)
+                .offset {
+                    IntOffset(
+                        swipeX.value.roundToInt(),
+                        if (dragging) dragOffsetY.roundToInt() else 0,
+                    )
+                }
+                .background(
+                    if (dragging) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The grab area is the whole leading slot, not just the glyph, so
+            // the handle is as easy to catch as a list row's touch target. Rows
+            // this channel does not own have no handle, and no slot for one
+            // either: their text starts at the block title's margin.
+            if (editable) {
+                Box(
+                    modifier = Modifier
+                        .width(ENTRY_HANDLE_WIDTH)
+                        .fillMaxHeight()
+                        .pointerInput(index) {
                             detectDragGestures(
                                 onDragStart = {
                                     dragging = true
@@ -523,54 +632,96 @@ private fun AclEntryRow(
                                     dragOffsetY += amount.y
                                 },
                             )
-                        }
-                    } else {
-                        Modifier
-                    },
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (editable) {
-                Icon(
-                    Icons.Filled.DragHandle,
-                    contentDescription = stringResource(R.string.acl_reorder_handle),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .clickable { onOpen(index) }
-                .padding(vertical = 8.dp),
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(
-                ChannelAclEdit.ruleLabel(draft, userNames, index),
-                style = MaterialTheme.typography.bodyLarge,
-                fontStyle = if (rule.inherited) FontStyle.Italic else FontStyle.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            AclEntrySummary(rule, names)
-        }
-        Box(
-            modifier = Modifier.width(ENTRY_ACTION_WIDTH),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (editable) {
-                IconButton(onClick = { onDelete(index) }) {
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
                     Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = stringResource(R.string.acl_remove_entry),
-                        tint = MaterialTheme.colorScheme.error,
+                        Icons.Filled.DragHandle,
+                        contentDescription = stringResource(R.string.acl_reorder_handle),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .then(
+                        if (editable) {
+                            // Horizontal only, so a vertical flick still scrolls
+                            // the list and the handle keeps its own drag.
+                            Modifier.pointerInput(index) {
+                                detectHorizontalDragGestures(
+                                    onDragEnd = {
+                                        val triggered = rowWidthPx > 0 &&
+                                            -swipeX.value >= rowWidthPx * SWIPE_TRIGGER_FRACTION
+                                        if (triggered) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onRequestDelete(index)
+                                        }
+                                        scope.launch { swipeX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow)) }
+                                    },
+                                    onDragCancel = {
+                                        scope.launch { swipeX.animateTo(0f, spring()) }
+                                    },
+                                    onHorizontalDrag = { change, amount ->
+                                        change.consume()
+                                        scope.launch {
+                                            swipeX.snapTo(
+                                                (swipeX.value + amount)
+                                                    .coerceIn(-rowWidthPx.toFloat(), 0f),
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .clickable { onOpen(index) }
+                    .padding(
+                        start = if (editable) 0.dp else 16.dp,
+                        end = 16.dp,
+                        top = 8.dp,
+                        bottom = 8.dp,
+                    ),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    ChannelAclEdit.ruleLabel(draft, userNames, index),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontStyle = if (rule.inherited) FontStyle.Italic else FontStyle.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                AclEntrySummary(rule, names)
             }
         }
     }
     HorizontalDivider()
+}
+
+/** The delete colour a left swipe uncovers, clipped to the part it uncovered. */
+@Composable
+private fun BoxScope.DeleteSwipeStrip(width: Dp) {
+    if (width <= 0.dp) return
+    Box(
+        modifier = Modifier
+            .align(Alignment.CenterEnd)
+            .fillMaxHeight()
+            .width(width)
+            .clipToBounds()
+            .background(MaterialTheme.colorScheme.errorContainer),
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        Icon(
+            Icons.Filled.Delete,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.padding(end = 16.dp),
+        )
+    }
 }
 
 /**
@@ -930,6 +1081,38 @@ private fun PermissionHelpDialog(permission: AclPermission, onDismiss: () -> Uni
             }
         },
         confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+/**
+ * Confirms what a left swipe asked for. The row itself only springs back, so
+ * this is where an entry actually goes away — and only from the draft, which is
+ * why the message says when it takes effect.
+ */
+@Composable
+private fun DeleteEntryDialog(
+    label: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.acl_remove_entry)) },
+        text = { Text(stringResource(R.string.acl_remove_confirm, label)) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) {
+                Text(stringResource(R.string.delete))
+            }
+        },
+        dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )

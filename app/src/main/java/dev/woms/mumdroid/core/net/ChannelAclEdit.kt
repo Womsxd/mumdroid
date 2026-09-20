@@ -83,11 +83,24 @@ object ChannelAclEdit {
     fun inheritedCount(draft: ChanAclDraft): Int = draft.rules.takeWhile { it.inherited }.size
 
     /**
-     * Desktop `ACLEditor::refillACL`: the default row is always listed, rows
-     * inherited from parent channels only while the channel inherits ACLs.
+     * The row murmur's own defaults are shown as: the synthetic entry at index
+     * 0. Desktop keeps it listed even when the channel does not inherit, since
+     * the baseline applies either way.
      */
-    fun visibleRules(draft: ChanAclDraft): List<Int> =
-        draft.rules.indices.filter { it == 0 || draft.inheritAcls || !draft.rules[it].inherited }
+    fun defaultRules(draft: ChanAclDraft): List<Int> =
+        if (draft.rules.isEmpty()) emptyList() else listOf(0)
+
+    /**
+     * The rows handed down by parent channels, in evaluation order. They only
+     * apply while the channel inherits its ACLs, so they are not listed at all
+     * when [ChanAclDraft.inheritAcls] is off (desktop `refillACL`).
+     */
+    fun inheritedRules(draft: ChanAclDraft): List<Int> =
+        if (!draft.inheritAcls) emptyList() else (1 until inheritedCount(draft)).toList()
+
+    /** The rows this channel owns — the only ones it can reorder or remove. */
+    fun localRules(draft: ChanAclDraft): List<Int> =
+        (inheritedCount(draft)..draft.rules.lastIndex).toList()
 
     /**
      * Desktop `ACLEditor::refillACL` item text: `@group` for a group target,
