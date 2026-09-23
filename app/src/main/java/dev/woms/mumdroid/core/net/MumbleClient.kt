@@ -232,6 +232,9 @@ class MumbleClient internal constructor(
         onIgnored = { type, bodySize ->
             Log.d(TAG, "Ignoring message type $type ($bodySize bytes)")
         },
+        onMalformed = { type, bodySize, reason ->
+            Log.w(TAG, "Dropping malformed message type $type ($bodySize bytes): $reason")
+        },
     )
 
     /** Keep-alive pings and their in-flight budget / RTT accounting. */

@@ -102,10 +102,12 @@ class MumbleMessageRouterTest {
     private val listener = RecordingListener()
     private val host = RecordingHost()
     private val ignored = mutableListOf<Int>()
+    private val malformed = mutableListOf<Int>()
     private val router = MumbleMessageRouter(
         listener = listener,
         host = host,
         onIgnored = { type, _ -> ignored.add(type) },
+        onMalformed = { type, _, _ -> malformed.add(type) },
     )
 
     @Test
@@ -227,6 +229,34 @@ class MumbleMessageRouterTest {
         assertEquals(24, bans[0].mask)
         assertEquals("bad user", bans[0].name)
         assertArrayEquals(byteArrayOf(1.toByte(), 2.toByte(), 3.toByte(), 4.toByte()), bans[0].address)
+    }
+
+    /**
+     * A body that does not parse must be dropped, not thrown. `readLoop` in
+     * [dev.woms.mumdroid.core.net.MumbleClient] turns any escaping exception
+     * into a disconnect, so a single malformed frame from a faulty or hostile
+     * server would end the session; the official handler ignores the message
+     * and keeps the connection alive.
+     */
+    @Test
+    fun malformedBody_isDroppedAndReportedWithoutThrowing() {
+        // A length-delimited field claiming 5 bytes with only 1 present.
+        val truncated = byteArrayOf(0x12, 0x05, 0x01)
+
+        router.dispatch(MessageType.VERSION, truncated)
+
+        assertEquals(listOf(MessageType.VERSION), malformed)
+        assertTrue(host.versions.isEmpty())
+        assertTrue(listener.versions.isEmpty())
+    }
+
+    /** Dropping one bad frame must not cost the messages that follow it. */
+    @Test
+    fun aMalformedMessageDoesNotStopTheNextOne() {
+        router.dispatch(MessageType.VERSION, byteArrayOf(0x12, 0x05, 0x01))
+        router.dispatch(MessageType.PING, Ping.newBuilder().setTimestamp(42L).build().toByteArray())
+
+        assertEquals(42L, host.pings.single()[0])
     }
 
     @Test

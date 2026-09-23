@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.net
 
+import com.google.protobuf.InvalidProtocolBufferException
 import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.RegisteredUser
@@ -38,12 +39,19 @@ import dev.woms.mumdroid.core.proto.VoiceTarget
  * pure parse-and-forward.
  *
  * No Android logging here: unhandled / out-of-scope messages are reported
- * through [onIgnored] so the router stays testable on the JVM.
+ * through [onIgnored], and bodies that fail to parse through [onMalformed], so
+ * the router stays testable on the JVM.
+ *
+ * A body that does not parse is dropped, matching the official
+ * `if (msg.ParseFromArray(...)) msg##name(msg);`: one bad frame from a buggy or
+ * hostile server must not end the session. Letting the parse exception escape
+ * would carry it up to [MumbleClient.readLoop], which disconnects.
  */
 internal class MumbleMessageRouter(
     private val listener: MumbleListener,
     private val host: Host,
     private val onIgnored: (type: Int, bodySize: Int) -> Unit = { _, _ -> },
+    private val onMalformed: (type: Int, bodySize: Int, reason: String?) -> Unit = { _, _, _ -> },
 ) {
     /** State side-effects of the three stateful messages. */
     internal interface Host {
@@ -66,7 +74,19 @@ internal class MumbleMessageRouter(
         fun onPing(timestampMs: Long, good: Int, late: Int, lost: Int, resync: Int)
     }
 
+    /**
+     * Routes one framed message, dropping (and reporting) a body that cannot be
+     * parsed. See the class comment for why that must not propagate.
+     */
     fun dispatch(type: Int, body: ByteArray) {
+        try {
+            route(type, body)
+        } catch (e: InvalidProtocolBufferException) {
+            onMalformed(type, body.size, e.message)
+        }
+    }
+
+    private fun route(type: Int, body: ByteArray) {
         when (type) {
             MessageType.VERSION -> {
                 val v = Version.parseFrom(body)
