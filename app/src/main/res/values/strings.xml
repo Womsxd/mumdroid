@@ -466,6 +466,8 @@
     </plurals>
     <string name="certificate_pinning">Certificate pinning</string>
     <string name="certificate_pinning_sub">Verify the server certificate fingerprint</string>
+    <string name="allow_legacy_tls">Allow legacy TLS</string>
+    <string name="allow_legacy_tls_sub">Also offer TLS 1.0/1.1 to servers that support nothing newer; applies on the next connection. Weaker than the official client\'s TLS 1.2 floor, and Android 15 and later refuse these versions regardless</string>
     <string name="hide_client_info">Don\'t send client information</string>
     <string name="hide_client_info_sub">Report only the protocol version at connect time; applies on the next connection</string>
 

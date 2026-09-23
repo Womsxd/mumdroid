@@ -3,6 +3,8 @@ package dev.woms.mumdroid.core.net
 import android.annotation.SuppressLint
 import android.util.Log
 import dev.woms.mumdroid.core.model.CertificateDecision
+import dev.woms.mumdroid.core.net.ClientTlsPolicy.Companion.MIN_TLS_PROTOCOLS
+import dev.woms.mumdroid.core.net.ClientTlsPolicy.Companion.enabledProtocolsFor
 import java.security.SecureRandom
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
@@ -93,13 +95,23 @@ internal class CertificateGate(
  *
  * Owns the certificate / TLS-session state exposed through [MumbleClient];
  * [reset] clears it between connections while the active pin deliberately
- * survives (the user's re-pin decision outlives one handshake).
+ * survives (the user's re-pin decision outlives one handshake). The handshake
+ * offers TLS 1.2 or newer — the official client's `QSsl::TlsV1_2OrLater` —
+ * plus TLS 1.0/1.1 when [allowLegacyTls] asks for them; [applyProtocols] is
+ * what puts that set on the socket.
  */
 internal class ClientTlsPolicy(
     private val certificatePinning: Boolean,
     pinnedFingerprint: String?,
     private val clientCert: X509Certificate?,
     private val clientKey: java.security.PrivateKey?,
+    /**
+     * Opt-in escape hatch for servers that only speak TLS 1.0/1.1, from the
+     * "Allow legacy TLS" setting. Bounded by the platform: where it no longer
+     * supports those versions (Android 15+), [enabledProtocolsFor] drops them
+     * again and the connection stays on the TLS 1.2 floor.
+     */
+    private val allowLegacyTls: Boolean = false,
     private val onCertificateError: (
         fingerprint: String,
         pinnedFingerprint: String,
@@ -116,6 +128,59 @@ internal class ClientTlsPolicy(
          */
         private const val TAG = "ClientTlsPolicy"
         const val CERTIFICATE_REJECTED = "Server certificate rejected"
+
+        /**
+         * The versions the control channel may negotiate: the official
+         * client's `QSsl::TlsV1_2OrLater` (`ServerHandler::run`; murmur sets
+         * the same floor in `Server::sslSocket`). The set is built explicitly
+         * rather than left to the platform default, which varies by release,
+         * vendor and target SDK.
+         */
+        private val MIN_TLS_PROTOCOLS = listOf("TLSv1.2", "TLSv1.3")
+
+        /**
+         * Added to [MIN_TLS_PROTOCOLS] only when the user allows legacy TLS
+         * ([ClientTlsPolicy.allowLegacyTls]), for servers that support nothing
+         * newer.
+         */
+        private val LEGACY_TLS_PROTOCOLS = listOf("TLSv1", "TLSv1.1")
+
+        /**
+         * [supported] intersected with the versions above, in the platform's
+         * own order.
+         *
+         * The intersection is what may be handed to `setEnabledProtocols`:
+         * Conscrypt rejects anything outside `getSupportedProtocols()` with an
+         * `IllegalArgumentException` (it stopped silently dropping them for
+         * apps targeting Android 15+), so TLS 1.3 — which only exists from
+         * Android 10 (API 29) on — and the legacy versions on a platform that
+         * disallows them are filtered out here instead. Intersecting also
+         * means SSLv3 can never come back into the set.
+         *
+         * @throws IllegalArgumentException when the intersection is empty, i.e.
+         *   the platform can speak nothing this policy accepts. See below.
+         */
+        internal fun enabledProtocolsFor(
+            supported: Array<String>,
+            allowLegacyTls: Boolean,
+        ): Array<String> {
+            val allowed = if (allowLegacyTls) {
+                MIN_TLS_PROTOCOLS + LEGACY_TLS_PROTOCOLS
+            } else {
+                MIN_TLS_PROTOCOLS
+            }
+            val usable = supported.filter { it in allowed }.toTypedArray()
+            // An empty set must fail here, naming this policy, rather than reach
+            // `setEnabledProtocols`: Conscrypt then aborts the handshake with
+            // "No enabled protocols", which points at its own internals instead
+            // of at the version floor this app chose. No device can get here
+            // (minSdk 26 always offers TLS 1.2), but the diagnostic is cheap.
+            require(usable.isNotEmpty()) {
+                "Platform offers no acceptable TLS version for the control channel " +
+                    "(supported: ${supported.joinToString()}, allowed: ${allowed.joinToString()})"
+            }
+            return usable
+        }
     }
 
     /**
@@ -158,6 +223,15 @@ internal class ClientTlsPolicy(
         val context = SSLContext.getInstance("TLS")
         context.init(keyManagers, arrayOf<TrustManager>(trustManager), SecureRandom())
         return context
+    }
+
+    /**
+     * Puts the protocol set from [enabledProtocolsFor] on the socket, so a
+     * server offering a weaker version than the settings allow cannot
+     * downgrade the control channel. Must run before the handshake.
+     */
+    fun applyProtocols(socket: SSLSocket) {
+        socket.enabledProtocols = enabledProtocolsFor(socket.supportedProtocols, allowLegacyTls)
     }
 
     /** Captures the server fingerprint and TLS session info after the handshake. */

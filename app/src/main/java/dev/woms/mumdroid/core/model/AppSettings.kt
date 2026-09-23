@@ -123,6 +123,12 @@ data class AppSettings(
     val defaultUsername: String = "",
     val certificatePinning: Boolean = true,
     val hideClientInfo: Boolean = false,
+    /**
+     * Offer TLS 1.0/1.1 on the control channel in addition to the TLS 1.2
+     * floor, for servers that support nothing newer. Ignored where the
+     * platform itself refuses those versions (Android 15+).
+     */
+    val allowLegacyTls: Boolean = false,
     val backupUserCertificates: Boolean = false,
     val inputVolume: Int = 100,
     val transmitQuality: Int = 40,

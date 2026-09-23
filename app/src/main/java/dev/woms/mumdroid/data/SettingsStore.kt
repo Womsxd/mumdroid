@@ -47,6 +47,7 @@ class SettingsStore(private val context: Context) {
         private val KEY_DEFAULT_USERNAME = stringPreferencesKey("default_username")
         private val KEY_CERT_PINNING = booleanPreferencesKey("certificate_pinning")
         private val KEY_HIDE_CLIENT_INFO = booleanPreferencesKey("hide_client_info")
+        private val KEY_ALLOW_LEGACY_TLS = booleanPreferencesKey("allow_legacy_tls")
         private val KEY_BACKUP_USER_CERTS = booleanPreferencesKey("backup_user_certificates")
         private val KEY_INPUT_VOLUME = intPreferencesKey("input_volume")
         private val KEY_INPUT_BITRATE = intPreferencesKey("input_bitrate")
@@ -122,6 +123,7 @@ class SettingsStore(private val context: Context) {
             defaultUsername = prefs[KEY_DEFAULT_USERNAME] ?: "",
             certificatePinning = prefs[KEY_CERT_PINNING] ?: true,
             hideClientInfo = prefs[KEY_HIDE_CLIENT_INFO] ?: false,
+            allowLegacyTls = prefs[KEY_ALLOW_LEGACY_TLS] ?: false,
             backupUserCertificates = prefs[KEY_BACKUP_USER_CERTS] ?: false,
             inputVolume = prefs[KEY_INPUT_VOLUME] ?: 100,
             transmitQuality = VoiceBandwidth.clampQualityKbps(prefs[KEY_INPUT_BITRATE] ?: 40),
@@ -206,6 +208,7 @@ class SettingsStore(private val context: Context) {
             prefs[KEY_DEFAULT_USERNAME] = settings.defaultUsername
             prefs[KEY_CERT_PINNING] = settings.certificatePinning
             prefs[KEY_HIDE_CLIENT_INFO] = settings.hideClientInfo
+            prefs[KEY_ALLOW_LEGACY_TLS] = settings.allowLegacyTls
             prefs[KEY_BACKUP_USER_CERTS] = settings.backupUserCertificates
             prefs[KEY_INPUT_VOLUME] = settings.inputVolume
             prefs[KEY_INPUT_BITRATE] = VoiceBandwidth.clampQualityKbps(settings.transmitQuality)

@@ -112,6 +112,7 @@ class ConnectionFactoryTest {
                 params(),
                 certificatePinning = true,
                 hideClientInfo = false,
+                allowLegacyTls = false,
                 listener = listener,
             )
         }
@@ -140,6 +141,7 @@ class ConnectionFactoryTest {
                 params(),
                 certificatePinning = false,
                 hideClientInfo = false,
+                allowLegacyTls = false,
                 listener = NoopListener(),
             )
         }
@@ -158,10 +160,28 @@ class ConnectionFactoryTest {
                 params(),
                 certificatePinning = true,
                 hideClientInfo = true,
+                allowLegacyTls = false,
                 listener = NoopListener(),
             )
         }
 
         assertTrue(requireNotNull(captured).hideClientInfo)
+    }
+
+    @Test
+    fun create_carriesTheLegacyTlsPreferenceIntoTheSpec() {
+        // Same trip as the OS-info flag: the TLS policy reads it from the
+        // client at handshake time.
+        runBlocking {
+            factory().create(
+                params(),
+                certificatePinning = true,
+                hideClientInfo = false,
+                allowLegacyTls = true,
+                listener = NoopListener(),
+            )
+        }
+
+        assertTrue(requireNotNull(captured).allowLegacyTls)
     }
 }

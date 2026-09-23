@@ -374,6 +374,7 @@ class MumbleService : Service() {
                     params,
                     state.currentSettings.certificatePinning,
                     state.currentSettings.hideClientInfo,
+                    state.currentSettings.allowLegacyTls,
                     events,
                 )
                 state.connectedServerId = prepared.resolvedServerId

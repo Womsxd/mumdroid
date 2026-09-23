@@ -37,6 +37,12 @@ internal fun NetworkSettingsScreen(settings: AppSettings, onChanged: (AppSetting
             onCheckedChange = { onChanged(settings.copy(certificatePinning = it)) },
         )
         SwitchRow(
+            title = stringResource(R.string.allow_legacy_tls),
+            subtitle = stringResource(R.string.allow_legacy_tls_sub),
+            checked = settings.allowLegacyTls,
+            onCheckedChange = { onChanged(settings.copy(allowLegacyTls = it)) },
+        )
+        SwitchRow(
             title = stringResource(R.string.hide_client_info),
             subtitle = stringResource(R.string.hide_client_info_sub),
             checked = settings.hideClientInfo,

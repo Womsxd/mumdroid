@@ -29,6 +29,7 @@ internal data class ConnectionClientSpec(
     val certificatePinning: Boolean,
     val pinnedFingerprint: String?,
     val hideClientInfo: Boolean,
+    val allowLegacyTls: Boolean,
 )
 
 /** Builds the client for a resolved [ConnectionClientSpec]. */
@@ -51,6 +52,7 @@ internal class ConnectionFactory(
         params: ConnectParams,
         certificatePinning: Boolean,
         hideClientInfo: Boolean,
+        allowLegacyTls: Boolean,
         listener: MumbleListener,
     ): PreparedConnection {
         val (clientCert, clientKey) = certificateMaterial.keyStoreMaterial()
@@ -75,6 +77,7 @@ internal class ConnectionFactory(
                 certificatePinning = certificatePinning,
                 pinnedFingerprint = pinnedFingerprint,
                 hideClientInfo = hideClientInfo,
+                allowLegacyTls = allowLegacyTls,
             ),
         )
         return PreparedConnection(client, resolvedServerId, accessTokens)
@@ -93,4 +96,5 @@ private fun defaultClient(spec: ConnectionClientSpec): MumbleClient = MumbleClie
     certificatePinning = spec.certificatePinning,
     pinnedFingerprint = spec.pinnedFingerprint,
     hideClientInfo = spec.hideClientInfo,
+    allowLegacyTls = spec.allowLegacyTls,
 )

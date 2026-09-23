@@ -50,6 +50,8 @@ class MumbleClient internal constructor(
     private val pinnedFingerprint: String? = null,
     /** Report nothing but the protocol version in the handshake — no OS, no client name. */
     private val hideClientInfo: Boolean = false,
+    /** Offer TLS 1.0/1.1 as well, for servers that support nothing newer. */
+    private val allowLegacyTls: Boolean = false,
     /**
      * Message assembly for the typed sender API (official `ServerHandler`),
      * mixed into this class by delegation. Must be a constructor parameter: a
@@ -218,6 +220,7 @@ class MumbleClient internal constructor(
         pinnedFingerprint = pinnedFingerprint,
         clientCert = clientCert,
         clientKey = clientKey,
+        allowLegacyTls = allowLegacyTls,
         onCertificateError = { fingerprint, pinned, respond ->
             listener.onCertificateError(fingerprint, pinned, respond)
         },
@@ -377,6 +380,10 @@ class MumbleClient internal constructor(
             val ssl = tls.createSslContext()
             val factory = ssl.socketFactory
             val rawSocket = factory.createSocket() as SSLSocket
+            // Pin the offered versions (TLS 1.2 floor, plus TLS 1.0/1.1 only if
+            // the user allowed them) before the socket can negotiate anything
+            // weaker.
+            tls.applyProtocols(rawSocket)
             rawSocket.connect(InetSocketAddress(host, port), TIMEOUT_MS)
             // Handshake may block; keep a timeout until we are authenticated,
             // then clear it so a quiet control channel cannot drop the socket.

@@ -135,6 +135,7 @@ UDP/TCP ─► UdpVoiceManager ─► OpusCodec.decode ─► VoiceJitterBuffer 
 
 | Concern | Approach |
 | --- | --- |
+| Control channel | TLS 1.2 or newer is required (TLS 1.3 where the platform supports it), matching the official client's `TlsV1_2OrLater` floor; the "Allow legacy TLS" setting adds TLS 1.0/1.1 back for servers that offer nothing newer, except on Android 15 and later, which refuse those versions. The negotiated version and cipher suite are reported in the connection info |
 | Server identity | SHA-256 certificate fingerprint pinned on first connect; mismatch raises a user prompt (update / trust once / reject) |
 | Client identity | One active PKCS#12 user certificate presented during the TLS handshake; generate locally (Bouncy Castle) or import `.p12`/`.pfx` |
 | Key storage | Each certificate lives in its own password-less PKCS#12 keystore file in app-private storage (same as the desktop client); crypt key material is erased on disconnect |
@@ -156,8 +157,8 @@ Concentus), transmit quality, audio per packet, low latency mode, incoming
 volume, playback path, default output order, half duplex.
 
 **Network** — voice transport (UDP or forced TCP), QoS tagging (DSCP EF on the
-voice socket), automatic reconnect, certificate pinning, server-list auto ping
-and interval.
+voice socket), automatic reconnect, certificate pinning, legacy TLS, server-list
+auto ping and interval.
 
 **Identity & certificates** — default username, active user certificate,
 generation / import / export, whether the certificate private key may be
