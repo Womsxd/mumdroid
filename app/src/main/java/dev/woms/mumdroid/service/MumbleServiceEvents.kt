@@ -6,6 +6,7 @@ import dev.woms.mumdroid.core.model.CertificateDecision
 import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChatMessage
+import dev.woms.mumdroid.core.model.MumbleVersion
 import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.net.ClientTlsPolicy
 import dev.woms.mumdroid.core.net.MumbleClient
@@ -96,13 +97,6 @@ internal class MumbleServiceEvents(
             tcpPingVar = context.tcpPing.variance,
             tcpPingPackets = context.tcpPing.sampleCount,
         )
-    }
-
-    private fun legacyVersionToV2(legacy: Int): Long {
-        val major = (legacy shr 16) and 0xffff
-        val minor = (legacy shr 8) and 0xff
-        val patch = legacy and 0xff
-        return (major.toLong() shl 48) or (minor.toLong() shl 32) or (patch.toLong() shl 16)
     }
 
     // ---- MumbleListener ----
@@ -355,7 +349,7 @@ internal class MumbleServiceEvents(
     }
 
     override fun onServerVersion(versionV2: Long, legacyVersion: Int) {
-        val v2 = if (versionV2 != 0L) versionV2 else legacyVersionToV2(legacyVersion)
+        val v2 = MumbleVersion.resolveV2(versionV2, legacyVersion)
         context.voice.onServerVersion(v2 >= PROTOBUF_INTRODUCTION_VERSION_V2 && v2 != 0L)
     }
 

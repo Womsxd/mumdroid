@@ -1,5 +1,10 @@
 package dev.woms.mumdroid.core.model
 
+import dev.woms.mumdroid.core.model.MumbleVersion.formatLegacyVersion
+import dev.woms.mumdroid.core.model.MumbleVersion.legacyToV2
+import dev.woms.mumdroid.core.model.MumbleVersion.resolveV2
+
+
 /**
  * Packed Mumble protocol versions, matching official `Version::toString`.
  *
@@ -32,4 +37,31 @@ object MumbleVersion {
         val patch = (version ushr 16) and 0xffff
         return "$major.$minor.$patch"
     }
+
+    /**
+     * Re-packs a legacy version into the v2 packing, the inverse of
+     * [formatLegacyVersion]. The two packings share the component split
+     * (`major`/`minor`/`patch`), so this only re-lays out the same three
+     * values.
+     *
+     * Servers older than 1.5 report only the legacy form, so any comparison
+     * against a `Version::fromComponents` constant has to go through here
+     * first; see [resolveV2].
+     */
+    fun legacyToV2(legacy: Int): Long {
+        val major = (legacy ushr 16) and 0xffff
+        val minor = (legacy ushr 8) and 0xff
+        val patch = legacy and 0xff
+        return (major.toLong() shl 48) or (minor.toLong() shl 32) or (patch.toLong() shl 16)
+    }
+
+    /**
+     * The v2 version to compare against: [versionV2] when the server reported
+     * one, otherwise [legacyVersion] re-packed by [legacyToV2].
+     *
+     * 0 means "absent" in both inputs, and a version that was not reported at
+     * all stays 0, i.e. below every real version.
+     */
+    fun resolveV2(versionV2: Long, legacyVersion: Int): Long =
+        if (versionV2 != 0L) versionV2 else legacyToV2(legacyVersion)
 }

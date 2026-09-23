@@ -139,6 +139,33 @@ class ServerPingCodecTest {
         assertNull(MumbleVersion.formatVersionV2(0L))
     }
 
+    /**
+     * The two packings share the component split, so re-packing a legacy
+     * version and formatting it as v2 must give the same string. That is the
+     * invariant pre-1.5 servers rely on: they only report the legacy form, yet
+     * their version is compared against `fromComponents` constants.
+     */
+    @Test
+    fun legacyToV2RoundTripsThroughTheFormatter() {
+        for (legacy in intArrayOf(0x010305, 0x010500, 0x010600, 0x010203)) {
+            assertEquals(
+                MumbleVersion.formatLegacyVersion(legacy),
+                MumbleVersion.formatVersionV2(MumbleVersion.legacyToV2(legacy)),
+            )
+        }
+        assertEquals(0x0001000300050000L, MumbleVersion.legacyToV2(0x010305))
+    }
+
+    @Test
+    fun resolveV2PrefersTheReportedVersionOverTheLegacyOne() {
+        // A reported v2 version wins over whatever the legacy field says...
+        assertEquals(0x0001000300000000L, MumbleVersion.resolveV2(0x0001000300000000L, 0x010500))
+        // ...while an absent v2 falls back to re-packing the legacy version.
+        assertEquals(MumbleVersion.legacyToV2(0x010500), MumbleVersion.resolveV2(0L, 0x010500))
+        // Neither reported: 0, which compares below every real version.
+        assertEquals(0L, MumbleVersion.resolveV2(0L, 0))
+    }
+
     @Test
     fun rejectUnknownPayload() {
         assertNull(ServerPingCodec.decode(byteArrayOf(0x20, 0x01)))

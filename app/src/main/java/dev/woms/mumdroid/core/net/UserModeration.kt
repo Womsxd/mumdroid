@@ -2,6 +2,7 @@ package dev.woms.mumdroid.core.net
 
 import com.google.protobuf.ByteString
 import dev.woms.mumdroid.core.model.ChanACL
+import dev.woms.mumdroid.core.model.MumbleVersion
 import dev.woms.mumdroid.core.proto.UserRemove
 import dev.woms.mumdroid.core.proto.UserState
 
@@ -128,10 +129,8 @@ object UserModeration {
      * Servers >= 1.6.0 accept `ban_certificate` / `ban_ip`. Older servers treat
      * a ban as both, so the desktop hides those checkboxes.
      */
-    fun supportsSelectiveBan(versionV2: Long, legacyVersion: Int = 0): Boolean {
-        val v2 = if (versionV2 != 0L) versionV2 else legacyToV2(legacyVersion)
-        return v2 >= SELECTIVE_BAN_VERSION_V2
-    }
+    fun supportsSelectiveBan(versionV2: Long, legacyVersion: Int = 0): Boolean =
+        MumbleVersion.resolveV2(versionV2, legacyVersion) >= SELECTIVE_BAN_VERSION_V2
 
     /**
      * Desktop hides Listen unless the server is >= 1.4.0.
@@ -163,10 +162,8 @@ object UserModeration {
         legacyVersion: Int = 0,
     ): Boolean = isAtLeast14(versionV2, legacyVersion)
 
-    private fun isAtLeast14(versionV2: Long, legacyVersion: Int): Boolean {
-        val v2 = if (versionV2 != 0L) versionV2 else legacyToV2(legacyVersion)
-        return v2 >= CHANNEL_LISTEN_VERSION_V2
-    }
+    private fun isAtLeast14(versionV2: Long, legacyVersion: Int): Boolean =
+        MumbleVersion.resolveV2(versionV2, legacyVersion) >= CHANNEL_LISTEN_VERSION_V2
 
     /**
      * Initial Ban-dialog checkbox state from desktop `BanDialog`:
@@ -198,11 +195,4 @@ object UserModeration {
         val banIp: Boolean,
         val optionsEnabled: Boolean,
     )
-
-    internal fun legacyToV2(legacy: Int): Long {
-        val major = (legacy shr 16) and 0xffff
-        val minor = (legacy shr 8) and 0xff
-        val patch = legacy and 0xff
-        return (major.toLong() shl 48) or (minor.toLong() shl 32) or (patch.toLong() shl 16)
-    }
 }
