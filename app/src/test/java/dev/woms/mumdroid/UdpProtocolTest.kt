@@ -110,6 +110,39 @@ class UdpProtocolTest {
         assertNull(dev.woms.mumdroid.core.net.UdpPacketCodec.parseLegacyOpus(truncated))
     }
 
+    /**
+     * The official `UDPDecoder::decodeAudio_legacy` accepts only two tails after
+     * the Opus payload: nothing, or exactly `3 * sizeof(float)` bytes of
+     * positional data — anything else is `return false`. The parser must not
+     * slice out the payload and ignore whatever follows it.
+     */
+    @Test
+    fun udpLegacyOpusAcceptsOnlyEmptyOrPositionalTrailingBytes() {
+        val payload = byteArrayOf(0x10, 0x20, 0x30)
+        fun packet(trailing: ByteArray): ByteArray {
+            val out = java.io.ByteArrayOutputStream()
+            out.write((4 shl 5) and 0xff)
+            dev.woms.mumdroid.core.net.UdpPacketCodec.writeVarInt(42L, out)
+            dev.woms.mumdroid.core.net.UdpPacketCodec.writeVarInt(7L, out)
+            dev.woms.mumdroid.core.net.UdpPacketCodec.writeVarInt(payload.size.toLong(), out)
+            out.write(payload)
+            out.write(trailing)
+            return out.toByteArray()
+        }
+
+        // No tail: a plain audio packet.
+        assertNotNull(dev.woms.mumdroid.core.net.UdpPacketCodec.parseLegacyOpus(packet(ByteArray(0))))
+        // Exactly three floats: positional audio, which the official decoder takes.
+        assertNotNull(dev.woms.mumdroid.core.net.UdpPacketCodec.parseLegacyOpus(packet(ByteArray(12))))
+        // Any other tail length is not a valid packet format.
+        for (n in intArrayOf(1, 4, 5, 11, 13, 16)) {
+            assertNull(
+                "trailing $n should be rejected",
+                dev.woms.mumdroid.core.net.UdpPacketCodec.parseLegacyOpus(packet(ByteArray(n))),
+            )
+        }
+    }
+
     @Test
     fun udpTalkHeaderByte_keepsTheWholeFiveBitRange() {
         // 31 is the highest representable id (server loopback), not 30.

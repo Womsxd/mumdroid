@@ -35,6 +35,14 @@ object UdpPacketCodec {
     private const val MAX_VARINT_RECURSION = 8
 
     /**
+     * Bytes the official `UDPDecoder::decodeAudio_legacy` accepts after the
+     * audio payload: the three `float`s of positional-audio data
+     * (`3 * sizeof(float)`). An empty tail is a plain packet; anything else is
+     * an invalid packet format and is rejected.
+     */
+    private const val POSITIONAL_DATA_SIZE = 12
+
+    /**
      * Encodes [value] with the Mumble `PacketDataStream` varint scheme.
      *
      * Positive values use the compact prefix encoding. Values in
@@ -291,6 +299,10 @@ object UdpPacketCodec {
      * These bits carry a voice-target id only in the opposite direction
      * (client→server); the message type lives in the top three bits, so the two
      * cannot be confused on the wire.
+     *
+     * Returns null unless the payload is the end of the body or is followed by
+     * exactly the optional three positional-data floats, mirroring the official
+     * decoder's trailing-byte check.
      */
     fun parseLegacyOpusFull(body: ByteArray): LegacyOpusPacket? {
         if (body.size < 3) return null
@@ -307,6 +319,13 @@ object UdpPacketCodec {
         val payloadSize = (sizeField.first and 0x1fff).toInt()
         val isLast = (sizeField.first and 0x2000L) != 0L
         if (payloadSize <= 0 || pos + payloadSize > body.size) return null
+        // The payload is followed by either nothing or exactly the three floats
+        // of positional-audio data; any other tail means the packet is not in a
+        // format we understand, matching the official decoder's
+        // `left() == 3 * sizeof(float)` / `left() > 0` pair. Without this, junk
+        // appended to a well-formed frame would be silently accepted.
+        val trailing = body.size - (pos + payloadSize)
+        if (trailing != 0 && trailing != POSITIONAL_DATA_SIZE) return null
         return LegacyOpusPacket(
             session = session.first.toInt(),
             frameNumber = frame.first,
