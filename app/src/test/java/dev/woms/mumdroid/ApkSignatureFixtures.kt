@@ -1,5 +1,6 @@
 package dev.woms.mumdroid
 
+import dev.woms.mumdroid.core.security.ApkSigningBlock
 import org.junit.Assume.assumeTrue
 import java.io.InputStream
 
@@ -46,5 +47,41 @@ object ApkSignatureFixtures {
             )
         }
         return (stream as InputStream).use { it.readBytes() }
+    }
+
+    /** The v3.0 signer pair id, as stored on disk (little-endian). */
+    private val V3_SIGNERS_ID: ByteArray =
+        ApkSigningBlock.ID_V3_0_HEX.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+    /**
+     * [apk] with the v3 signer pair's inner grammar wrecked.
+     *
+     * Only the pair's *framing* is left intact, so a parser can still walk from
+     * one pair to the next; the length prefix of the enclosed signer sequence
+     * is overwritten with an impossible value, so reading the pair throws. That
+     * is the shape a damaged-but-still-walkable block has, and the only way to
+     * tell whether a parser drops just the bad pair or refuses the block: the
+     * input must carry a second (here v2) signer pair that still reads cleanly.
+     */
+    fun withBrokenV3SignerPair(apk: ByteArray): ByteArray {
+        val out = apk.copyOf()
+        // A pair is [u64 len][u32 id][value]; the value's first u32 is the
+        // length of the signer sequence that follows it.
+        val at = uniqueIndexOf(out, V3_SIGNERS_ID) + 4
+        for (i in 0 until 4) out[at + i] = 0xFF.toByte()
+        return out
+    }
+
+    /** The single index of [needle] in [hay], failing if absent or repeated. */
+    private fun uniqueIndexOf(hay: ByteArray, needle: ByteArray): Int {
+        var found = -1
+        for (i in 0..hay.size - needle.size) {
+            if (needle.indices.all { hay[i + it] == needle[it] }) {
+                check(found < 0) { "byte pattern is not unique" }
+                found = i
+            }
+        }
+        check(found >= 0) { "byte pattern not found" }
+        return found
     }
 }

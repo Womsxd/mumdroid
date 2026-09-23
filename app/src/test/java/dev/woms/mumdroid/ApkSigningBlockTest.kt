@@ -92,6 +92,22 @@ class ApkSigningBlockTest {
         assertTrue(result.ids.contains(ApkSigningBlock.ID_V3_0_HEX))
     }
 
+    /**
+     * A signer pair that cannot be read fails the whole parse rather than being
+     * dropped. The fixture keeps the developer's genuine v2 pair, so a parser
+     * that skips only the damaged v3 pair still hands back a non-empty signer
+     * list — and the block then looks verified. "We could not read this pair"
+     * is not "this pair is fine", so the parse is refused instead.
+     */
+    @Test
+    fun oneUnreadableSignerPairFailsTheWholeBlock() {
+        val broken = ApkSignatureFixtures.withBrokenV3SignerPair(
+            ApkSignatureFixtures.load("forged-appended-v3.apk"),
+        )
+        val file = temp.newFile().apply { writeBytes(broken) }
+        assertThrows(IOException::class.java) { ApkSigningBlock.parse(file) }
+    }
+
     @Test
     fun signerCarriesTheCertificateSubject() {
         val result = ApkSigningBlock.parse(fixture("honest-v2-only.apk"))

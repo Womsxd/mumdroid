@@ -179,9 +179,9 @@ object ApkSigningBlock {
     @Throws(IOException::class)
     private fun parseBlock(block: ByteArray): Result {
         val pairs = readPairs(block)
-        val signers = pairs.mapNotNull { pair ->
-            parseSigners(pair)?.map { Signer(pair.idHex, it) }
-        }.flatten()
+        val signers = pairs.filter { it.isSigners }.flatMap { pair ->
+            readSignerCertificates(pair).map { Signer(pair.idHex, it) }
+        }
         return Result(pairs, signers)
     }
 
@@ -299,14 +299,28 @@ object ApkSigningBlock {
      * ```
      * We only need the certificates, but we walk the structure so a malformed
      * blob fails loudly instead of yielding a plausible-looking empty list.
+     *
+     * A pair that cannot be read is turned into an [IOException] that fails the
+     * whole block, rather than being dropped from the signer list. A block can
+     * carry several signer pairs (v2 *and* v3), and silently skipping the
+     * damaged one would let the readable pairs vouch for it: "we could not read
+     * this signer" is not "this signer is fine", and the caller only ever sees
+     * the signers that survive.
+     *
+     * @throws IOException when the pair is not a well-formed signers sequence,
+     *   or is well-formed but carries no certificate.
      */
-    private fun parseSigners(pair: Pair): List<X509Certificate>? {
-        if (!pair.isSigners) return null
-        return try {
+    @Throws(IOException::class)
+    private fun readSignerCertificates(pair: Pair): List<X509Certificate> {
+        val certs = try {
             readSigners(pair.value)
-        } catch (_: Exception) {
-            emptyList()
+        } catch (e: Exception) {
+            throw IOException("malformed signer pair ${pair.idHex}: ${e.message}", e)
         }
+        if (certs.isEmpty()) {
+            throw IOException("signer pair ${pair.idHex} carries no certificate")
+        }
+        return certs
     }
 
     private fun readSigners(value: ByteArray): List<X509Certificate> {

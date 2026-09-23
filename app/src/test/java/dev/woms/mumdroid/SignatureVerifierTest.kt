@@ -86,6 +86,25 @@ class SignatureVerifierTest {
         assertEquals(Status.TAMPERED, r.status)
     }
 
+    /**
+     * The fail-open this closes: with the v3 pair damaged but the v2 pair
+     * intact, dropping the bad pair would leave only the trusted v2 signer, and
+     * the block would be accepted. A pair that could not be read means the
+     * block was not fully checked, which must be UNREADABLE — never a pass.
+     */
+    @Test
+    fun apkWithAnUnreadableSignerPairIsUnreadable() {
+        val broken = ApkSignatureFixtures.withBrokenV3SignerPair(
+            ApkSignatureFixtures.load("forged-appended-v3.apk"),
+        )
+        val file = temp.newFile().apply { writeBytes(broken) }
+        val r = SignatureVerifier.decide(file, trusted, listOf(developer))
+        assertEquals(Status.UNREADABLE, r.status)
+        // The pairs themselves still walk; it is the signer sequence inside the
+        // damaged v3 pair that cannot be read, so that is what the reason names.
+        assertTrue("unexpected reason: ${r.detail}", r.detail.contains("malformed signer pair"))
+    }
+
     @Test
     fun apkSignedOnlyByTheAttackerIsRejected() {
         val r = SignatureVerifier.decide(fixture("attacker-v3-only.apk"), trusted, listOf(attacker))
