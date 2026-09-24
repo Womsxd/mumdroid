@@ -54,6 +54,24 @@ class VoiceJitterBuffer(
      */
     private var mixAcc = IntArray(0)
 
+    /**
+     * Taps [mix] defers out of its critical section, reused across quanta.
+     *
+     * They exist so the [onTalking] / [onSessionEnded] listeners run with
+     * `lock` released: a listener that takes a lock of its own while the audio
+     * thread holds this one could deadlock against a thread acquiring them in
+     * the opposite order, and it would also observe the session map halfway
+     * through an iteration that removes entries. Reusing the lists instead of
+     * allocating three per quantum needs the same single-caller assumption as
+     * [mixAcc] — [mix] is only ever called from the playback thread and is
+     * never re-entered (a nested call would already clobber the accumulator) —
+     * and they are cleared at the top of every quantum. The `Pair` for a
+     * talk-on transition is still allocated per event, not per quantum.
+     */
+    private val endedIds = ArrayList<Int>()
+    private val talkOnEvents = ArrayList<Pair<Int, TalkState>>()
+    private val talkOffIds = ArrayList<Int>()
+
     /** Time-axis playback (reorder / conceal / advance the play head). */
     private val timed = JitterTimedPlayback(
         minPreroll = minTimedPreroll,
@@ -210,9 +228,11 @@ class VoiceJitterBuffer(
         acc.fill(0)
         val now = clock()
         var had = false
-        val ended = ArrayList<Int>()
-        val talkOn = ArrayList<Pair<Int, TalkState>>()
-        val talkOff = ArrayList<Int>()
+        // Reused across quanta: clear up front, because the dispatch below
+        // leaves the entries in place.
+        endedIds.clear()
+        talkOnEvents.clear()
+        talkOffIds.clear()
         synchronized(lock) {
             val it = sessions.entries.iterator()
             while (it.hasNext()) {
@@ -222,11 +242,11 @@ class VoiceJitterBuffer(
                     if (s.talking) {
                         s.talking = false
                         s.reportedState = TalkState.PASSIVE
-                        talkOff.add(id)
+                        talkOffIds.add(id)
                     }
                     decoder?.reset(id)
                     it.remove()
-                    ended.add(id)
+                    endedIds.add(id)
                     continue
                 }
                 if (!s.started) continue
@@ -241,7 +261,7 @@ class VoiceJitterBuffer(
                         if (!s.talking || s.reportedState != state) {
                             s.talking = true
                             s.reportedState = state
-                            talkOn.add(id to state)
+                            talkOnEvents.add(id to state)
                         }
                     }
                     JitterPull.CONCEAL -> {
@@ -250,7 +270,7 @@ class VoiceJitterBuffer(
                         if (s.talking && s.missCount > missLimit) {
                             s.talking = false
                             s.reportedState = TalkState.PASSIVE
-                            talkOff.add(id)
+                            talkOffIds.add(id)
                         }
                     }
                     JitterPull.NONE -> {
@@ -258,7 +278,7 @@ class VoiceJitterBuffer(
                         if (s.talking && s.missCount > missLimit) {
                             s.talking = false
                             s.reportedState = TalkState.PASSIVE
-                            talkOff.add(id)
+                            talkOffIds.add(id)
                         }
                     }
                 }
@@ -269,12 +289,12 @@ class VoiceJitterBuffer(
         }
         val talkingTap = onTalking
         if (talkingTap != null) {
-            for ((id, state) in talkOn) talkingTap(id, state)
-            for (id in talkOff) talkingTap(id, TalkState.PASSIVE)
+            for ((id, state) in talkOnEvents) talkingTap(id, state)
+            for (id in talkOffIds) talkingTap(id, TalkState.PASSIVE)
         }
         val tap = onSessionEnded
         if (tap != null) {
-            for (id in ended) tap(id)
+            for (id in endedIds) tap(id)
         }
         return had
     }
