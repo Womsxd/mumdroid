@@ -65,8 +65,9 @@ class AudioOutput(
 
     /**
      * Speaker reference tap for software echo cancellation: invoked from the
-     * playback thread with every PCM frame right before it is written to the
-     * speaker, so the AEC sees exactly what is audible.
+     * playback thread with the PCM that was actually queued to the speaker —
+     * once per quantum normally, or slice by slice when a write only queues
+     * part of it — so the AEC sees exactly what is audible.
      */
     @Volatile
     var echoReferenceTap: ((ShortArray) -> Unit)? = null
@@ -146,22 +147,29 @@ class AudioOutput(
         while (running.get()) {
             jitter.mix(mix)
             val playback = applyOutputGain(mix)
-            echoReferenceTap?.invoke(playback)
-            val written = try {
-                t.write(playback, 0, playback.size)
+            val queued = try {
+                writeQuantumToTrack(playback, echoReferenceTap) { offset, count ->
+                    t.write(playback, offset, count)
+                }
             } catch (_: IllegalStateException) {
                 // Track was released (or never fully started) while we were
                 // inside the blocking native write; just leave the loop.
                 return
             }
-            if (written < 0) {
-                if (!running.get()) return
-                Log.e(TAG, "AudioTrack write failed: $written")
-                try {
-                    Thread.sleep(5)
-                } catch (_: InterruptedException) {
-                    return
+            if (queued != playback.size) {
+                // The track queued nothing. A negative AudioTrack.ERROR_* code
+                // means it is unusable (ERROR_DEAD_OBJECT after the audio server
+                // restarts, ERROR_INVALID_OPERATION on a released track) and a
+                // zero cannot make progress, so retrying the same call is
+                // pointless: the old code logged and slept 5 ms forever, spinning
+                // at ~200 Hz, spamming the log and draining the jitter buffer
+                // while the output stayed silent. Stop cleanly instead — the
+                // object then sits in a defined stopped state and a later
+                // start() can rebuild the track.
+                if (running.compareAndSet(true, false)) {
+                    Log.e(TAG, "AudioTrack write failed ($queued), stopping playback")
                 }
+                return
             }
         }
     }
@@ -216,10 +224,14 @@ class AudioOutput(
             running.set(false)
             val playback = thread
             thread = null
-            // Join before release. write() is a blocking native call and is
-            // not interrupted by Thread.interrupt(); tearing the track down
-            // while it is inside native_write_short throws IllegalStateException
-            // and takes down the process (seen on connect-then-immediate-disconnect).
+            // Stop the track *before* the join: a blocking write() only returns
+            // once the track stops consuming data, so this is what unblocks the
+            // playback thread and lets the join below succeed —
+            // Thread.interrupt() cannot break that native call. Tearing the
+            // track down while it is still inside native_write_short is what
+            // aborts the process ("Unable to retrieve AudioTrack pointer for
+            // write()", seen on connect-then-immediate-disconnect).
+            stopTrackLocked()
             if (playback != null && playback !== Thread.currentThread()) {
                 playback.interrupt()
                 try {
@@ -231,6 +243,15 @@ class AudioOutput(
             releaseTrackLocked()
             jitter.clear()
             opus.close()
+        }
+    }
+
+    /** Pauses and stops the track without releasing it, so a pending write can return. */
+    private fun stopTrackLocked() {
+        try {
+            track?.pause()
+            track?.stop()
+        } catch (_: Exception) {
         }
     }
 
@@ -248,4 +269,45 @@ class AudioOutput(
         } catch (_: Exception) {
         }
     }
+}
+
+/**
+ * Pushes one mixed quantum to the output track, tolerating a short write.
+ *
+ * A blocking [AudioTrack.write] normally queues the whole quantum, but it can
+ * return a smaller sample count when the track is stopped or paused underneath
+ * it. The remainder is then re-written from the new offset instead of being
+ * dropped, and [tap] receives exactly the slice that was queued — so the
+ * software AEC's far-end reference never reports more than is audible (on a
+ * full write the slice *is* [playback], so the hot path stays allocation-free).
+ *
+ * @param write `write(offset, count)`, returning the number of samples it
+ *        queued (> 0), 0 when it queued nothing, or a negative
+ *        `AudioTrack.ERROR_*` code.
+ * @return the number of samples queued: `playback.size` when the whole quantum
+ *         went out, otherwise the non-positive value that ended the loop, which
+ *         means the track is unusable and the caller must stop rather than
+ *         retry the same call.
+ * @throws IllegalStateException as [AudioTrack.write] does when the track has
+ *         been released underneath the call.
+ */
+internal fun writeQuantumToTrack(
+    playback: ShortArray,
+    tap: ((ShortArray) -> Unit)?,
+    write: (offset: Int, count: Int) -> Int,
+): Int {
+    var offset = 0
+    while (offset < playback.size) {
+        val written = write(offset, playback.size - offset)
+        if (written <= 0) return written
+        tap?.invoke(
+            if (offset == 0 && written == playback.size) {
+                playback
+            } else {
+                playback.copyOfRange(offset, offset + written)
+            },
+        )
+        offset += written
+    }
+    return offset
 }
