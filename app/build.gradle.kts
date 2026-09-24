@@ -44,12 +44,12 @@ android {
         applicationId = "dev.woms.mumdroid"
         minSdk = 26
         targetSdk = 37
-        versionCode = 4
-        versionName = "1.1.2"
+        versionCode = 5
+        versionName = "1.2.0"
         buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
         buildConfigField("Long", "BUILD_TIME", "${System.currentTimeMillis()}L")
-        buildConfigField("String", "versionCodeName", "\"Liyue\"")
-        buildConfigField("String", "versionCodeNameZH", "\"璃月\"")
+        buildConfigField("String", "versionCodeName", "\"Minlin\"")
+        buildConfigField("String", "versionCodeNameZH", "\"珉林\"")
         buildConfigField("String", "EXPECTED_SIGNATURE_SHA256", "\"$expectedSignatureSha256\"")
 
         ndkVersion = "30.0.16248370"
