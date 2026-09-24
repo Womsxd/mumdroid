@@ -24,6 +24,14 @@ static OpusDecoder *to_decoder(jlong handle) {
     return (OpusDecoder *) (intptr_t) handle;
 }
 
+/*
+ * Pins a Java array for the duration of one native call. Nested
+ * GetPrimitiveArrayCritical calls are explicitly permitted by the JNI spec
+ * ("multiple pairs ... may be nested"), and releases must be the reverse of the
+ * pins, but inside a critical region no *other* JNI function may be called — so
+ * every GetArrayLength and any similar metadata query has to happen before the
+ * first lock_*() of the function.
+ */
 static jshort *lock_shorts(JNIEnv *env, jshortArray arr, jboolean *critical) {
     *critical = JNI_TRUE;
     jshort *ptr = (*env)->GetPrimitiveArrayCritical(env, arr, NULL);
@@ -217,17 +225,21 @@ Java_dev_woms_mumdroid_core_audio_LibOpusNative_decode(
     if (pcm_len < frame_size) {
         return OPUS_BAD_ARG;
     }
+    /* Read the packet length before pinning anything: GetArrayLength is a JNI
+     * call, and none may be made while pcm is inside its critical region. */
+    opus_int32 len = 0;
+    if (packet != NULL) {
+        len = (opus_int32) (*env)->GetArrayLength(env, packet);
+    }
     jboolean pcm_crit = JNI_FALSE;
     jshort *pcm_ptr = lock_shorts(env, pcm, &pcm_crit);
     if (pcm_ptr == NULL) {
         return OPUS_ALLOC_FAIL;
     }
     const unsigned char *data = NULL;
-    opus_int32 len = 0;
     jbyte *pkt_ptr = NULL;
     jboolean pkt_crit = JNI_FALSE;
     if (packet != NULL) {
-        len = (opus_int32) (*env)->GetArrayLength(env, packet);
         pkt_ptr = lock_bytes(env, packet, &pkt_crit);
         if (pkt_ptr == NULL) {
             unlock_shorts(env, pcm, pcm_ptr, pcm_crit, JNI_ABORT);

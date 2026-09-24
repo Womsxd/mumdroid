@@ -44,6 +44,13 @@ static RnNoiseHandle *to_handle(jlong handle) {
     return (RnNoiseHandle *)(intptr_t)handle;
 }
 
+/*
+ * Pins a Java array for the duration of one native call. Nested
+ * GetPrimitiveArrayCritical calls are explicitly permitted by the JNI spec, but
+ * inside a critical region no *other* JNI function may be called — so every
+ * GetArrayLength and any similar metadata query has to happen before the first
+ * lock_*() of the function.
+ */
 static jshort *lock_shorts(JNIEnv *env, jshortArray arr, jboolean *critical) {
     *critical = JNI_TRUE;
     jshort *ptr = (*env)->GetPrimitiveArrayCritical(env, arr, NULL);
