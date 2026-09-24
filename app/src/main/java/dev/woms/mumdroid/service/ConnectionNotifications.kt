@@ -55,16 +55,28 @@ internal class ConnectionNotifications(private val service: Service) {
         )
     }
 
-    fun startForegroundSafe(text: String, serverName: String, reconnectCountdown: Int) {
+    /**
+     * Promotes the service to the foreground, returning false when the platform
+     * refuses the promotion (Android 12+ throws ForegroundServiceStartNotAllowedException
+     * for a start attempted from the background). Callers must then abort, since
+     * the process is not allowed to keep running.
+     */
+    fun startForegroundSafe(text: String, serverName: String, reconnectCountdown: Int): Boolean {
         val notification = build(text, serverName, reconnectCountdown)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            service.startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-            )
-        } else {
-            service.startForeground(NOTIFICATION_ID, notification)
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                service.startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                )
+            } else {
+                service.startForeground(NOTIFICATION_ID, notification)
+            }
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "startForeground rejected, foreground promotion failed", e)
+            false
         }
     }
 

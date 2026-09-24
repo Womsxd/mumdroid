@@ -298,28 +298,41 @@ class MumbleService : Service() {
                 state.host = h
                 state.port = p
                 state.serverName.value = name
-                startForegroundSafe()
+                if (!startForegroundSafe()) return START_NOT_STICKY
                 reconnect.abortWaitingCountdown()
                 scope.launch { connect(h, p, u, pw, name, serverId) }
             }
             ACTION_DISCONNECT -> {
+                // Tearing the session down and stopping is all this action does,
+                // so it runs regardless of the foreground promotion outcome.
                 startForegroundSafe(
                     state.status.value.ifEmpty { getString(R.string.notification_connecting) },
                 )
                 disconnect()
             }
             ACTION_RECONNECT_NOW -> {
-                startForegroundSafe(
-                    state.status.value.ifEmpty { getString(R.string.notification_connecting) },
-                )
+                val text = state.status.value.ifEmpty { getString(R.string.notification_connecting) }
+                if (!startForegroundSafe(text)) return START_NOT_STICKY
                 reconnectNow()
             }
         }
         return START_NOT_STICKY
     }
 
-    private fun startForegroundSafe(text: String = getString(R.string.notification_connecting)) {
-        notifications.startForegroundSafe(text, state.serverName.value, reconnect.countdown.value)
+    /**
+     * Posts the foreground notification, returning false when the platform
+     * refused the promotion. A service started for the foreground that never
+     * gets there would be killed with an ANR, so stopSelf is called instead and
+     * the caller must skip the work it was about to schedule.
+     */
+    private fun startForegroundSafe(text: String = getString(R.string.notification_connecting)): Boolean {
+        val started = notifications.startForegroundSafe(
+            text,
+            state.serverName.value,
+            reconnect.countdown.value,
+        )
+        if (!started) stopSelf()
+        return started
     }
 
     private fun updateStatus(text: String) = events.updateStatus(text)
