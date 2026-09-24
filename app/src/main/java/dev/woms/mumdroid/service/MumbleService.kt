@@ -399,7 +399,12 @@ class MumbleService : Service() {
                 admin.clearPasswordPrompt()
                 attachClientRuntime(prepared.client)
                 state.client = prepared.client
-                Thread { prepared.client.connect() }.start()
+                // Blocking TLS handshake plus the session read loop: a coroutine
+                // would pin a pool thread for the whole session, and cancellation
+                // cannot unblock a socket read anyway. close() releases it.
+                Thread({ prepared.client.connect() }, "mumble-tcp-connect")
+                    .apply { isDaemon = true }
+                    .start()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 state.connecting.value = false
                 throw e
