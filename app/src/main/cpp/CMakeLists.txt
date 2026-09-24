@@ -80,8 +80,8 @@ target_link_libraries(rnnoise m)
 set(SPEEXDSP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/speexdsp)
 
 # Full speexdsp library build (mirrors libspeexdsp_la_SOURCES from upstream
-# Makefile.am minus scal.c, which does not exist in this release): preprocessor,
-# echo canceller, resampler, jitter buffer and both FFT backends.
+# Makefile.am): preprocessor, echo canceller, resampler, jitter buffer, stereo
+# decorrelation filter (scal.c) and both FFT backends.
 add_library(speexdsp SHARED
         speexdsp_jni.c
         ${SPEEXDSP_DIR}/libspeexdsp/buffer.c
