@@ -44,13 +44,18 @@ class SpeexDspProcessor(private val frameSize: Int, private val sampleRate: Int)
     /**
      * Denoises one frame of 16-bit PCM in place.
      *
+     * The frame must be exactly [frameSize] samples: the native state is
+     * initialised for that length and processes the buffer in place, so any
+     * other length would read and write past the end of the array. Such a frame
+     * is rejected here (and again at the JNI boundary) and left untouched.
+     *
      * On any native failure the buffer is left untouched (passthrough) so a
      * broken backend can never turn the microphone into digital silence.
      *
      * @return whether speech was detected by the internal VAD.
      */
     fun run(samples: ShortArray): Boolean {
-        if (nativeHandle == 0L || samples.isEmpty()) return false
+        if (nativeHandle == 0L || samples.size != frameSize) return false
         return nativeRun(nativeHandle, samples) == 1
     }
 

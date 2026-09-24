@@ -40,6 +40,25 @@ static void unlock_shorts(JNIEnv *env, jshortArray arr, jshort *ptr,
     }
 }
 
+/*
+ * Preprocessor handle: the opaque SpeexPreprocessState plus the frame size it
+ * was created for. speex_preprocess_run() processes st->frame_size samples at
+ * the buffer *in place* (preprocess.c: reads x[0..frame_size-1] in
+ * preprocess_analysis, writes x[0..frame_size-1] back in the synthesis), so a
+ * Java array of any other length would read and write past its end — 16-bit
+ * samples in the JVM heap. nativeRun() therefore rejects a length that does not
+ * match the state, which is why the size has to travel with the handle.
+ * (Same shape as RnNoiseHandle in rnnoise_jni.c.)
+ */
+typedef struct {
+    SpeexPreprocessState *state;
+    jint frame_size;
+} SpeexPreprocessHandle;
+
+static SpeexPreprocessHandle *to_preprocess_handle(jlong handle) {
+    return (SpeexPreprocessHandle *) (intptr_t) handle;
+}
+
 JNIEXPORT jlong JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeCreate(
         JNIEnv *env, jclass clazz, jint frame_size, jint sample_rate) {
@@ -48,15 +67,21 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeCreate(
     if (frame_size <= 0 || sample_rate <= 0) {
         return 0;
     }
-    SpeexPreprocessState *st = speex_preprocess_state_init((int) frame_size, (int) sample_rate);
-    if (st == NULL) {
+    SpeexPreprocessHandle *h = (SpeexPreprocessHandle *) calloc(1, sizeof(SpeexPreprocessHandle));
+    if (h == NULL) {
         return 0;
     }
+    h->state = speex_preprocess_state_init((int) frame_size, (int) sample_rate);
+    if (h->state == NULL) {
+        free(h);
+        return 0;
+    }
+    h->frame_size = frame_size;
     /* Denoise only; AGC and VAD are handled by the Kotlin pipeline. */
     int zero = 0;
-    speex_preprocess_ctl(st, SPEEX_PREPROCESS_SET_AGC, &zero);
-    speex_preprocess_ctl(st, SPEEX_PREPROCESS_SET_VAD, &zero);
-    return (jlong) (intptr_t) st;
+    speex_preprocess_ctl(h->state, SPEEX_PREPROCESS_SET_AGC, &zero);
+    speex_preprocess_ctl(h->state, SPEEX_PREPROCESS_SET_VAD, &zero);
+    return (jlong) (intptr_t) h;
 }
 
 JNIEXPORT void JNICALL
@@ -64,9 +89,12 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeDestroy(
         JNIEnv *env, jclass clazz, jlong handle) {
     (void) env;
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
-    if (st != NULL) {
-        speex_preprocess_state_destroy(st);
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    if (h != NULL) {
+        if (h->state != NULL) {
+            speex_preprocess_state_destroy(h->state);
+        }
+        free(h);
     }
 }
 
@@ -75,7 +103,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetDenoise(
         JNIEnv *env, jclass clazz, jlong handle, jboolean enable) {
     (void) env;
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
         return;
     }
@@ -88,7 +117,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetNoiseSuppress
         JNIEnv *env, jclass clazz, jlong handle, jint db) {
     (void) env;
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
         return;
     }
@@ -101,7 +131,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgc(
         JNIEnv *env, jclass clazz, jlong handle, jboolean enable) {
     (void) env;
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
         return;
     }
@@ -114,7 +145,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcTarget(
         JNIEnv *env, jclass clazz, jlong handle, jint target) {
     (void) env;
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
         return;
     }
@@ -127,7 +159,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcMaxGain(
         JNIEnv *env, jclass clazz, jlong handle, jint db) {
     (void) env;
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
         return;
     }
@@ -140,7 +173,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcIncrement(
         JNIEnv *env, jclass clazz, jlong handle, jint dbPerSec) {
     (void) env;
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
         return;
     }
@@ -153,7 +187,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcDecrement(
         JNIEnv *env, jclass clazz, jlong handle, jint dbPerSec) {
     (void) env;
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
         return;
     }
@@ -171,7 +206,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeGetAgcGain(
         JNIEnv *env, jclass clazz, jlong handle) {
     (void) env;
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
         return 0;
     }
@@ -183,6 +219,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeGetAgcGain(
 /*
  * Runs one frame of 16-bit PCM through the preprocessor in place.
  *
+ * @param frame the frame to process; its length must be exactly the frame_size
+ *              the state was created with, because speex_preprocess_run()
+ *              reads and writes that many samples at the buffer.
  * @return 1 when speech was detected by the internal VAD, 0 for non-speech,
  *         or -1 on error (invalid handle/length); on -1 the buffer is left
  *         untouched so callers can fall back to a passthrough.
@@ -191,13 +230,15 @@ JNIEXPORT jint JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeRun(
         JNIEnv *env, jclass clazz, jlong handle, jshortArray frame) {
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
-    if (env == NULL || st == NULL) {
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    if (env == NULL || h == NULL || h->state == NULL) {
         return -1;
     }
 
     jsize len = (*env)->GetArrayLength(env, frame);
-    if (len <= 0) {
+    /* Reject any length but the state's own: a shorter array would make
+     * speex_preprocess_run() read and write past the Java array's end. */
+    if (len != h->frame_size) {
         return -1;
     }
 
@@ -209,7 +250,7 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeRun(
 
     /* speex_preprocess_run() processes the buffer in place and returns the
      * VAD decision for this frame (1 = speech probable). */
-    int vad = speex_preprocess_run(st, elements);
+    int vad = speex_preprocess_run(h->state, elements);
 
     unlock_shorts(env, frame, elements, frameCrit, 0);
     return vad;
@@ -268,7 +309,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetEchoState(
         JNIEnv *env, jclass clazz, jlong handle, jlong echo_handle) {
     (void) env;
     (void) clazz;
-    SpeexPreprocessState *st = (SpeexPreprocessState *) (intptr_t) handle;
+    SpeexPreprocessHandle *h = to_preprocess_handle(handle);
+    SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     SpeexEchoState *echo_st = (SpeexEchoState *) (intptr_t) echo_handle;
     if (st == NULL) {
         return;
