@@ -4,10 +4,10 @@
  * speexdsp (BSD-3, see COPYING in the cpp dir) provides the same noise
  * suppression / pre-processing backend used by the desktop Mumble client
  * (SpeexPreprocessState). This wrapper exposes exactly what mumdroid needs:
- * denoise with a configurable suppression level, the built-in AGC, and a VAD
- * flag read back per frame. speexdsp's own VAD stays off — mumdroid runs its
- * own threshold-driven detector — while the AGC is used for the Speex AGC mode
- * and driven per frame by AudioPreprocessor (gain compensation + idle hold).
+ * denoise with a configurable suppression level and the built-in AGC.
+ * speexdsp's own VAD stays off — mumdroid runs its own threshold-driven
+ * detector — while the AGC is used for the Speex AGC mode and driven per
+ * frame by AudioPreprocessor (gain compensation + idle hold).
  *
  * As in opus_jni.c, the per-frame PCM arrays are pinned with
  * GetPrimitiveArrayCritical to avoid a copy on the audio hot path, falling
@@ -84,7 +84,10 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeCreate(
         return 0;
     }
     h->frame_size = frame_size;
-    /* Denoise only; AGC and VAD are handled by the Kotlin pipeline. */
+    /* Both start disabled. AudioPreprocessor enables the AGC on demand for the
+     * Speex AGC mode (see setNativeAgc), driving it per frame. speexdsp's own
+     * VAD stays off for good — mumdroid runs its own threshold-driven detector,
+     * and speex_preprocess_run() returns a constant 1 while the VAD is off. */
     int zero = 0;
     speex_preprocess_ctl(h->state, SPEEX_PREPROCESS_SET_AGC, &zero);
     speex_preprocess_ctl(h->state, SPEEX_PREPROCESS_SET_VAD, &zero);
@@ -229,9 +232,13 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeGetAgcGain(
  * @param frame the frame to process; its length must be exactly the frame_size
  *              the state was created with, because speex_preprocess_run()
  *              reads and writes that many samples at the buffer.
- * @return 1 when speech was detected by the internal VAD, 0 for non-speech,
- *         or -1 on error (invalid handle/length); on -1 the buffer is left
- *         untouched so callers can fall back to a passthrough.
+ * @return -1 when the arguments were rejected, 1 otherwise. This is NOT a
+ *         speech decision: nativeCreate turns speexdsp's own VAD off, and
+ *         speex_preprocess_run() returns a constant 1 while it is off (see
+ *         preprocess.c), so the value only distinguishes "processed" from
+ *         "rejected" — mumdroid runs its own threshold-driven detector. On -1
+ *         the buffer is left untouched so callers can fall back to a
+ *         passthrough.
  */
 JNIEXPORT jint JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeRun(

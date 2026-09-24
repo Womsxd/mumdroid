@@ -33,7 +33,8 @@ enum class NoiseSuppressionMode {
  *
  * Supported features (matching the official implementation):
  *  - Denoise (native speexdsp / RNNoise)
- *  - Voice activity detection (energy/spectral flatness based)
+ *  - Voice activity detection (mic level or SNR against a tracked noise floor,
+ *    see [setVADMethod])
  *  - Automatic gain control (native speexdsp AGC via [setNativeAgc]; the
  *    platform AutomaticGainControl alternative is applied by AudioInput)
  *

@@ -8,8 +8,11 @@ import android.util.Log
  * `app/src/main/cpp/`).
  *
  * This is the same noise-suppression backend used by the desktop Mumble
- * client. mumdroid uses it for denoising only; AGC and VAD remain in the
- * Kotlin pipeline so behaviour is identical across all suppression modes.
+ * client. mumdroid uses its denoiser and, for the Speex AGC mode, its built-in
+ * AGC — the gain adaptation runs natively, with [AudioPreprocessor] only
+ * driving its parameters per frame. speexdsp's own VAD stays off: speech
+ * detection is the app's own threshold-driven detector, which keeps behaviour
+ * identical across all suppression modes.
  *
  * Instances are single-threaded and must be used from one audio thread at a
  * time. Always call [close] to release the native state.
@@ -52,7 +55,11 @@ class SpeexDspProcessor(private val frameSize: Int, private val sampleRate: Int)
      * On any native failure the buffer is left untouched (passthrough) so a
      * broken backend can never turn the microphone into digital silence.
      *
-     * @return whether speech was detected by the internal VAD.
+     * @return whether the frame was processed. This is not a speech decision:
+     *         speexdsp's own VAD is disabled at creation, so the native call
+     *         reports a constant "processed" and `false` only means the frame
+     *         was rejected or the backend is unavailable. Speech detection is
+     *         [AudioPreprocessor]'s own threshold-driven VAD.
      */
     fun run(samples: ShortArray): Boolean {
         if (nativeHandle == 0L || samples.size != frameSize) return false
