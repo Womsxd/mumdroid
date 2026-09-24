@@ -40,18 +40,8 @@ typedef struct {
 
 static int g_frame_size = -1;
 
-static RnNoiseHandle *to_handle(JNIEnv *env, jobject obj) {
-    jclass cls = (*env)->GetObjectClass(env, obj);
-    if (cls == NULL) {
-        return NULL;
-    }
-    jfieldID fid = (*env)->GetFieldID(env, cls, "nativeHandle", "J");
-    (*env)->DeleteLocalRef(env, cls);
-    if (fid == NULL) {
-        return NULL;
-    }
-    jlong ptr = (*env)->GetLongField(env, obj, fid);
-    return (RnNoiseHandle *)(intptr_t)ptr;
+static RnNoiseHandle *to_handle(jlong handle) {
+    return (RnNoiseHandle *)(intptr_t)handle;
 }
 
 static jshort *lock_shorts(JNIEnv *env, jshortArray arr, jboolean *critical) {
@@ -119,6 +109,7 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeCreate(
  * packet sizes all get the full RNNoise treatment. A VAD probability is OR-ed
  * across every sub-frame.
  *
+ * @param handle the `RnNoiseHandle*` returned by nativeCreate
  * @param in  the input frame (must be a positive multiple of RNNOISE_FRAME)
  * @param out the output frame (same length as in); only written on success
  * @return the VAD decision (1 = speech in any sub-frame, 0 = noise),
@@ -127,8 +118,9 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeCreate(
  */
 JNIEXPORT jint JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeProcess(
-        JNIEnv *env, jobject obj, jshortArray in, jshortArray out) {
-    RnNoiseHandle *h = to_handle(env, obj);
+        JNIEnv *env, jobject obj, jlong handle, jshortArray in, jshortArray out) {
+    (void)obj;
+    RnNoiseHandle *h = to_handle(handle);
     if (h == NULL || h->state == NULL) {
         return -1;
     }
@@ -184,8 +176,10 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeProcess(
 
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeDestroy(
-        JNIEnv *env, jobject obj) {
-    RnNoiseHandle *h = to_handle(env, obj);
+        JNIEnv *env, jobject obj, jlong handle) {
+    (void)env;
+    (void)obj;
+    RnNoiseHandle *h = to_handle(handle);
     if (h == NULL) {
         return;
     }
@@ -195,13 +189,4 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeDestroy(
     free(h->inBuf);
     free(h->outBuf);
     free(h);
-
-    jclass cls = (*env)->GetObjectClass(env, obj);
-    if (cls != NULL) {
-        jfieldID fid = (*env)->GetFieldID(env, cls, "nativeHandle", "J");
-        if (fid != NULL) {
-            (*env)->SetLongField(env, obj, fid, 0);
-        }
-        (*env)->DeleteLocalRef(env, cls);
-    }
 }

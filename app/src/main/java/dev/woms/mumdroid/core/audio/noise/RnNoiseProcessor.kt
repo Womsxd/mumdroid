@@ -1,6 +1,7 @@
 package dev.woms.mumdroid.core.audio.noise
 
 import android.util.Log
+import dev.woms.mumdroid.core.audio.noise.RnNoiseProcessor.Companion.FRAME_SIZE
 
 /**
  * JNI binding to the native RNNoise noise-suppression library.
@@ -74,7 +75,7 @@ class RnNoiseProcessor {
         if (nativeHandle == 0L) return false
         if (samples.isEmpty() || samples.size % FRAME_SIZE != 0) return false
         val out = ShortArray(samples.size)
-        val speech = nativeProcess(samples, out)
+        val speech = nativeProcess(nativeHandle, samples, out)
         if (speech < 0) {
             // Native-side failure: keep the input samples (passthrough)
             // instead of overwriting them with an all-zero output buffer,
@@ -88,7 +89,7 @@ class RnNoiseProcessor {
     /** Releases the native state. Safe to call multiple times. */
     fun close() {
         if (nativeHandle != 0L) {
-            nativeDestroy()
+            nativeDestroy(nativeHandle)
             nativeHandle = 0L
         }
     }
@@ -97,6 +98,6 @@ class RnNoiseProcessor {
 
     private external fun nativeGetFrameSize(): Int
     private external fun nativeCreate(): Long
-    private external fun nativeProcess(input: ShortArray, output: ShortArray): Int
-    private external fun nativeDestroy()
+    private external fun nativeProcess(handle: Long, input: ShortArray, output: ShortArray): Int
+    private external fun nativeDestroy(handle: Long)
 }
