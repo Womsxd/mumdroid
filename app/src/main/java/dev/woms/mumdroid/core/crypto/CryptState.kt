@@ -133,7 +133,16 @@ class CryptState {
         Stats(goodPackets, latePackets, lostPackets, resyncPackets)
     }
 
-    /** Initialises the key and the initial nonces. */
+    /**
+     * Initialises the key and the initial nonces.
+     *
+     * Deliberate deviation from the official client: the replay history and the
+     * packet counters are cleared as well. Official `CryptStateOCB2::setKey`
+     * replaces only the key and both IVs (`decrypt_history` is zeroed by the
+     * constructor alone) and leaves the counters on `CryptState::m_statsLocal`
+     * untouched, so a reader diffing this against the upstream source must not
+     * take the clears below for a bug and "restore" the official behaviour.
+     */
     fun setKey(key: ByteArray, clientNonce: ByteArray, serverNonce: ByteArray): Boolean {
         if (key.size != CryptOCB2.KEY_SIZE) return false
         if (clientNonce.size != CryptOCB2.NONCE_SIZE) return false
@@ -147,11 +156,11 @@ class CryptState {
                 isReady = false
                 return false
             }
-            // A full key delivery starts a fresh crypto context (official
-            // `CryptState::setKey` memsets the replay history): a stale
+            // A full key delivery starts a fresh crypto context: a stale
             // history from a previous session or key rotation could
             // otherwise reject valid packets whose IV byte collides with
-            // an old (byte0 -> byte1) entry.
+            // an old (byte0 -> byte1) entry, the way official
+            // CryptStateOCB2::decrypt rejects a replay outright.
             replayHistory.clear()
             packetStats.reset()
             publishStats()
