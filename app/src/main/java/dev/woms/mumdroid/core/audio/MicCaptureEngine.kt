@@ -39,6 +39,19 @@ class MicCaptureEngine(
     private val preprocessor = AudioPreprocessor()
     private var record: AudioRecord? = null
     private var echoCanceller: SpeexEchoCanceller? = null
+
+    /**
+     * Serializes the capture thread ([processFrame]) against every lifecycle
+     * mutation that frees or recreates native DSP state: the re-initialisation
+     * in [applySettings], and [close]. Without it a frame can be processed on a
+     * `DenoiseState` / `SpeexPreprocessState` / echo state that another thread
+     * is destroying — reading the JNI handle and then calling into it is not
+     * atomic, so a `@Volatile` handle does not help.
+     *
+     * Held for the duration of a single frame only, never across the blocking
+     * [read], so a stalled microphone cannot wedge [close].
+     */
+    private val lock = Any()
     private var systemAgc: AutomaticGainControl? = null
     private var systemAec: android.media.audiofx.AcousticEchoCanceler? = null
     private var systemNs: android.media.audiofx.NoiseSuppressor? = null
@@ -128,16 +141,21 @@ class MicCaptureEngine(
         this.vadHoldFrames = vadHoldFrames
         this.framesPerPacket = framesPerPacket
 
-        if (!isOpen) return
+        // Serialize the native re-initialisation against the capture thread:
+        // preprocessor.init() destroys the old native engines, which
+        // processFrame may be running a native call on right now.
+        synchronized(lock) {
+            if (!isOpen) return
 
-        if (denoiseEngineChanged || preprocessorQuantumChanged()) {
-            preprocessor.init(sampleRate, frameSize)
-            // Re-associate the echo canceller with the fresh preprocessor
-            // state so residual suppression keeps working.
-            echoCanceller?.let { preprocessor.setEchoState(it.nativePtr()) }
+            if (denoiseEngineChanged || preprocessorQuantumChanged()) {
+                preprocessor.init(sampleRate, frameSize)
+                // Re-associate the echo canceller with the fresh preprocessor
+                // state so residual suppression keeps working.
+                echoCanceller?.let { preprocessor.setEchoState(it.nativePtr()) }
+            }
+            syncPreprocessorConfig()
+            updatePlatformEffects()
         }
-        syncPreprocessorConfig()
-        updatePlatformEffects()
     }
 
     private fun preprocessorQuantumChanged(): Boolean = preprocessor.isInitialized &&
@@ -147,7 +165,9 @@ class MicCaptureEngine(
      * Opens the microphone with the configured audio source and attaches the
      * platform effects. @return false when the device could not be opened.
      */
-    fun open(): Boolean {
+    fun open(): Boolean = synchronized(lock) { openLocked() }
+
+    private fun openLocked(): Boolean {
         if (isOpen) return true
         try {
             preprocessor.mode = noiseSuppressionMode
@@ -206,7 +226,29 @@ class MicCaptureEngine(
      * failure). The buffer must be at least [frameSize] long.
      */
     fun read(buffer: ShortArray): Int =
-        record?.read(buffer, 0, frameSize) ?: -1
+        try {
+            record?.read(buffer, 0, frameSize) ?: -1
+        } catch (e: Exception) {
+            // A concurrent close() can release the AudioRecord mid-read.
+            Log.w(TAG, "AudioRecord read failed", e)
+            -1
+        }
+
+    /**
+     * Stops the [AudioRecord] without releasing it, so a blocking [read] on the
+     * capture thread returns and the loop can observe the stop flag.
+     * `Thread.interrupt()` does not interrupt that native call. [close] still
+     * releases the record.
+     */
+    fun stopRecording() {
+        synchronized(lock) {
+            try {
+                record?.stop()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     /**
      * Processes one captured frame in place through the transmission chain:
      * software AEC -> denoiser/native AGC -> VAD -> manual gain.
@@ -214,14 +256,14 @@ class MicCaptureEngine(
      * @return whether speech was detected by the VAD (always true when VAD is
      *         disabled). On internal errors the frame passes through unchanged.
      */
-    fun processFrame(frame: ShortArray): Boolean {
+    fun processFrame(frame: ShortArray): Boolean = synchronized(lock) {
         if (frame.size != frameSize) return true
         if (echoCanceller != null) {
             echoCanceller?.process(frame)
         }
         val speech = preprocessor.run(frame)
         applyInputGain(frame)
-        return speech
+        speech
     }
 
     /** The current normalised VAD level (0..100), for a live meter. */
@@ -235,7 +277,7 @@ class MicCaptureEngine(
      * playback path with every PCM frame written to the speaker.
      */
     fun pushFarEndFrame(pcm: ShortArray) {
-        echoCanceller?.pushFar(pcm)
+        synchronized(lock) { echoCanceller?.pushFar(pcm) }
     }
 
     /**
@@ -243,25 +285,29 @@ class MicCaptureEngine(
      * the override so the system picks. Safe before [open] and while recording.
      */
     fun setPreferredDevice(device: AudioDeviceInfo?) {
-        preferredDevice = device
-        record?.setPreferredDevice(device)
+        synchronized(lock) {
+            preferredDevice = device
+            record?.setPreferredDevice(device)
+        }
     }
 
     /** Releases the microphone, all effects and the native engines. */
     fun close() {
-        isOpen = false
-        echoCanceller?.close()
-        echoCanceller = null
-        releaseEffect { systemAgc }
-        releaseEffect { systemAec }
-        releaseEffect { systemNs }
-        try {
-            record?.stop()
-        } catch (_: Exception) {
+        synchronized(lock) {
+            isOpen = false
+            echoCanceller?.close()
+            echoCanceller = null
+            releaseEffect { systemAgc }
+            releaseEffect { systemAec }
+            releaseEffect { systemNs }
+            try {
+                record?.stop()
+            } catch (_: Exception) {
+            }
+            record?.release()
+            record = null
+            preprocessor.deinit()
         }
-        record?.release()
-        record = null
-        preprocessor.deinit()
     }
 
     // --- internals ---

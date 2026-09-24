@@ -25,6 +25,9 @@ class AudioInput {
 
     companion object {
         private const val TAG = "AudioInput"
+
+        /** How long [stop] waits for the capture thread before releasing the mic. */
+        private const val STOP_JOIN_MS = 500L
     }
 
     interface Sink {
@@ -166,12 +169,28 @@ class AudioInput {
     }
 
     fun stop() {
+        val capture = thread
+        thread = null
         running.set(false)
+        // Unblock a pending AudioRecord.read() so the capture loop can observe
+        // running == false and exit; Thread.interrupt() does not interrupt that
+        // native call.
+        engine.stopRecording()
+        // Join the capture thread *before* engine.close() tears down the
+        // AudioRecord and the native DSP state: the thread may be inside
+        // engine.processFrame() (software AEC / preprocessor native calls), and
+        // freeing that state underneath it is a native use-after-free.
+        if (capture != null && capture !== Thread.currentThread()) {
+            capture.interrupt()
+            try {
+                capture.join(STOP_JOIN_MS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }
         engine.close()
         executor?.shutdownNow()
         executor = null
-        thread?.interrupt()
-        thread = null
     }
 
     /**

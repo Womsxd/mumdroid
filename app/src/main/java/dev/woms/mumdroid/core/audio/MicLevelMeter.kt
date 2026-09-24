@@ -7,7 +7,6 @@ import dev.woms.mumdroid.core.model.AgcMode
 import dev.woms.mumdroid.core.model.MicSource
 import kotlin.math.ln
 import kotlin.math.max
-import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
@@ -46,6 +45,9 @@ class MicLevelMeter(
 
         /** Maps RMS to a normalised 0..100 level (see [rmsToLevel]). */
         private const val DB_RANGE = 60.0
+
+        /** How long [stop] waits for the capture thread before releasing the mic. */
+        private const val STOP_JOIN_MS = 500L
     }
 
     // The engine applies platform effects, denoise, AGC and manual gain — the
@@ -96,13 +98,22 @@ class MicLevelMeter(
 
     /** Stops capturing and releases the microphone resources. */
     fun stop() {
-        running = false
-        engine.close()
-        try {
-            thread?.join(200)
-        } catch (_: Exception) {
-        }
+        val capture = thread
         thread = null
+        running = false
+        // Unblock the pending read, then join before engine.close() releases the
+        // AudioRecord and destroys the native DSP state the capture thread may
+        // still be processing a frame on (the old order released first and only
+        // joined afterwards, with a timeout).
+        engine.stopRecording()
+        if (capture != null && capture !== Thread.currentThread()) {
+            try {
+                capture.join(STOP_JOIN_MS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }
+        engine.close()
     }
 
     private fun captureLoop() {
