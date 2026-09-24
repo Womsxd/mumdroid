@@ -74,16 +74,13 @@ class RnNoiseProcessor {
     fun run(samples: ShortArray): Boolean {
         if (nativeHandle == 0L) return false
         if (samples.isEmpty() || samples.size % FRAME_SIZE != 0) return false
-        val out = ShortArray(samples.size)
-        val speech = nativeProcess(nativeHandle, samples, out)
-        if (speech < 0) {
-            // Native-side failure: keep the input samples (passthrough)
-            // instead of overwriting them with an all-zero output buffer,
-            // which used to mute the entire mic whenever the backend failed.
-            return false
-        }
-        System.arraycopy(out, 0, samples, 0, samples.size)
-        return speech == 1
+        // Denoised in place: the native side copies each 10 ms sub-frame into
+        // its float scratch buffer before writing the result back over the same
+        // samples, so the hot path needs neither a per-frame output array nor
+        // the copy-back that used to follow it. A negative result means the
+        // arguments were rejected before any sample was touched, i.e. the same
+        // passthrough as before.
+        return nativeProcess(nativeHandle, samples) == 1
     }
 
     /** Releases the native state. Safe to call multiple times. */
@@ -98,6 +95,6 @@ class RnNoiseProcessor {
 
     private external fun nativeGetFrameSize(): Int
     private external fun nativeCreate(): Long
-    private external fun nativeProcess(handle: Long, input: ShortArray, output: ShortArray): Int
+    private external fun nativeProcess(handle: Long, frame: ShortArray): Int
     private external fun nativeDestroy(handle: Long)
 }

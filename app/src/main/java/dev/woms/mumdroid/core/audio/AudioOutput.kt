@@ -144,9 +144,13 @@ class AudioOutput(
 
     private fun playbackLoop(t: AudioTrack) {
         val mix = ShortArray(MIX_QUANTUM)
+        // Owned by this — the only — playback thread, exactly like `mix`: a
+        // non-unity volume writes here instead of allocating a fresh PCM buffer
+        // on every quantum.
+        val gainScratch = ShortArray(MIX_QUANTUM)
         while (running.get()) {
             jitter.mix(mix)
-            val playback = applyOutputGain(mix)
+            val playback = applyOutputGain(mix, gainScratch)
             val queued = try {
                 writeQuantumToTrack(playback, echoReferenceTap) { offset, count ->
                     t.write(playback, offset, count)
@@ -174,16 +178,22 @@ class AudioOutput(
         }
     }
 
-    /** Applies the [volume] gain (0..200 %) to the frame before playback. */
-    private fun applyOutputGain(frame: ShortArray): ShortArray {
+    /**
+     * Applies the [volume] gain (0..200 %) to the quantum before playback.
+     *
+     * At unity gain [frame] is returned as-is; otherwise the result is written
+     * into [scratch] (which the caller owns and reuses, so the hot path
+     * allocates nothing) and returned. [scratch] must be at least as long as
+     * [frame].
+     */
+    private fun applyOutputGain(frame: ShortArray, scratch: ShortArray): ShortArray {
         val v = volume
         if (v == 100) return frame
         val gain = v / 100.0
-        val out = ShortArray(frame.size)
         for (i in frame.indices) {
-            out[i] = SoftLimiter.limit(frame[i] * gain).roundToInt().toShort()
+            scratch[i] = SoftLimiter.limit(frame[i] * gain).roundToInt().toShort()
         }
-        return out
+        return scratch
     }
 
     /**
@@ -281,6 +291,11 @@ class AudioOutput(
  * software AEC's far-end reference never reports more than is audible (on a
  * full write the slice *is* [playback], so the hot path stays allocation-free).
  *
+ * Declared `inline` so the [write] lambda — which captures the track — does not
+ * allocate a closure once per quantum. [tap] is `noinline` because a nullable
+ * function type cannot be an inline parameter; it costs nothing, since callers
+ * pass the already-allocated [AudioOutput.echoReferenceTap] value.
+ *
  * @param write `write(offset, count)`, returning the number of samples it
  *        queued (> 0), 0 when it queued nothing, or a negative
  *        `AudioTrack.ERROR_*` code.
@@ -291,9 +306,9 @@ class AudioOutput(
  * @throws IllegalStateException as [AudioTrack.write] does when the track has
  *         been released underneath the call.
  */
-internal fun writeQuantumToTrack(
+internal inline fun writeQuantumToTrack(
     playback: ShortArray,
-    tap: ((ShortArray) -> Unit)?,
+    noinline tap: ((ShortArray) -> Unit)?,
     write: (offset: Int, count: Int) -> Int,
 ): Int {
     var offset = 0

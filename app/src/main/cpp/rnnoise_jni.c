@@ -15,7 +15,7 @@
  * multiple of 480 samples (10/20/40/60 ms Opus frames), processing them as
  * consecutive 10 ms sub-frames.
  *
- * As in opus_jni.c, the per-frame PCM arrays are pinned with
+ * As in opus_jni.c, the per-frame PCM array is pinned with
  * GetPrimitiveArrayCritical to avoid a copy on the audio hot path, falling
  * back to GetShortArrayElements.
  */
@@ -109,66 +109,63 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeCreate(
 }
 
 /*
- * Denoises one frame of 16-bit PCM (any positive multiple of the 10 ms native
- * frame, e.g. 480/960/1920/2880 samples = 10/20/40/60 ms at 48 kHz).
+ * Denoises one frame of 16-bit PCM **in place** (any positive multiple of the
+ * 10 ms native frame, e.g. 480/960/1920/2880 samples = 10/20/40/60 ms at
+ * 48 kHz).
  *
  * The frame is processed in consecutive 10 ms sub-frames so that 20/40/60 ms
- * packet sizes all get the full RNNoise treatment. A VAD probability is OR-ed
- * across every sub-frame.
+ * packet sizes all get the full RNNoise treatment. Each sub-frame is copied
+ * into the float scratch buffer before rnnoise_process_frame() runs and the
+ * result is written back over the same samples, so processing one array is
+ * safe and the caller needs neither an output array nor a copy-back. A VAD
+ * probability is OR-ed across every sub-frame.
  *
  * @param handle the `RnNoiseHandle*` returned by nativeCreate
- * @param in  the input frame (must be a positive multiple of RNNOISE_FRAME)
- * @param out the output frame (same length as in); only written on success
- * @return the VAD decision (1 = speech in any sub-frame, 0 = noise),
- *         or -1 on error; on -1 `out` is left untouched so callers can
- *         fall back to a passthrough instead of emitting digital silence.
+ * @param frame  the frame to process, modified in place; its length must be a
+ *               positive multiple of RNNOISE_FRAME
+ * @return the VAD decision (1 = speech in any sub-frame, 0 = noise), or -1 on
+ *         error. The arguments are validated before any sample is touched, so
+ *         on -1 the frame is left untouched and callers can fall back to a
+ *         passthrough instead of emitting digital silence.
  */
 JNIEXPORT jint JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeProcess(
-        JNIEnv *env, jobject obj, jlong handle, jshortArray in, jshortArray out) {
+        JNIEnv *env, jobject obj, jlong handle, jshortArray frame) {
     (void)obj;
     RnNoiseHandle *h = to_handle(handle);
     if (h == NULL || h->state == NULL) {
         return -1;
     }
 
-    jsize inLen = (*env)->GetArrayLength(env, in);
-    jsize outLen = (*env)->GetArrayLength(env, out);
-    if (inLen != outLen || inLen <= 0 || inLen % RNNOISE_FRAME != 0) {
+    jsize len = (*env)->GetArrayLength(env, frame);
+    if (len <= 0 || len % RNNOISE_FRAME != 0) {
         return -1;
     }
 
-    jboolean inCrit = JNI_FALSE;
-    jshort *inEl = lock_shorts(env, in, &inCrit);
-    if (inEl == NULL) {
-        return -1;
-    }
-    jboolean outCrit = JNI_FALSE;
-    jshort *outEl = lock_shorts(env, out, &outCrit);
-    if (outEl == NULL) {
-        unlock_shorts(env, in, inEl, inCrit, JNI_ABORT);
+    jboolean frameCrit = JNI_FALSE;
+    jshort *el = lock_shorts(env, frame, &frameCrit);
+    if (el == NULL) {
         return -1;
     }
 
-    int frames = (int)(inLen / RNNOISE_FRAME);
+    int frames = (int)(len / RNNOISE_FRAME);
     int speech = 0;
     for (int sub = 0; sub < frames; sub++) {
-        const jshort *src = inEl + sub * RNNOISE_FRAME;
+        jshort *buf = el + sub * RNNOISE_FRAME;
 
         /* Keep the raw 16-bit PCM magnitude: RNNoise's silence gate and its
          * trained features assume int16-scale floats, not [-1, 1]. */
         for (int i = 0; i < RNNOISE_FRAME; i++) {
-            h->inBuf[i] = (float)src[i];
+            h->inBuf[i] = (float)buf[i];
         }
 
         float vad = rnnoise_process_frame(h->state, h->outBuf, h->inBuf);
 
-        jshort *dst = outEl + sub * RNNOISE_FRAME;
         for (int i = 0; i < RNNOISE_FRAME; i++) {
             float v = h->outBuf[i];
             if (v > 32767.0f) v = 32767.0f;
             if (v < -32768.0f) v = -32768.0f;
-            dst[i] = (jshort)v;
+            buf[i] = (jshort)v;
         }
 
         if (vad > 0.5f) {
@@ -176,8 +173,7 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeProcess(
         }
     }
 
-    unlock_shorts(env, in, inEl, inCrit, JNI_ABORT);
-    unlock_shorts(env, out, outEl, outCrit, 0);
+    unlock_shorts(env, frame, el, frameCrit, 0);
     return speech;
 }
 
