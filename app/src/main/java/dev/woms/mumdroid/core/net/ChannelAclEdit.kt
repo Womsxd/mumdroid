@@ -221,8 +221,12 @@ object ChannelAclEdit {
             val group = cleared.rules[index].group
             return if (group.isEmpty()) setGroup(cleared, index, ChanACL.Group.ALL) else cleared
         }
-        val (resolved, userId) = targetId(draft, trimmed, userNames)
-        return resolved.copy(rules = resolved.rules.replace(index, rule.copy(userId = userId!!)))
+        // Past the empty-name case above, the id cannot be missing: `bindName`
+        // is the non-null half of `targetId`, whose only null is that empty
+        // name. Calling it directly keeps the bound id non-nullable instead of
+        // asserting an invariant that only this call site knows about.
+        val (resolved, userId) = bindName(draft, trimmed, userNames)
+        return resolved.copy(rules = resolved.rules.replace(index, rule.copy(userId = userId)))
     }
 
     /**
