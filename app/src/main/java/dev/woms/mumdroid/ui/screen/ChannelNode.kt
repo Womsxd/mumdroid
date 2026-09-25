@@ -17,6 +17,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -33,12 +34,20 @@ import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.Channel
 
+/**
+ * Collapsed channel ids wrapped as a single [Immutable] value: a bare
+ * `Set<Int>` is inferred unstable by Compose and would make every
+ * [ChannelNode] non-skippable.
+ */
+@Immutable
+internal data class CollapsedIds(val ids: Set<Int>)
+
 /** One channel row: its label, its context menu and its nested children. */
 @Composable
 internal fun ChannelNode(
     channel: Channel,
     indent: Int,
-    collapsedIds: Set<Int>,
+    collapsedIds: CollapsedIds,
     onToggleCollapsed: (Int) -> Unit,
     actions: ChannelTreeActions,
 ) {
@@ -50,7 +59,7 @@ internal fun ChannelNode(
     var removeDialog by remember { mutableStateOf(false) }
     val flags = ChannelNodeVisibility.of(
         channel = channel,
-        collapsedIds = collapsedIds,
+        collapsedIds = collapsedIds.ids,
         localChannelId = actions.localChannelId,
         homeAllLinks = actions.homeAllLinks,
         homeDirectLinks = actions.homeDirectLinks,

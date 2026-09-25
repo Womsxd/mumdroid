@@ -73,13 +73,15 @@ object ChannelTree {
         users: Collection<User>,
         listeningBySession: Map<Int, Set<Int>> = emptyMap(),
     ): List<Channel> {
-        val all = channels.map { it.copy(children = mutableListOf(), users = mutableListOf()) }
+        val all = channels.map { it.copy(children = emptyList(), users = emptyList()) }
         val byId = all.associateBy { it.id }
+        val childLists = all.associate { it.id to mutableListOf<Channel>() }
+        val userLists = all.associate { it.id to mutableListOf<User>() }
         val roots = mutableListOf<Channel>()
         all.forEach { ch ->
             val parent = byId[ch.parentId]
             if (parent != null && ch.id != ch.parentId) {
-                parent.children.add(ch)
+                childLists.getValue(parent.id).add(ch)
             } else {
                 roots.add(ch)
             }
@@ -88,10 +90,10 @@ object ChannelTree {
             // Session 0 / empty name are leftover partial UserState packets
             // (e.g. suppress after UserRemove), not real connected users.
             if (user.session == 0 || user.name.isEmpty()) return@forEach
-            byId[user.channelId]?.users?.add(user)
+            userLists[user.channelId]?.add(user)
             val listened = listeningBySession[user.session] ?: return@forEach
             for (channelId in listened) {
-                byId[channelId]?.users?.add(
+                userLists[channelId]?.add(
                     user.copy(
                         talkState = TalkState.PASSIVE,
                         isChannelListener = true,
@@ -100,14 +102,16 @@ object ChannelTree {
                 )
             }
         }
-        fun sortNode(ch: Channel) {
-            ch.children.sortWith { a, b -> compareChannels(a, b, sameParent = true) }
-            ch.users.sortWith(::compareChannelUsers)
-            ch.children.forEach(::sortNode)
-        }
-        roots.sortWith { a, b -> compareChannels(a, b, sameParent = true) }
-        roots.forEach(::sortNode)
-        return roots
+        // Materialize bottom-up into immutable child/user lists so the whole
+        // tree is skip-friendly for Compose (`@Immutable` [Channel]).
+        fun materialize(ch: Channel): Channel = ch.copy(
+            children = childLists.getValue(ch.id)
+                .sortedWith { a, b -> compareChannels(a, b, sameParent = true) }
+                .map(::materialize),
+            users = userLists.getValue(ch.id).sortedWith(::compareChannelUsers),
+        )
+        return roots.sortedWith { a, b -> compareChannels(a, b, sameParent = true) }
+            .map(::materialize)
     }
 
     /**

@@ -22,7 +22,6 @@ import dev.woms.mumdroid.core.model.User
 @Composable
 internal fun ChannelList(
     channels: List<Channel>,
-    users: List<User>,
     onJoinChannel: (Channel) -> Unit,
     onJoinUserChannel: (Int) -> Unit,
     onMoveUser: (Int, Int) -> Unit,
@@ -80,7 +79,7 @@ internal fun ChannelList(
     onShoutToChannelPicker: () -> Unit,
 ) {
     var collapsedIds by rememberSaveable { mutableStateOf(listOf<Int>()) }
-    val collapsed = collapsedIds.toSet()
+    val collapsed = remember(collapsedIds) { CollapsedIds(collapsedIds.toSet()) }
     val linksById = remember(channels) { ChannelLinks.collect(channels) }
     val homeAllLinks = remember(linksById, localChannelId) {
         ChannelLinks.allLinkedIds(linksById, localChannelId)
@@ -155,7 +154,7 @@ internal fun ChannelList(
                 indent = 0,
                 collapsedIds = collapsed,
                 onToggleCollapsed = {
-                    collapsedIds = ChannelTree.toggleCollapsed(collapsed, it).toList()
+                    collapsedIds = ChannelTree.toggleCollapsed(collapsed.ids, it).toList()
                 },
                 actions = actions,
             )

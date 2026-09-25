@@ -1,5 +1,7 @@
 package dev.woms.mumdroid.core.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * A Mumble server entry that the user can connect to.
  */
@@ -14,6 +16,7 @@ data class MumbleServer(
 )
 
 /** A channel on the server. */
+@Immutable
 data class Channel(
     val id: Int = 0,
     val parentId: Int = 0,
@@ -31,8 +34,8 @@ data class Channel(
      * treats the connected component as linked, matching desktop `allLinks()`.
      */
     val linkedIds: Set<Int> = emptySet(),
-    val children: MutableList<Channel> = mutableListOf(),
-    val users: MutableList<User> = mutableListOf(),
+    val children: List<Channel> = emptyList(),
+    val users: List<User> = emptyList(),
 ) {
     /** Flat path from the root, e.g. "/Root/Sub". */
     val fullName: String
@@ -40,27 +43,28 @@ data class Channel(
 }
 
 /** A connected user. */
+@Immutable
 data class User(
     val session: Int = 0,
     val name: String = "",
     /** Official `User::iId`; `-1` means unregistered, `0` is SuperUser. */
     val userId: Int = -1,
-    var channelId: Int = 0,
-    var selfMute: Boolean = false,
-    var selfDeaf: Boolean = false,
-    var mute: Boolean = false,
-    var deaf: Boolean = false,
+    val channelId: Int = 0,
+    val selfMute: Boolean = false,
+    val selfDeaf: Boolean = false,
+    val mute: Boolean = false,
+    val deaf: Boolean = false,
     /**
      * Channel-ACL suppress (`UserState.suppress`): the user lacks Speak in the
      * current channel. Shown as the green muted-mic icon. Cleared automatically
      * when they move to a channel they may speak in; admins can also lift it.
      */
-    var suppress: Boolean = false,
+    val suppress: Boolean = false,
     /**
      * Server-side priority speaker (`UserState.priority_speaker`). Shown as
      * the blue Campaign icon, same colour as server mute.
      */
-    var prioritySpeaker: Boolean = false,
+    val prioritySpeaker: Boolean = false,
     /**
      * Talking state (official `Settings::TalkState`), derived from the active
      * voice target while sending and from the received audio context while
@@ -68,14 +72,14 @@ data class User(
      * talking from whispering / shouting.
      */
     val talkState: TalkState = TalkState.PASSIVE,
-    var isLocalUser: Boolean = false,
+    val isLocalUser: Boolean = false,
     /** Local (client-side) block: silence this user's audio on this device only. */
-    var localBlock: Boolean = false,
+    val localBlock: Boolean = false,
     /**
      * Local ignore: drop this user's text messages on this device only
      * (`ClientUser::bLocalIgnore`). Shown as the purple Chat Bubble Off icon.
      */
-    var localIgnore: Boolean = false,
+    val localIgnore: Boolean = false,
     /** Certificate SHA-1 from `UserState.hash`; empty when the user has none. */
     val hash: String = "",
     /**

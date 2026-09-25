@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.ui
 
+import androidx.compose.runtime.Stable
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.LoopbackMode
@@ -13,7 +14,13 @@ import dev.woms.mumdroid.core.net.ChanAclSnapshot
 /**
  * Live-session intents (connect, roster, chat, ACL). Distinct from
  * [MainViewModel] settings/server-list state.
+ *
+ * [Stable]: the interface exposes actions and queries only, never observable
+ * state, so a command bundle is a stable composable parameter. Values that
+ * permissions affect are re-read because they are keyed separately
+ * (`permissionEpoch`), so this cannot hide an update.
  */
+@Stable
 interface SessionCommands {
     fun applySettings(settings: AppSettings)
     fun connectTo(server: MumbleServer)

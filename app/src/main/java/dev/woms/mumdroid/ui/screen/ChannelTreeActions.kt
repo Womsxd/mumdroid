@@ -1,12 +1,22 @@
 package dev.woms.mumdroid.ui.screen
 
+import androidx.compose.runtime.Immutable
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelPick
 import dev.woms.mumdroid.core.model.User
 
-/** Shared join / roster / channel-admin callbacks for the recursive channel tree. */
-internal class ChannelTreeActions(
+/**
+ * Shared join / roster / channel-admin callbacks for the recursive channel tree.
+ *
+ * A `data class` marked [Immutable] on purpose: it is rebuilt on every
+ * composition of the list, but structural equality (values plus the stable
+ * lambda identities Compose memoizes) lets every node compare it as unchanged
+ * and skip. A plain class compared by identity would make the whole tree
+ * recompose on each roster tick.
+ */
+@Immutable
+internal data class ChannelTreeActions(
     val onJoinChannel: (Channel) -> Unit,
     val onJoinUserChannel: (Int) -> Unit,
     val onMoveUser: (Int, Int) -> Unit,

@@ -52,7 +52,7 @@ fun ConnectionScreen(
     val showVoiceControls = ConnectionScreenLogic.showVoiceControls(screen.tab, keyboardOpen)
     val localChannelId = ConnectionScreenLogic.localChannelId(state.users)
     val chatChannelId = ConnectionScreenLogic.chatChannelId(state.users, state.channels)
-    val moveChannels = ChannelTree.flattenForPicker(state.channels)
+    val moveChannels = remember(state.channels) { ChannelTree.flattenForPicker(state.channels) }
     val joinById = remember(state.channels, commands) {
         { channelId: Int ->
             val channel = ChannelTree.find(state.channels, channelId)
@@ -215,7 +215,6 @@ fun ConnectionScreen(
             when (screen.tab) {
                 ConnectionScreenLogic.TAB_CHANNELS -> ChannelList(
                     channels = state.channels,
-                    users = state.users,
                     onJoinChannel = onJoinChannelFromList,
                     onJoinUserChannel = joinById,
                     onMoveUser = commands::moveUser,
