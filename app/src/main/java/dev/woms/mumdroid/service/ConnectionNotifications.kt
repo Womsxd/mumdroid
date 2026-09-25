@@ -12,7 +12,7 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.util.Log
 import dev.woms.mumdroid.R
-import dev.woms.mumdroid.ui.activity.ConnectionActivity
+import dev.woms.mumdroid.service.ConnectionNotifications.Companion.ACTION_OPEN_SESSION
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -31,6 +31,13 @@ internal class ConnectionNotifications(private val service: Service) {
         const val RECONNECT_NOW_REQUEST_CODE = 2
         const val KEY_TEXT_REPLY = "private_reply_text"
         const val ACTION_REPLY_PRIVATE = "dev.woms.mumdroid.action.REPLY_PRIVATE"
+
+        /**
+         * Tap target of the session notifications. The service only knows this
+         * action string; the session screen declares it in the manifest, so the
+         * notification layer never references an activity type.
+         */
+        const val ACTION_OPEN_SESSION = "dev.woms.mumdroid.action.OPEN_SESSION"
         const val EXTRA_REPLY_SESSION = "reply_session"
         const val EXTRA_REPLY_ACTOR = "reply_actor"
     }
@@ -184,17 +191,7 @@ internal class ConnectionNotifications(private val service: Service) {
 
     private fun build(text: String, serverName: String, reconnectCountdown: Int): Notification {
         val title = serverName.ifEmpty { service.getString(R.string.app_name) }
-        val tap = Intent(service, ConnectionActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pending = PendingIntent.getActivity(
-            service,
-            0,
-            tap,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val pending = sessionTapPending()
         val disconnectPending = PendingIntent.getForegroundService(
             service,
             DISCONNECT_REQUEST_CODE,
@@ -235,8 +232,16 @@ internal class ConnectionNotifications(private val service: Service) {
         return builder.build()
     }
 
+    /**
+     * Tap target shared by the connection and chat notifications. The intent is
+     * implicit ([ACTION_OPEN_SESSION]) and resolved by the platform through the
+     * session screen's manifest intent-filter, so the service stays decoupled
+     * from the `ui` package. A direct activity PendingIntent is used on purpose:
+     * a broadcast trampoline would be blocked on Android 12+.
+     */
     private fun sessionTapPending(): PendingIntent {
-        val tap = Intent(service, ConnectionActivity::class.java).apply {
+        val tap = Intent(ACTION_OPEN_SESSION).apply {
+            setPackage(service.packageName)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP

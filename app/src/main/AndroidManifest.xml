@@ -39,7 +39,16 @@
             android:exported="false"
             android:launchMode="singleTop"
             android:theme="@style/Theme.Mumdroid"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="adjustResize">
+            <!-- Notification tap target. The service builds this action into an
+                 activity PendingIntent instead of referencing the class, keeping
+                 the service free of any ui dependency. -->
+            <intent-filter>
+                <action android:name="dev.woms.mumdroid.action.OPEN_SESSION" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".ui.activity.SettingsActivity"
