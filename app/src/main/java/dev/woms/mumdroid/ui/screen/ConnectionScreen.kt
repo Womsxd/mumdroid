@@ -26,8 +26,8 @@ import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
 import dev.woms.mumdroid.core.model.ChannelTree
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceTargetSpec
-import dev.woms.mumdroid.ui.ConnectionState
-import dev.woms.mumdroid.ui.SessionCommands
+import dev.woms.mumdroid.ui.session.ConnectionState
+import dev.woms.mumdroid.ui.session.SessionCommands
 
 /**
  * The in-connection screen showing channels/users, voice controls and chat.

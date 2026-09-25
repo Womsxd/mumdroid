@@ -1,4 +1,4 @@
-package dev.woms.mumdroid.ui
+package dev.woms.mumdroid.ui.session
 
 import dev.woms.mumdroid.service.SessionFacade
 import kotlinx.coroutines.CoroutineScope

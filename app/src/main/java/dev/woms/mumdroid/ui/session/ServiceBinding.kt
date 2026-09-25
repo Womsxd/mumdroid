@@ -1,4 +1,4 @@
-package dev.woms.mumdroid.ui
+package dev.woms.mumdroid.ui.session
 
 import android.app.Application
 import android.content.BroadcastReceiver

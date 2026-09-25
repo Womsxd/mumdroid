@@ -1,4 +1,4 @@
-package dev.woms.mumdroid.ui
+package dev.woms.mumdroid.ui.session
 
 import android.app.Application
 import android.content.ComponentName
@@ -24,7 +24,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Binds [MumbleService], mirrors [ConnectionState], and forwards session
- * commands. [MainViewModel] owns settings and the server list separately.
+ * commands. [dev.woms.mumdroid.ui.MainViewModel] owns settings and the server
+ * list separately.
  *
  * The platform binding lives in [ServiceBinding] and the state mirroring in
  * [SessionStateMirror]; this class keeps the command surface and the connect

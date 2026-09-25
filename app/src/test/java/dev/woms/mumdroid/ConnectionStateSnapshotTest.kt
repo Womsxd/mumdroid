@@ -2,7 +2,7 @@ package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.model.ChatMessage
 import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.ui.ConnectionState
+import dev.woms.mumdroid.ui.session.ConnectionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test

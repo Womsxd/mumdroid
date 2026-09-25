@@ -33,8 +33,8 @@ import dev.woms.mumdroid.core.model.CertificatePrompt
 import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
 import dev.woms.mumdroid.core.model.ChannelPick
 import dev.woms.mumdroid.core.model.VoiceTargetSpec
-import dev.woms.mumdroid.ui.ConnectionState
-import dev.woms.mumdroid.ui.SessionCommands
+import dev.woms.mumdroid.ui.session.ConnectionState
+import dev.woms.mumdroid.ui.session.SessionCommands
 import kotlinx.coroutines.delay
 
 /**

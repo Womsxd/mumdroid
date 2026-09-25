@@ -1,4 +1,4 @@
-package dev.woms.mumdroid.ui
+package dev.woms.mumdroid.ui.session
 
 import androidx.compose.runtime.Stable
 import dev.woms.mumdroid.core.model.AclUserNames
@@ -13,7 +13,7 @@ import dev.woms.mumdroid.core.model.VoiceTargetSpec
 
 /**
  * Live-session intents (connect, roster, chat, ACL). Distinct from
- * [MainViewModel] settings/server-list state.
+ * [dev.woms.mumdroid.ui.MainViewModel] settings/server-list state.
  *
  * [Stable]: the interface exposes actions and queries only, never observable
  * state, so a command bundle is a stable composable parameter. Values that
