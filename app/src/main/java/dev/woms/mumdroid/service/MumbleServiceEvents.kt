@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.service
 
+import android.content.Intent
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.CertificateDecision
@@ -44,8 +45,6 @@ internal class MumbleServiceEvents(
         fun stopSelf()
     }
 
-    private val PROTOBUF_INTRODUCTION_VERSION_V2 = (1L shl 48) or (5L shl 32)
-
     // ---- status helpers ----
 
     fun updateStatus(text: String) {
@@ -76,7 +75,7 @@ internal class MumbleServiceEvents(
         }
     }
 
-    fun handlePrivateReply(intent: android.content.Intent) {
+    fun handlePrivateReply(intent: Intent) {
         val parsed = context.notifications.parsePrivateReply(intent) ?: return
         val session = parsed.first
         var actorName = parsed.second.first
@@ -161,6 +160,27 @@ internal class MumbleServiceEvents(
     }
 
     override fun onDisconnected(reason: String) {
+        stopDisconnectedSession()
+
+        val params = context.state.lastConnectParams
+        val serverForced = context.state.serverRemoval.value != null
+        if (params != null && startReconnectCountdown(params, serverForced)) return
+
+        context.reconnect.cancelAndResetAttempts()
+        context.state.connected.value = false
+        context.state.connecting.value = false
+        updateStatus(disconnectedStatusText(reason, serverForced))
+        host.stopSelf()
+    }
+
+    // ---- disconnect handling ----
+
+    /**
+     * Stops what the live session was running and keeps what outlives it. The
+     * last channel is written here only when a restore is not still in flight:
+     * that path persists its own value once the server syncs.
+     */
+    private fun stopDisconnectedSession() {
         context.notices.joinHintsEnabled = false
         context.voice.stop()
         context.notifications.cancelChat()
@@ -168,47 +188,53 @@ internal class MumbleServiceEvents(
             context.lastChannel.persistFromLocal(context.state.host, context.state.port, context.state.connectedServerId)
         }
         clearSessionState()
-        val params = context.state.lastConnectParams
-        val serverForced = context.state.serverRemoval.value != null
+    }
+
+    /**
+     * Starts the auto-reconnect countdown, reporting it through the status line.
+     * False when [ReconnectController] refuses the retry, leaving the caller to
+     * close the session out instead.
+     */
+    private fun startReconnectCountdown(params: ConnectParams, serverForced: Boolean): Boolean {
         val canRetry = context.reconnect.canRetry(
             autoReconnect = context.state.currentSettings.autoReconnect,
-            hasParams = params != null,
+            hasParams = true,
             manualDisconnect = context.state.manualDisconnect.value,
             serverForced = serverForced,
         )
-        if (canRetry && params != null) {
-            context.state.connected.value = false
-            context.state.connecting.value = false
-            context.reconnect.startCountdown(
-                onTick = { remaining ->
-                    updateStatus(host.getString(R.string.reconnect_in_seconds, remaining))
-                },
-                onRetry = {
-                    if (!context.state.connected.value && !context.state.connecting.value && !context.state.manualDisconnect.value) {
-                        context.scope.launch { host.connect(params) }
-                    }
-                },
-            )
-            return
-        }
-        context.reconnect.cancelAndResetAttempts()
+        if (!canRetry) return false
         context.state.connected.value = false
         context.state.connecting.value = false
+        context.reconnect.startCountdown(
+            onTick = { remaining ->
+                updateStatus(host.getString(R.string.reconnect_in_seconds, remaining))
+            },
+            onRetry = {
+                if (!context.state.connected.value && !context.state.connecting.value && !context.state.manualDisconnect.value) {
+                    context.scope.launch { host.connect(params) }
+                }
+            },
+        )
+        return true
+    }
+
+    /**
+     * The closing status line: why the session is down, and which party ended
+     * it — a server-forced removal keeps the notice it already put there.
+     */
+    private fun disconnectedStatusText(reason: String, serverForced: Boolean): String {
         val displayReason = if (reason == ClientTlsPolicy.CERTIFICATE_REJECTED) {
             host.getString(R.string.status_certificate_rejected)
         } else {
             reason
         }
-        updateStatus(
-            when {
-                serverForced -> context.state.status.value.ifEmpty {
-                    host.getString(R.string.status_server_removed_title)
-                }
-                context.state.manualDisconnect.value -> host.getString(R.string.status_disconnected_reason, displayReason)
-                else -> host.getString(R.string.status_connection_failed, displayReason)
-            },
-        )
-        host.stopSelf()
+        return when {
+            serverForced -> context.state.status.value.ifEmpty {
+                host.getString(R.string.status_server_removed_title)
+            }
+            context.state.manualDisconnect.value -> host.getString(R.string.status_disconnected_reason, displayReason)
+            else -> host.getString(R.string.status_connection_failed, displayReason)
+        }
     }
 
     override fun onChannelState(update: ChannelUpdate) {
@@ -350,7 +376,7 @@ internal class MumbleServiceEvents(
 
     override fun onServerVersion(versionV2: Long, legacyVersion: Int) {
         val v2 = MumbleVersion.resolveV2(versionV2, legacyVersion)
-        context.voice.onServerVersion(v2 >= PROTOBUF_INTRODUCTION_VERSION_V2 && v2 != 0L)
+        context.voice.onServerVersion(v2 >= MumbleVersion.PROTOBUF_INTRODUCTION_VERSION_V2 && v2 != 0L)
     }
 
     override fun onCryptSetup(key: ByteArray, clientNonce: ByteArray, serverNonce: ByteArray) {

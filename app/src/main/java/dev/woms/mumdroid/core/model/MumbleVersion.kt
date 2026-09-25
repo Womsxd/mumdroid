@@ -15,6 +15,16 @@ import dev.woms.mumdroid.core.model.MumbleVersion.resolveV2
 object MumbleVersion {
 
     /**
+     * Official `Version::fromComponents(1, 5, 0)` in the v2 packing: the version
+     * from which the server understands protobuf tunneled packets.
+     *
+     * A protocol threshold, not the version this client reports. The two are
+     * both 1.5.0 today but say different things, so they are deliberately not
+     * one constant. Compare it against the result of [resolveV2].
+     */
+    val PROTOBUF_INTRODUCTION_VERSION_V2: Long = (1L shl 48) or (5L shl 32)
+
+    /**
      * Legacy packed version (`major<<16 | minor<<8 | patch`, 16.8.8).
      * Mirrors `Version::fromLegacyVersion` + `Version::toString`.
      */
