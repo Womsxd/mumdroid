@@ -343,6 +343,16 @@ class MicCaptureEngine(
     fun close() {
         synchronized(lock) {
             isOpen = false
+            // The preprocessor must die before the echo canceller, not after:
+            // it holds a raw SpeexEchoState* (SPEEX_PREPROCESS_SET_ECHO_STATE)
+            // that it dereferences on every run, so the referrer goes first.
+            // Today nothing runs between the two calls (the lock is held and the
+            // capture loop is already stopped/joined by the owner) and
+            // speex_preprocess_state_destroy never touches echo_state, so the
+            // old order was not yet a use-after-free — but it did leave a
+            // dangling pointer for the rest of this block, which a future
+            // "process one last frame" step would trip over.
+            preprocessor.deinit()
             echoCanceller?.close()
             echoCanceller = null
             releaseEffect { systemAgc }
@@ -354,7 +364,6 @@ class MicCaptureEngine(
             }
             record?.release()
             record = null
-            preprocessor.deinit()
         }
     }
 
