@@ -2,6 +2,7 @@ package dev.woms.mumdroid.core.audio.noise
 
 import android.util.Log
 import dev.woms.mumdroid.core.audio.noise.RnNoiseProcessor.Companion.FRAME_SIZE
+import dev.woms.mumdroid.core.audio.noise.RnNoiseProcessor.Companion.nativeFrameSize
 
 /**
  * JNI binding to the native RNNoise noise-suppression library.
@@ -24,7 +25,13 @@ class RnNoiseProcessor {
     companion object {
         private const val TAG = "RnNoiseProcessor"
 
-        /** The native RNNoise frame size in samples (480 = 10 ms @ 48 kHz). */
+        /**
+         * The RNNoise frame size this binding assumes, in samples
+         * (480 = 10 ms @ 48 kHz). Validated against [nativeFrameSize] at
+         * construction: the native side validates and steps by the library's
+         * own `rnnoise_get_frame_size()`, so a mismatch disables RNNoise rather
+         * than feeding it frames of the wrong length.
+         */
         const val FRAME_SIZE = 480
 
         private val loaded = runCatching { System.loadLibrary("rnnoise") }.isSuccess
@@ -52,9 +59,23 @@ class RnNoiseProcessor {
 
     init {
         if (loaded) {
-            nativeHandle = nativeCreate()
-            if (nativeHandle == 0L) {
-                Log.e(TAG, "Failed to create native RNNoise state")
+            // Validate the [FRAME_SIZE] literal against the library instead of
+            // trusting it. The native side validates and steps by
+            // rnnoise_get_frame_size(), so if upstream ever changed the frame
+            // size every frame this class offers would be rejected — a silent
+            // passthrough. Report it and leave the handle at 0 so RNNoise stays
+            // a deliberate passthrough instead.
+            val nativeFrame = nativeGetFrameSize()
+            if (nativeFrame != FRAME_SIZE) {
+                Log.e(
+                    TAG,
+                    "RNNoise frame size is $nativeFrame, expected $FRAME_SIZE; RNNoise disabled",
+                )
+            } else {
+                nativeHandle = nativeCreate()
+                if (nativeHandle == 0L) {
+                    Log.e(TAG, "Failed to create native RNNoise state")
+                }
             }
         }
     }

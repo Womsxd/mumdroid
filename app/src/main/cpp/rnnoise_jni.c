@@ -5,15 +5,19 @@
  * real-time noise suppression library based on a recurrent neural network —
  * the same backend used by the desktop Mumble client.
  *
- * The processing frame is 480 samples (10 ms at 48 kHz) and the native API
- * operates on floats whose values are the raw 16-bit PCM samples (roughly
- * [-32768, 32767]), NOT a [-1, 1] normalisation: upstream's
- * examples/rnnoise_demo.c, the desktop client and the training feature dumper
- * all feed that magnitude, and the internal silence gate (E < 0.04) plus the
- * trained feature scaling are calibrated for it. This binding therefore
- * converts from/to 16-bit PCM without rescaling and accepts any positive
- * multiple of 480 samples (10/20/40/60 ms Opus frames), processing them as
- * consecutive 10 ms sub-frames.
+ * The processing frame is rnnoise_get_frame_size() samples (480 = 10 ms at
+ * 48 kHz as of the vendored revision). That value is queried at creation and
+ * carried on the handle instead of being duplicated here: the library's public
+ * header states in/out must be `rnnoise_get_frame_size()` large (and
+ * denoise.c writes exactly that many), so a stale literal would overflow the
+ * scratch buffers below. The native API operates on floats whose values are the
+ * raw 16-bit PCM samples (roughly [-32768, 32767]), NOT a [-1, 1]
+ * normalisation: upstream's examples/rnnoise_demo.c, the desktop client and the
+ * training feature dumper all feed that magnitude, and the internal silence
+ * gate (E < 0.04) plus the trained feature scaling are calibrated for it. This
+ * binding therefore converts from/to 16-bit PCM without rescaling and accepts
+ * any positive multiple of the frame size (10/20/40/60 ms Opus frames),
+ * processing them as consecutive 10 ms sub-frames.
  *
  * As in opus_jni.c, the per-frame PCM array is pinned with
  * GetPrimitiveArrayCritical to avoid a copy on the audio hot path, falling
@@ -27,15 +31,13 @@
 
 #include "rnnoise.h"
 
-/* Number of samples per RNNoise processing frame (10 ms @ 48 kHz). */
-#define RNNOISE_FRAME 480
-
 /* The native handle returned to Kotlin wraps a DenoiseState* plus scratch
  * buffers for the float in/out arrays used by the float-based native API. */
 typedef struct {
     DenoiseState *state;
-    float *inBuf;   /* RNNOISE_FRAME floats of input */
-    float *outBuf;  /* RNNOISE_FRAME floats of output */
+    int frame_size; /* samples per rnnoise_process_frame() call, from the library */
+    float *inBuf;   /* frame_size floats of input */
+    float *outBuf;  /* frame_size floats of output */
 } RnNoiseHandle;
 
 static int g_frame_size = -1;
@@ -90,14 +92,23 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeCreate(
     if (h == NULL) {
         return 0;
     }
+    /* Ask the library for its frame size instead of duplicating FRAME_SIZE (an
+     * internal macro): rnnoise_process_frame() reads and writes exactly
+     * rnnoise_get_frame_size() samples at in/out, so the scratch below has to
+     * follow it. */
+    h->frame_size = rnnoise_get_frame_size();
+    if (h->frame_size <= 0) {
+        free(h);
+        return 0;
+    }
     /* NULL model -> use the built-in default model. */
     h->state = rnnoise_create(NULL);
     if (h->state == NULL) {
         free(h);
         return 0;
     }
-    h->inBuf = (float *)malloc(sizeof(float) * RNNOISE_FRAME);
-    h->outBuf = (float *)malloc(sizeof(float) * RNNOISE_FRAME);
+    h->inBuf = (float *)malloc(sizeof(float) * (size_t)h->frame_size);
+    h->outBuf = (float *)malloc(sizeof(float) * (size_t)h->frame_size);
     if (h->inBuf == NULL || h->outBuf == NULL) {
         rnnoise_destroy(h->state);
         free(h->inBuf);
@@ -110,8 +121,8 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeCreate(
 
 /*
  * Denoises one frame of 16-bit PCM **in place** (any positive multiple of the
- * 10 ms native frame, e.g. 480/960/1920/2880 samples = 10/20/40/60 ms at
- * 48 kHz).
+ * state's rnnoise_get_frame_size(), e.g. 480/960/1920/2880 samples =
+ * 10/20/40/60 ms at 48 kHz).
  *
  * The frame is processed in consecutive 10 ms sub-frames so that 20/40/60 ms
  * packet sizes all get the full RNNoise treatment. Each sub-frame is copied
@@ -122,7 +133,7 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeCreate(
  *
  * @param handle the `RnNoiseHandle*` returned by nativeCreate
  * @param frame  the frame to process, modified in place; its length must be a
- *               positive multiple of RNNOISE_FRAME
+ *               positive multiple of the state's frame size
  * @return the VAD decision (1 = speech in any sub-frame, 0 = noise), or -1 on
  *         error. The arguments are validated before any sample is touched, so
  *         on -1 the frame is left untouched and callers can fall back to a
@@ -137,8 +148,9 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeProcess(
         return -1;
     }
 
+    const int frame_size = h->frame_size;
     jsize len = (*env)->GetArrayLength(env, frame);
-    if (len <= 0 || len % RNNOISE_FRAME != 0) {
+    if (len <= 0 || len % frame_size != 0) {
         return -1;
     }
 
@@ -148,20 +160,20 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeProcess(
         return -1;
     }
 
-    int frames = (int)(len / RNNOISE_FRAME);
+    int frames = (int)(len / frame_size);
     int speech = 0;
     for (int sub = 0; sub < frames; sub++) {
-        jshort *buf = el + sub * RNNOISE_FRAME;
+        jshort *buf = el + sub * frame_size;
 
         /* Keep the raw 16-bit PCM magnitude: RNNoise's silence gate and its
          * trained features assume int16-scale floats, not [-1, 1]. */
-        for (int i = 0; i < RNNOISE_FRAME; i++) {
+        for (int i = 0; i < frame_size; i++) {
             h->inBuf[i] = (float)buf[i];
         }
 
         float vad = rnnoise_process_frame(h->state, h->outBuf, h->inBuf);
 
-        for (int i = 0; i < RNNOISE_FRAME; i++) {
+        for (int i = 0; i < frame_size; i++) {
             float v = h->outBuf[i];
             if (v > 32767.0f) v = 32767.0f;
             if (v < -32768.0f) v = -32768.0f;
