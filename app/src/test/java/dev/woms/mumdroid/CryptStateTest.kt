@@ -1,5 +1,6 @@
 package dev.woms.mumdroid
 
+import dev.woms.mumdroid.core.audio.OpusVoiceEncoder
 import dev.woms.mumdroid.core.crypto.CryptOCB2
 import dev.woms.mumdroid.core.crypto.CryptState
 import dev.woms.mumdroid.core.net.UdpVoiceManager
@@ -245,7 +246,7 @@ class CryptStateTest {
         assertEquals(2, crypt.resyncPackets)
         assertFalse(crypt.setDecryptIV(ByteArray(8)))
         assertEquals(2, crypt.resyncPackets)
-        val udp = UdpVoiceManager("127.0.0.1", 64738, clock = { 0L })
+        val udp = UdpVoiceManager("127.0.0.1", 64738, OpusVoiceEncoder(), clock = { 0L })
         udp.setupCryptography(key, clientNonce, serverNonce)
         assertEquals(0, udp.packetStats().resync)
         assertTrue(udp.resyncDecryptIV(ByteArray(16) { 6 }))

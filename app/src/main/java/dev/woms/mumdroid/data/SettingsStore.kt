@@ -9,15 +9,15 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.audio.VoiceBandwidth
-import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AgcMode
 import dev.woms.mumdroid.core.model.AppLanguage
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.DarkTheme
 import dev.woms.mumdroid.core.model.MicSource
+import dev.woms.mumdroid.core.model.NoiseSuppressionMode
+import dev.woms.mumdroid.core.model.OpusImplementation
 import dev.woms.mumdroid.core.model.ThemeColor
 import dev.woms.mumdroid.core.model.VadMethod
 import dev.woms.mumdroid.core.model.VoiceMode

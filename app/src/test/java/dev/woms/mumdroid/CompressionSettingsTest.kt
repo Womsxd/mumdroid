@@ -1,9 +1,9 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.audio.OpusCodec
-import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.audio.VoiceBandwidth
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.OpusImplementation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

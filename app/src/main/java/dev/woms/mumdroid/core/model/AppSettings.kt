@@ -1,8 +1,5 @@
 package dev.woms.mumdroid.core.model
 
-import dev.woms.mumdroid.core.audio.OpusImplementation
-import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
-
 /**
  * The user-configurable application settings.
  *

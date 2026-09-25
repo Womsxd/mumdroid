@@ -1,7 +1,7 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.audio.OpusCodec
-import dev.woms.mumdroid.core.audio.VoiceFrameCounter
+import dev.woms.mumdroid.core.net.VoiceFrameCounter
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

@@ -1,7 +1,6 @@
 package dev.woms.mumdroid.core.net
 
 import android.os.SystemClock
-import dev.woms.mumdroid.core.audio.VoiceFrameCounter
 
 /**
  * Wire-format layer for the voice channel, mirroring the official

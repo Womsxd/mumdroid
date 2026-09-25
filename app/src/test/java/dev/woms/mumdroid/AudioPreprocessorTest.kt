@@ -1,7 +1,7 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.audio.noise.AudioPreprocessor
-import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
+import dev.woms.mumdroid.core.model.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.VadMethod
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals

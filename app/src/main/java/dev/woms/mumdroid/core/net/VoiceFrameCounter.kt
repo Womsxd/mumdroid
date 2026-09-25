@@ -1,4 +1,4 @@
-package dev.woms.mumdroid.core.audio
+package dev.woms.mumdroid.core.net
 
 import android.os.SystemClock
 

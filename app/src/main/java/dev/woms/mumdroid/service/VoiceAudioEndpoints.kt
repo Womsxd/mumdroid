@@ -3,10 +3,10 @@ package dev.woms.mumdroid.service
 import android.media.AudioDeviceInfo
 import dev.woms.mumdroid.core.audio.AudioInput
 import dev.woms.mumdroid.core.audio.AudioOutput
-import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.AudioContext
+import dev.woms.mumdroid.core.model.OpusImplementation
 import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.VoiceMode
 

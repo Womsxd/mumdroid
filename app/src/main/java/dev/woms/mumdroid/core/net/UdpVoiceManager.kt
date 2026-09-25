@@ -2,10 +2,10 @@ package dev.woms.mumdroid.core.net
 
 import android.os.SystemClock
 import android.util.Log
-import dev.woms.mumdroid.core.audio.OpusCodec
-import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.crypto.UdpVoiceCrypto
 import dev.woms.mumdroid.core.model.AudioContext
+import dev.woms.mumdroid.core.model.OpusImplementation
+import dev.woms.mumdroid.core.model.VoiceEncoder
 import java.net.InetAddress
 
 /**
@@ -76,8 +76,8 @@ interface VoiceSendChannel {
  *    decryption-failure resync rule,
  *  - [UdpPingTracker] — UDP round-trip-time statistics.
  *
- * This class keeps the codec, the OCB2 send buffer, the ping cadence and the
- * decode/record decisions.
+ * This class keeps the injected [VoiceEncoder], the OCB2 send buffer, the ping
+ * cadence and the decode/record decisions.
  *
  * As in the official client, only Opus audio is decoded; the obsolete CELT /
  * Speex codecs are dropped. Pings are sent periodically to detect UDP
@@ -86,7 +86,8 @@ interface VoiceSendChannel {
 class UdpVoiceManager(
     private val host: String,
     private val port: Int,
-    opusImplementation: OpusImplementation = OpusImplementation.LIBOPUS,
+    /** The Opus encoder this send path drives (see [VoiceEncoder]). */
+    private val encoder: VoiceEncoder,
     /** Monotonic source for ping timestamps and local timeouts (official `QElapsedTimer`). */
     private val clock: () -> Long = { SystemClock.elapsedRealtime() },
 ) : VoiceSendChannel {
@@ -131,7 +132,6 @@ class UdpVoiceManager(
     private val pingCadence = UdpPingTracker.Cadence(PING_INTERVAL_MS)
     private val sendLock = Any()
     private val encryptPacket = ByteArray(MAX_PACKET)
-    private val opus = OpusCodec(opusImplementation)
 
     /**
      * Datagram transport: socket lifecycle, the peer-filtered receive loop and
@@ -238,24 +238,24 @@ class UdpVoiceManager(
      * low-latency mode) to the codec. 0 bitrate means codec default.
      */
     fun applyBitrate() {
-        opus.setFrameSize(OpusCodec.FRAME_SIZE_10MS * framesPerPacket.coerceIn(1, 6))
-        opus.setLowLatency(lowLatency)
+        encoder.setFramesPerPacket(framesPerPacket.coerceIn(1, 6))
+        encoder.setLowLatency(lowLatency)
         if (bitrate > 0) {
-            opus.setBitrate(bitrate)
+            encoder.setBitrate(bitrate)
         }
     }
 
     /** Encodes a PCM frame into an Opus payload. */
-    override fun encodeOpus(pcm: ShortArray): ByteArray? = opus.encode(pcm)
+    override fun encodeOpus(pcm: ShortArray): ByteArray? = encoder.encode(pcm)
 
     /** Switches the Opus encode/decode backend and re-applies bitrate settings. */
     fun setOpusImplementation(implementation: OpusImplementation) {
-        opus.setImplementation(implementation)
+        encoder.setImplementation(implementation)
         applyBitrate()
     }
 
     /** Official `OPUS_RESET_STATE` at the start of a talk spurt. */
-    override fun resetEncoder() = opus.resetEncoder()
+    override fun resetEncoder() = encoder.resetEncoder()
 
     /**
      * Opens the UDP voice socket. When [bindAddress] is set (the TCP socket's
@@ -411,20 +411,8 @@ class UdpVoiceManager(
         }
     }
 
-    /**
-     * Encodes one frame of digital silence — the payload used by the official
-     * client for its end-of-transmission packet.
-     *
-     * @return Opus bytes and the 10 ms frame count that [encode] actually
-     *         consumed (not the configured [framesPerPacket], which is not a
-     *         legal Opus size at 30/50 ms).
-     */
-    override fun encodeSilence(): Pair<ByteArray, Int>? {
-        val pcm = ShortArray(opus.getFrameSize())
-        val encoded = opus.encode(pcm) ?: return null
-        val frames = OpusCodec.encodedTenMsFrames(pcm.size).coerceAtLeast(1)
-        return encoded to frames
-    }
+    /** See [VoiceEncoder.encodeSilence]. */
+    override fun encodeSilence(): Pair<ByteArray, Int>? = encoder.encodeSilence()
 
     /**
      * Builds the plaintext body of a force-TCP UDPTunnel message. TCP is
@@ -455,6 +443,6 @@ class UdpVoiceManager(
         // crypto for the TCP-tunnel fallback — only close() discards it.)
         crypto.reset()
         framing.reset()
-        opus.close()
+        encoder.close()
     }
 }

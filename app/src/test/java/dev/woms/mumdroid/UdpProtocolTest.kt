@@ -296,7 +296,7 @@ class UdpProtocolTest {
 
     @Test
     fun outgoingVoice_stampsTenMsFrameNumbers() {
-        val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738, clock = { 0L })
+        val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738, dev.woms.mumdroid.core.audio.OpusVoiceEncoder(), clock = { 0L })
         udp.framesPerPacket = 2
         val p0 = requireNotNull(udp.buildTunnelPacket(byteArrayOf(1, 2, 3), false, 2))
         val p1 = requireNotNull(udp.buildTunnelPacket(byteArrayOf(4, 5, 6), false, 2))
@@ -313,7 +313,7 @@ class UdpProtocolTest {
 
     @Test
     fun protoOutgoingVoice_stampsTenMsFrameNumbers() {
-        val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738, clock = { 0L })
+        val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738, dev.woms.mumdroid.core.audio.OpusVoiceEncoder(), clock = { 0L })
         udp.protobufMode = true
         udp.framesPerPacket = 2
         val p0 = requireNotNull(udp.buildTunnelPacket(byteArrayOf(1, 2, 3), false, 2))
@@ -328,7 +328,7 @@ class UdpProtocolTest {
 
     @Test
     fun playTunneled_protobufDispatchesAudio() {
-        val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738, clock = { 0L })
+        val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738, dev.woms.mumdroid.core.audio.OpusVoiceEncoder(), clock = { 0L })
         udp.protobufMode = true
         var capturedSession = -1
         var frame = -1L
@@ -369,7 +369,7 @@ class UdpProtocolTest {
 
     @Test
     fun playTunneled_legacyDispatchesAudio() {
-        val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738, clock = { 0L })
+        val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738, dev.woms.mumdroid.core.audio.OpusVoiceEncoder(), clock = { 0L })
         var capturedSession = -1
         var capturedPayload: ByteArray? = null
         udp.setListener(object : dev.woms.mumdroid.core.net.UdpVoiceManager.Listener {

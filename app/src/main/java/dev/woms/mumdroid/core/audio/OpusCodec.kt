@@ -2,6 +2,7 @@ package dev.woms.mumdroid.core.audio
 
 import android.util.Log
 import dev.woms.mumdroid.core.audio.OpusCodec.Companion.tenMsFrames
+import dev.woms.mumdroid.core.model.OpusImplementation
 
 /**
  * Opus encode/decode used by the audio input and output pipelines.
@@ -53,7 +54,8 @@ class OpusCodec(
         /**
          * 10 ms units actually consumed by [encode]: [tenMsFrames] of the
          * snapped size. 30 ms / 50 ms PCM is not a legal Opus packet, so
-         * using raw [tenMsFrames] would advance [VoiceFrameCounter] past
+         * using raw [tenMsFrames] would advance
+         * [dev.woms.mumdroid.core.net.VoiceFrameCounter] past
          * the audio that went on the wire.
          */
         fun encodedTenMsFrames(samples: Int): Int {

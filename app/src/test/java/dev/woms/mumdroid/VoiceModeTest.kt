@@ -1,8 +1,8 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.audio.noise.AudioPreprocessor
-import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import org.junit.Assert.assertEquals

@@ -1,8 +1,8 @@
 package dev.woms.mumdroid
 
-import dev.woms.mumdroid.core.audio.OpusImplementation
 import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AppSettings
+import dev.woms.mumdroid.core.model.OpusImplementation
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.service.VoiceSettingsDelta
 import org.junit.Assert.assertFalse

@@ -1,10 +1,10 @@
 package dev.woms.mumdroid.core.audio
 
 import android.util.Log
-import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AgcMode
 import dev.woms.mumdroid.core.model.MicSource
+import dev.woms.mumdroid.core.model.NoiseSuppressionMode
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.sqrt

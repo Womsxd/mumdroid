@@ -1,24 +1,9 @@
 package dev.woms.mumdroid.core.audio.noise
 
+import dev.woms.mumdroid.core.model.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.VadMethod
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
-
-/**
- * Noise suppression engine selection, mirroring the desktop Mumble client
- * which offers several denoising presets:
- *
- *  - [SYSTEM]        the platform NoiseSuppressor effect on the mic session
- *  - [SPEEX]         the native speexdsp preprocessor (the desktop backend)
- *  - [RNNOISE]       native xiph RNNoise neural-network suppressor
- *  - [SPEEX_RNNOISE] both in series (RNNoise first, then speexdsp)
- */
-enum class NoiseSuppressionMode {
-    SYSTEM,
-    SPEEX,
-    RNNOISE,
-    SPEEX_RNNOISE,
-}
 
 /**
  * A noise-suppression / audio pre-processor used by the audio input pipeline

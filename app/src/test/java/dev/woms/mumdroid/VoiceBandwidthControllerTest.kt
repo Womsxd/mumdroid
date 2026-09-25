@@ -1,5 +1,6 @@
 package dev.woms.mumdroid
 
+import dev.woms.mumdroid.core.audio.OpusVoiceEncoder
 import dev.woms.mumdroid.core.audio.VoiceBandwidth
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.net.UdpVoiceManager
@@ -80,7 +81,7 @@ class VoiceBandwidthControllerTest {
 
     @Test
     fun reconfigure_appliesEffectiveSettingsToUdpManager() {
-        val udp = UdpVoiceManager("127.0.0.1", 64738)
+        val udp = UdpVoiceManager("127.0.0.1", 64738, OpusVoiceEncoder())
         val c = Recorder().controller()
         c.resetTo(settings(qualityKbps = 96, frames = 4))
         c.reconfigure(settings(qualityKbps = 96, frames = 4), useTcp = false, udp = udp)

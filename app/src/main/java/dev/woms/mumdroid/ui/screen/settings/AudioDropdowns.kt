@@ -19,11 +19,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
-import dev.woms.mumdroid.core.audio.OpusImplementation
-import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.AecMode
 import dev.woms.mumdroid.core.model.AgcMode
 import dev.woms.mumdroid.core.model.MicSource
+import dev.woms.mumdroid.core.model.NoiseSuppressionMode
+import dev.woms.mumdroid.core.model.OpusImplementation
 import dev.woms.mumdroid.core.model.VadMethod
 import dev.woms.mumdroid.core.model.VoiceMode
 import dev.woms.mumdroid.core.model.VoicePlaybackMode

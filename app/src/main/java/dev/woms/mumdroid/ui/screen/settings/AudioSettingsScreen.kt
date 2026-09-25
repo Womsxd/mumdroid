@@ -25,10 +25,10 @@ import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.audio.MicLevelMeter
 import dev.woms.mumdroid.core.audio.VoiceBandwidth
-import dev.woms.mumdroid.core.audio.noise.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.AgcMode
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.MicSource
+import dev.woms.mumdroid.core.model.NoiseSuppressionMode
 import dev.woms.mumdroid.core.model.VoiceMode
 
 // ---- Audio & Voice (merged) ----

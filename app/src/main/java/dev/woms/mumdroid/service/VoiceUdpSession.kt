@@ -1,8 +1,10 @@
 package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.R
+import dev.woms.mumdroid.core.audio.OpusVoiceEncoder
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.AudioContext
+import dev.woms.mumdroid.core.model.OpusImplementation
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.UdpVoiceManager
 
@@ -141,7 +143,7 @@ internal class VoiceUdpSession(
         val manager = udp ?: UdpVoiceManager(
             hostName,
             port,
-            host.settings().opusImplementation,
+            OpusVoiceEncoder(host.settings().opusImplementation),
         ).also {
             it.protobufMode = protobufMode
             udp = it
@@ -226,7 +228,7 @@ internal class VoiceUdpSession(
     }
 
     /** Applies the configured Opus backend to the UDP codec, if one exists. */
-    fun applyOpusImplementation(implementation: dev.woms.mumdroid.core.audio.OpusImplementation) {
+    fun applyOpusImplementation(implementation: OpusImplementation) {
         udp?.setOpusImplementation(implementation)
     }
 
