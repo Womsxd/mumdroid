@@ -95,6 +95,56 @@ class MumbleControlSendersTest {
     }
 
     @Test
+    fun muteUser_mutesTheTargetSession() {
+        senders.muteUser(session = 7, currentlyMuted = false, currentlySuppressed = false, muted = true)
+        assertEquals(MessageType.USER_STATE, lastType)
+        val msg = lastMessage as UserState
+        assertEquals(7, msg.session)
+        assertTrue(msg.mute)
+        assertFalse(msg.suppress)
+    }
+
+    /** The unmute branch mirrors the desktop menu: it lifts an ACL suppress too. */
+    @Test
+    fun muteUser_unmutingLiftsMuteAndSuppress() {
+        senders.muteUser(session = 7, currentlyMuted = true, currentlySuppressed = true, muted = false)
+        val msg = lastMessage as UserState
+        assertTrue(msg.hasMute())
+        assertFalse(msg.mute)
+        assertTrue(msg.hasSuppress())
+        assertFalse(msg.suppress)
+    }
+
+    @Test
+    fun deafenUser_setsTheDeafFlagOnly() {
+        senders.deafenUser(session = 3, deafened = true)
+        assertEquals(MessageType.USER_STATE, lastType)
+        val msg = lastMessage as UserState
+        assertEquals(3, msg.session)
+        assertTrue(msg.deaf)
+        assertFalse(msg.hasMute())
+    }
+
+    @Test
+    fun setPrioritySpeaker_setsTheFlag() {
+        senders.setPrioritySpeaker(session = 5, enabled = true)
+        assertEquals(MessageType.USER_STATE, lastType)
+        val msg = lastMessage as UserState
+        assertEquals(5, msg.session)
+        assertTrue(msg.prioritySpeaker)
+    }
+
+    @Test
+    fun setSelfMuteDeafen_targetsLocalSession() {
+        senders.setSelfMuteDeafen(muted = true, deafened = false)
+        assertEquals(MessageType.USER_STATE, lastType)
+        val msg = lastMessage as UserState
+        assertEquals(12, msg.session)
+        assertTrue(msg.selfMute)
+        assertFalse(msg.selfDeaf)
+    }
+
+    @Test
     fun setTokens_replacesHostTokensAndSendsAuthenticate() {
         senders.setTokens(listOf("a", "b"))
         assertEquals(MessageType.AUTHENTICATE, lastType)

@@ -6,7 +6,6 @@ import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.model.VoiceTargetSpec
 import dev.woms.mumdroid.core.net.ChanAclSnapshot
-import dev.woms.mumdroid.core.net.MessageType
 import dev.woms.mumdroid.core.net.UserModeration
 import dev.woms.mumdroid.data.ChannelAccessTokenStore
 import kotlinx.coroutines.CoroutineScope
@@ -144,36 +143,23 @@ internal class UserModerationCommands(
         val c = state.client ?: return
         val user = roster.userMap[session]
         scope.launch {
-            c.sendMessage(
-                MessageType.USER_STATE,
-                UserModeration.remoteMute(
-                    session = session,
-                    currentlyMuted = user?.mute ?: false,
-                    currentlySuppressed = user?.suppress ?: false,
-                    wantMuted = muted,
-                ),
+            c.muteUser(
+                session = session,
+                currentlyMuted = user?.mute ?: false,
+                currentlySuppressed = user?.suppress ?: false,
+                muted = muted,
             )
         }
     }
 
     fun setRemoteDeafen(session: Int, deafened: Boolean) {
         val c = state.client ?: return
-        scope.launch {
-            c.sendMessage(
-                MessageType.USER_STATE,
-                UserModeration.remoteDeafen(session, deafened),
-            )
-        }
+        scope.launch { c.deafenUser(session, deafened) }
     }
 
     fun setPrioritySpeaker(session: Int, enabled: Boolean) {
         val c = state.client ?: return
-        scope.launch {
-            c.sendMessage(
-                MessageType.USER_STATE,
-                UserModeration.prioritySpeaker(session, enabled),
-            )
-        }
+        scope.launch { c.setPrioritySpeaker(session, enabled) }
     }
 }
 
@@ -225,12 +211,7 @@ internal class VoiceCommands(
         val deafened = voice.selfDeafenedValue()
         roster.updateLocalMuteDeafen(muted, deafened)
         val c = state.client ?: return
-        scope.launch {
-            c.sendMessage(
-                MessageType.USER_STATE,
-                UserModeration.selfMuteDeafen(c.currentSession, muted, deafened),
-            )
-        }
+        scope.launch { c.setSelfMuteDeafen(muted, deafened) }
     }
 }
 

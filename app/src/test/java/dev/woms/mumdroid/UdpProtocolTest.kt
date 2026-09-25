@@ -254,7 +254,7 @@ class UdpProtocolTest {
         assertEquals(1, packet[0].toInt()) // Ping header byte
         val ts = dev.woms.mumdroid.core.net.ProtoUdpCodec.decodePing(packet.copyOfRange(1, packet.size))
         assertNotNull(ts)
-        assertEquals(987654321L, ts!!.toLong())
+        assertEquals(987654321L, ts!!)
     }
 
     @Test

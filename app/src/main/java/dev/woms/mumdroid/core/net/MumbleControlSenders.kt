@@ -50,8 +50,33 @@ internal interface MumbleControlSender {
     /** Desktop `ServerHandler::joinChannel` targeting another user's session. */
     fun moveUser(session: Int, channelId: Int)
 
+    /**
+     * Server mute for [session]. The unmute branch mirrors the desktop mute
+     * menu, which also lifts an ACL suppress, so the caller passes both current
+     * flags (see [UserModeration.remoteMute]).
+     */
+    fun muteUser(
+        session: Int,
+        currentlyMuted: Boolean,
+        currentlySuppressed: Boolean,
+        muted: Boolean,
+    )
+
+    /** Server deafen for another session. */
+    fun deafenUser(session: Int, deafened: Boolean)
+
+    /** Desktop `MainWindow::on_qaUserPrioritySpeaker_triggered`. */
+    fun setPrioritySpeaker(session: Int, enabled: Boolean)
+
     /** Desktop `ServerHandler::startListeningToChannel` / `stopListeningToChannel`. */
     fun setChannelListening(channelId: Int, listen: Boolean)
+
+    /**
+     * The local user's own `self_mute` / `self_deaf` echo, sent so the server
+     * and the other clients agree with what the UI already shows. The session is
+     * the local one, which the host supplies.
+     */
+    fun setSelfMuteDeafen(muted: Boolean, deafened: Boolean)
 
     /**
      * Registers or clears a shout / whisper target: one `VoiceTarget` carrying
@@ -257,6 +282,26 @@ internal class MumbleControlSenders : MumbleControlSender {
         writeMessage(MessageType.USER_STATE, UserModeration.moveToChannel(session, channelId))
     }
 
+    override fun muteUser(
+        session: Int,
+        currentlyMuted: Boolean,
+        currentlySuppressed: Boolean,
+        muted: Boolean,
+    ) {
+        writeMessage(
+            MessageType.USER_STATE,
+            UserModeration.remoteMute(session, currentlyMuted, currentlySuppressed, muted),
+        )
+    }
+
+    override fun deafenUser(session: Int, deafened: Boolean) {
+        writeMessage(MessageType.USER_STATE, UserModeration.remoteDeafen(session, deafened))
+    }
+
+    override fun setPrioritySpeaker(session: Int, enabled: Boolean) {
+        writeMessage(MessageType.USER_STATE, UserModeration.prioritySpeaker(session, enabled))
+    }
+
     /**
      * Desktop `ServerHandler::startListeningToChannel` /
      * `stopListeningToChannel`.
@@ -265,6 +310,13 @@ internal class MumbleControlSenders : MumbleControlSender {
         writeMessage(
             MessageType.USER_STATE,
             UserModeration.setChannelListening(localSession(), channelId, listen),
+        )
+    }
+
+    override fun setSelfMuteDeafen(muted: Boolean, deafened: Boolean) {
+        writeMessage(
+            MessageType.USER_STATE,
+            UserModeration.selfMuteDeafen(localSession(), muted, deafened),
         )
     }
 
