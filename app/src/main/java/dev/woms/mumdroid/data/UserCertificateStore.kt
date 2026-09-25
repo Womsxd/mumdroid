@@ -12,9 +12,11 @@ import dev.woms.mumdroid.data.db.MumdroidDatabase
 import dev.woms.mumdroid.data.db.UserCertificateConfigEntity
 import dev.woms.mumdroid.data.db.toEntity
 import dev.woms.mumdroid.data.db.toModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
@@ -69,7 +71,7 @@ class UserCertificateStore(private val context: Context) : CertificateMaterialSo
 
     /** Returns all stored user certificates. */
     suspend fun loadAll(): List<UserCertificate> {
-        vaultLock.withLock { reconcileIfNeeded() }
+        underVaultLock { reconcileIfNeeded() }
         return dao.getAll().map { it.toModel() }
     }
 
@@ -78,7 +80,7 @@ class UserCertificateStore(private val context: Context) : CertificateMaterialSo
      * [UserCertificate.NONE] if none is stored/selected.
      */
     suspend fun load(): UserCertificate {
-        vaultLock.withLock { reconcileIfNeeded() }
+        underVaultLock { reconcileIfNeeded() }
         val selected = dao.getConfig()?.selectedFingerprint ?: return UserCertificate.NONE
         return dao.findByFingerprint(selected)?.toModel() ?: UserCertificate.NONE
     }
@@ -259,7 +261,7 @@ class UserCertificateStore(private val context: Context) : CertificateMaterialSo
      * a cloud provider are not deleted by this.
      */
     suspend fun setBackupEnabled(enabled: Boolean) {
-        vaultLock.withLock {
+        underVaultLock {
             settingsStore.setBackupUserCertificates(enabled)
             reconcile(enabled)
             ready = true
@@ -268,9 +270,21 @@ class UserCertificateStore(private val context: Context) : CertificateMaterialSo
 
     // ---- internals ----
 
+    /**
+     * Runs [block] under the vault lock, off the caller's dispatcher.
+     *
+     * Everything behind the lock reads or writes PKCS#12 files — [reconcile]
+     * re-packs them, which is a key derivation per certificate — and one of this
+     * store's two owners, the UI controller, launches on the main dispatcher. So
+     * the work is moved to IO here rather than at each call site. The lock is
+     * held across the switch deliberately: it serialises the files, not threads.
+     */
+    private suspend fun <T> underVaultLock(block: suspend () -> T): T =
+        vaultLock.withLock { withContext(Dispatchers.IO) { block() } }
+
     /** Runs [block] against the vault directory for the current setting. */
     private suspend fun <T> withVault(block: suspend (UserCertificateKeyStoreFiles) -> T): T =
-        vaultLock.withLock {
+        underVaultLock {
             reconcileIfNeeded()
             block(UserCertificateKeyStoreFiles(vault.dir(currentBackupEnabled())))
         }
@@ -447,7 +461,8 @@ class UserCertificateStore(private val context: Context) : CertificateMaterialSo
          * Serialises vault reads/moves. Shared by every store instance (the UI
          * controller and the service each build one) so a relocation triggered
          * from one is visible to the other. [ready] tracks the per-process
-         * reconciliation.
+         * reconciliation. Always taken through [underVaultLock], which is also
+         * what keeps the file work off the main dispatcher.
          */
         private val vaultLock = Mutex()
 
