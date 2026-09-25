@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString
 import com.google.protobuf.MessageLite
 import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.ChanACL
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.model.VoiceTargetTarget
 import dev.woms.mumdroid.core.proto.ACL

@@ -1,15 +1,15 @@
 package dev.woms.mumdroid.ui
 
 import androidx.compose.runtime.Stable
+import dev.woms.mumdroid.core.model.AclUserNames
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.BanEntry
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.MumbleServer
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.model.VoiceTargetSpec
-import dev.woms.mumdroid.core.net.AclUserNames
-import dev.woms.mumdroid.core.net.ChanAclSnapshot
 
 /**
  * Live-session intents (connect, roster, chat, ACL). Distinct from

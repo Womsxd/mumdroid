@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.service
 
+import dev.woms.mumdroid.core.model.AclUserNames
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.ServerConnectionInfo
@@ -7,7 +8,6 @@ import dev.woms.mumdroid.core.model.ServerRemoval
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.model.VoiceTargetStatus
-import dev.woms.mumdroid.core.net.AclUserNames
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.UdpVoiceManager
 import kotlinx.coroutines.flow.StateFlow

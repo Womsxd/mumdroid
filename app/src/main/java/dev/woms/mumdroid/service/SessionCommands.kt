@@ -1,11 +1,11 @@
 package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.core.model.BanEntry
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.model.VoiceTargetSpec
-import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.core.net.UserModeration
 import dev.woms.mumdroid.data.ChannelAccessTokenStore
 import kotlinx.coroutines.CoroutineScope

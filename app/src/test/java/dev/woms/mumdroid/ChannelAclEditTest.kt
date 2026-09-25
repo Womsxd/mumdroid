@@ -1,14 +1,14 @@
 package dev.woms.mumdroid
 
+import dev.woms.mumdroid.core.model.AclUserNames
 import dev.woms.mumdroid.core.model.ChanACL
+import dev.woms.mumdroid.core.model.ChanAclDraft
+import dev.woms.mumdroid.core.model.ChanAclGroup
+import dev.woms.mumdroid.core.model.ChanAclRule
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
+import dev.woms.mumdroid.core.model.ChannelAclEdit
 import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.core.net.AclUserNames
-import dev.woms.mumdroid.core.net.ChanAclDraft
-import dev.woms.mumdroid.core.net.ChanAclGroup
-import dev.woms.mumdroid.core.net.ChanAclRule
-import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.core.net.ChanAclWrite
-import dev.woms.mumdroid.core.net.ChannelAclEdit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

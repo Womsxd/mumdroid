@@ -1,8 +1,7 @@
-package dev.woms.mumdroid.core.net
+package dev.woms.mumdroid.core.model
 
-import dev.woms.mumdroid.core.model.ChanACL
-import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.core.net.ChannelAclEdit.DEFAULT_RULE
+import dev.woms.mumdroid.core.model.ChannelAclEdit.DEFAULT_RULE
+
 
 /**
  * The draft a channel ACL editor edits: the desktop `ACLEditor`'s `qlACLs` /

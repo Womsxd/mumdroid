@@ -8,15 +8,15 @@ import android.content.pm.PackageManager
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import dev.woms.mumdroid.R
+import dev.woms.mumdroid.core.model.AclUserNames
 import dev.woms.mumdroid.core.model.AppSettings
 import dev.woms.mumdroid.core.model.BanEntry
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.LoopbackMode
 import dev.woms.mumdroid.core.model.MumbleServer
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.model.VoiceTargetSpec
-import dev.woms.mumdroid.core.net.AclUserNames
-import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.service.MumbleService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow

@@ -36,10 +36,10 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
-import dev.woms.mumdroid.core.net.AclUserNames
-import dev.woms.mumdroid.core.net.ChanAclDraft
-import dev.woms.mumdroid.core.net.ChanAclGroup
-import dev.woms.mumdroid.core.net.ChannelAclEdit
+import dev.woms.mumdroid.core.model.AclUserNames
+import dev.woms.mumdroid.core.model.ChanAclDraft
+import dev.woms.mumdroid.core.model.ChanAclGroup
+import dev.woms.mumdroid.core.model.ChannelAclEdit
 
 /**
  * The desktop `ACLEditor` Groups tab: the channel's groups and their inherit

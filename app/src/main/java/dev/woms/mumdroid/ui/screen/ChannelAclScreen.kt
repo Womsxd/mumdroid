@@ -85,13 +85,13 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import dev.woms.mumdroid.R
+import dev.woms.mumdroid.core.model.AclUserNames
 import dev.woms.mumdroid.core.model.ChanACL
+import dev.woms.mumdroid.core.model.ChanAclDraft
+import dev.woms.mumdroid.core.model.ChanAclRule
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
+import dev.woms.mumdroid.core.model.ChannelAclEdit
 import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.core.net.AclUserNames
-import dev.woms.mumdroid.core.net.ChanAclDraft
-import dev.woms.mumdroid.core.net.ChanAclRule
-import dev.woms.mumdroid.core.net.ChanAclSnapshot
-import dev.woms.mumdroid.core.net.ChannelAclEdit
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 

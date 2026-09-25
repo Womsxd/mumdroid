@@ -1,7 +1,9 @@
 package dev.woms.mumdroid.ui
 
+import dev.woms.mumdroid.core.model.AclUserNames
 import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.CertificatePrompt
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
 import dev.woms.mumdroid.core.model.LoopbackMode
@@ -10,8 +12,6 @@ import dev.woms.mumdroid.core.model.ServerConnectionInfo
 import dev.woms.mumdroid.core.model.ServerRemoval
 import dev.woms.mumdroid.core.model.VoiceOutputTarget
 import dev.woms.mumdroid.core.model.VoiceTargetStatus
-import dev.woms.mumdroid.core.net.AclUserNames
-import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.core.net.UserConnectionInfo
 
 /** Low-frequency session snapshot for the UI.

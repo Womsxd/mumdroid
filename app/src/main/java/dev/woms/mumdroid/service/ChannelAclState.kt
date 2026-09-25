@@ -1,11 +1,11 @@
 package dev.woms.mumdroid.service
 
+import dev.woms.mumdroid.core.model.AclUserNames
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
 import dev.woms.mumdroid.core.model.PermissionDeny
-import dev.woms.mumdroid.core.net.AclUserNames
-import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.core.net.ChannelAclReply
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

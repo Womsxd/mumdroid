@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.net
 
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.proto.ACL
 
 /**

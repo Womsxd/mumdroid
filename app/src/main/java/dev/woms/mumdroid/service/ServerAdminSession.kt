@@ -1,10 +1,10 @@
 package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.core.model.BanEntry
+import dev.woms.mumdroid.core.model.ChanAclSnapshot
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.model.User
-import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.UserConnectionInfo
 import dev.woms.mumdroid.data.ChannelAccessTokenStore
