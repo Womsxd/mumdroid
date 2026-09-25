@@ -1,7 +1,8 @@
 package dev.woms.mumdroid
 
 import com.google.protobuf.ByteString
-import dev.woms.mumdroid.core.net.UserConnectionInfo
+import dev.woms.mumdroid.core.model.UserConnectionInfo
+import dev.woms.mumdroid.core.net.UserStatsCodec
 import dev.woms.mumdroid.core.proto.UserStats
 import dev.woms.mumdroid.core.proto.Version
 import org.junit.Assert.assertEquals
@@ -18,7 +19,7 @@ class UserConnectionInfoTest {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff.toByte(), 0xff.toByte(),
             192.toByte(), 168.toByte(), 1, 20,
         )
-        assertEquals("192.168.1.20", UserConnectionInfo.formatHostAddress(bytes))
+        assertEquals("192.168.1.20", UserStatsCodec.formatHostAddress(bytes))
     }
 
     @Test
@@ -27,7 +28,7 @@ class UserConnectionInfoTest {
             0x20, 0x01, 0x0d, 0xb8.toByte(),
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
         )
-        assertEquals("2001:db8:0:0:0:0:0:1", UserConnectionInfo.formatHostAddress(bytes))
+        assertEquals("2001:db8:0:0:0:0:0:1", UserStatsCodec.formatHostAddress(bytes))
     }
 
     @Test
@@ -74,7 +75,7 @@ class UserConnectionInfoTest {
             )))
             .build()
 
-        val info = UserConnectionInfo.fromProto(msg, "alice")
+        val info = UserStatsCodec.toConnectionInfo(msg, "alice")
         assertEquals(7, info.session)
         assertEquals("alice", info.userName)
         assertEquals("10.0.0.1", info.address)
@@ -94,7 +95,7 @@ class UserConnectionInfoTest {
 
     @Test
     fun fromProto_statsOnlyKeepsPreviousConnectionDetails() {
-        val first = UserConnectionInfo.fromProto(
+        val first = UserStatsCodec.toConnectionInfo(
             UserStats.newBuilder()
                 .setSession(3)
                 .setVersion(Version.newBuilder().setVersionV1(0x010500).setRelease("pc").build())
@@ -106,7 +107,7 @@ class UserConnectionInfoTest {
                 .build(),
             "bob",
         )
-        val refresh = UserConnectionInfo.fromProto(
+        val refresh = UserStatsCodec.toConnectionInfo(
             UserStats.newBuilder()
                 .setSession(3)
                 .setStatsOnly(true)
@@ -125,7 +126,7 @@ class UserConnectionInfoTest {
 
     @Test
     fun fromProto_omittedOpusStaysUnknown() {
-        val info = UserConnectionInfo.fromProto(UserStats.newBuilder().setSession(1).build(), "x")
+        val info = UserStatsCodec.toConnectionInfo(UserStats.newBuilder().setSession(1).build(), "x")
         assertNull(info.opus)
         assertFalse(info.hasConnectionDetails)
     }

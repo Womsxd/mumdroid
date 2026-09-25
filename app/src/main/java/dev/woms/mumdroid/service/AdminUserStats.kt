@@ -1,6 +1,6 @@
 package dev.woms.mumdroid.service
 
-import dev.woms.mumdroid.core.net.UserConnectionInfo
+import dev.woms.mumdroid.core.model.UserConnectionInfo
 import dev.woms.mumdroid.core.net.UserStatsReply
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

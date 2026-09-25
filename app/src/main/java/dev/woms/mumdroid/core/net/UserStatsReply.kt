@@ -1,5 +1,6 @@
 package dev.woms.mumdroid.core.net
 
+import dev.woms.mumdroid.core.model.UserConnectionInfo
 import dev.woms.mumdroid.core.proto.UserStats
 
 /**
@@ -20,7 +21,7 @@ class UserStatsReply internal constructor(internal val message: UserStats) {
 
     /** The dialog snapshot, merged over [previous] when it is the same session. */
     fun toConnectionInfo(userName: String, previous: UserConnectionInfo?): UserConnectionInfo =
-        UserConnectionInfo.fromProto(message, userName, previous)
+        UserStatsCodec.toConnectionInfo(message, userName, previous)
 
     companion object {
         /** Wraps a reply parsed off the wire. */
