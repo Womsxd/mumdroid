@@ -101,7 +101,7 @@ internal fun VoiceTargetChip(
 
 /** Chip text for the current target, including its links / children modifiers. */
 @Composable
-internal fun targetLabel(status: VoiceTargetStatus): String = when (val spec = status.spec) {
+private fun targetLabel(status: VoiceTargetStatus): String = when (val spec = status.spec) {
     null -> ""
     is VoiceTargetSpec.Users -> {
         val names = status.userNames.joinToString(", ")

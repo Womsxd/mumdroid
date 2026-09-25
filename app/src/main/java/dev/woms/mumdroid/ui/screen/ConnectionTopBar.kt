@@ -194,7 +194,7 @@ private enum class ServerMenuPage { Main, SelfTest }
  * voice bar, whichever the user reaches first.
  */
 @Composable
-internal fun LoopbackMenuItems(
+private fun LoopbackMenuItems(
     loopback: LoopbackMode,
     enabled: Boolean,
     onSetLoopback: (LoopbackMode) -> Unit,

@@ -81,7 +81,7 @@ internal fun RowScope.UserRowLabel(user: User) {
  * Compose, so the ordering and tint matrix stay unit-testable.
  */
 @Composable
-internal fun UserStatusBadge(status: UserStatusIcon) {
+private fun UserStatusBadge(status: UserStatusIcon) {
     val style = UserRowPresentation.badge(status)
     val image: ImageVector = when (status) {
         UserStatusIcon.PRIORITY_SPEAKER -> Icons.Filled.Campaign

@@ -122,7 +122,7 @@ internal fun UserRowDialogHost(
  * and admin-register use different titles and warnings.
  */
 @Composable
-fun RegisterUserDialog(
+private fun RegisterUserDialog(
     userName: String,
     isSelf: Boolean,
     onConfirm: () -> Unit,
@@ -161,7 +161,7 @@ fun RegisterUserDialog(
 
 /** Desktop `QInputDialog` for kicking a user: reason, then send `UserRemove`. */
 @Composable
-fun KickUserDialog(
+private fun KickUserDialog(
     userName: String,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -211,7 +211,7 @@ fun KickUserDialog(
  * desktop tree drag-and-drop (`UserModel::dropMimeData`).
  */
 @Composable
-fun MoveUserChannelDialog(
+private fun MoveUserChannelDialog(
     userName: String,
     channels: List<ChannelPick>,
     currentChannelId: Int,

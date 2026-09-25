@@ -156,7 +156,7 @@ internal fun ConnectionScreenDialogs(
 }
 
 @Composable
-fun ChannelPasswordDialog(
+private fun ChannelPasswordDialog(
     prompt: ChannelPasswordPrompt,
     onSubmit: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -226,7 +226,7 @@ fun ChannelPasswordDialog(
  * it for this session only, or rejects the connection.
  */
 @Composable
-fun CertificatePromptDialog(
+private fun CertificatePromptDialog(
     prompt: CertificatePrompt,
     onUpdatePin: () -> Unit,
     onTrustOnce: () -> Unit,
