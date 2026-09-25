@@ -100,12 +100,23 @@ object UserModeration {
             .setSelfDeaf(deafened)
             .build()
 
-    /** Desktop `ServerHandler::joinChannel` for any session. */
-    fun moveToChannel(session: Int, channelId: Int): UserState =
-        UserState.newBuilder()
+    /**
+     * Desktop `ServerHandler::joinChannel` for any session.
+     * [temporaryAccessTokens] are official channel passwords applied for this
+     * UserState only (murmur `TemporaryAccessTokenHelper`); empty for a plain
+     * move.
+     */
+    fun moveToChannel(
+        session: Int,
+        channelId: Int,
+        temporaryAccessTokens: List<String> = emptyList(),
+    ): UserState {
+        val builder = UserState.newBuilder()
             .setSession(session)
             .setChannelId(channelId)
-            .build()
+        temporaryAccessTokens.forEach { builder.addTemporaryAccessTokens(it) }
+        return builder.build()
+    }
 
     /**
      * Desktop `ServerHandler::startListeningToChannel` /

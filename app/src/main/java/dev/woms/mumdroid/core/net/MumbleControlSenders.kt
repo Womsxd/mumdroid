@@ -16,7 +16,6 @@ import dev.woms.mumdroid.core.proto.QueryUsers
 import dev.woms.mumdroid.core.proto.RequestBlob
 import dev.woms.mumdroid.core.proto.TextMessage
 import dev.woms.mumdroid.core.proto.UserList
-import dev.woms.mumdroid.core.proto.UserState
 import dev.woms.mumdroid.core.proto.UserStats
 
 /**
@@ -266,11 +265,10 @@ internal class MumbleControlSenders : MumbleControlSender {
      * `TemporaryAccessTokenHelper`).
      */
     override fun joinChannel(channelId: Int, temporaryAccessTokens: List<String>) {
-        val us = UserState.newBuilder()
-            .setSession(localSession())
-            .setChannelId(channelId)
-        temporaryAccessTokens.forEach { us.addTemporaryAccessTokens(it) }
-        writeMessage(MessageType.USER_STATE, us.build())
+        writeMessage(
+            MessageType.USER_STATE,
+            UserModeration.moveToChannel(localSession(), channelId, temporaryAccessTokens),
+        )
     }
 
     /**

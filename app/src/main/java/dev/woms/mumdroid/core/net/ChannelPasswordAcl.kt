@@ -69,12 +69,16 @@ object ChannelPasswordAcl {
             }
         }
 
-        val builder = msg.toBuilder().clearQuery().clearAcls().clearGroups()
-        acls.filter { !it.inherited }.forEach { builder.addAcls(it) }
-        msg.groupsList.filter(::groupNeedsSend).forEach { group ->
-            builder.addGroups(group.toBuilder().clearInheritedMembers().build())
-        }
-        return builder.build()
+        // Server ACLs carry no editor placeholders, so dropping every inherited
+        // row is enough here, unlike [ChanAclWrite.shouldSendAcl] which also
+        // guards against unresolved `userId < -1` rows.
+        return ChanAclWrite.writePayload(
+            base = msg,
+            acls = acls.filter { !it.inherited },
+            groups = msg.groupsList
+                .filter(::groupNeedsSend)
+                .map { it.toBuilder().clearInheritedMembers().build() },
+        )
     }
 
     fun query(channelId: Int): ACL = ChanAclWrite.query(channelId)

@@ -1,6 +1,7 @@
 package dev.woms.mumdroid.core.net
 
 import dev.woms.mumdroid.core.model.ChanACL
+import dev.woms.mumdroid.core.net.ChanAclWrite.toWriteMessage
 import dev.woms.mumdroid.core.proto.ACL
 import dev.woms.mumdroid.core.proto.QueryUsers
 
@@ -87,26 +88,44 @@ object ChanAclWrite {
      * local add/remove omitted. Matches `ACLEditor::accept`.
      */
     fun toWriteMessage(snapshot: ChanAclSnapshot): ACL {
-        val builder = ACL.newBuilder()
-            .setChannelId(snapshot.channelId)
-            .setInheritAcls(snapshot.inheritAcls)
-        for (acl in snapshot.acls) {
-            if (!shouldSendAcl(acl.inherited, acl.userId)) continue
-            builder.addAcls(ruleToProto(acl))
-        }
-        for (group in snapshot.groups) {
-            if (!shouldSendGroup(
-                    inherited = group.inherited,
-                    inherit = group.inherit,
-                    inheritable = group.inheritable,
-                    addCount = group.add.size,
-                    removeCount = group.remove.size,
+        val acls = snapshot.acls
+            .filter { shouldSendAcl(it.inherited, it.userId) }
+            .map(::ruleToProto)
+        val groups = snapshot.groups
+            .filter {
+                shouldSendGroup(
+                    inherited = it.inherited,
+                    inherit = it.inherit,
+                    inheritable = it.inheritable,
+                    addCount = it.add.size,
+                    removeCount = it.remove.size,
                 )
-            ) {
-                continue
             }
-            builder.addGroups(groupToProto(group))
-        }
+            .map(::groupToProto)
+        return writePayload(
+            base = ACL.newBuilder()
+                .setChannelId(snapshot.channelId)
+                .setInheritAcls(snapshot.inheritAcls)
+                .build(),
+            acls = acls,
+            groups = groups,
+        )
+    }
+
+    /**
+     * Reassembles an ACL write payload from proto pieces the caller has already
+     * filtered: `query` unset and the incoming rows replaced. Shared by
+     * [toWriteMessage] and [ChannelPasswordAcl.apply], which both start from a
+     * server ACL message and must not echo `query` or dropped rows back.
+     */
+    fun writePayload(
+        base: ACL,
+        acls: List<ACL.ChanACL>,
+        groups: List<ACL.ChanGroup>,
+    ): ACL {
+        val builder = base.toBuilder().clearQuery().clearAcls().clearGroups()
+        acls.forEach { builder.addAcls(it) }
+        groups.forEach { builder.addGroups(it) }
         return builder.build()
     }
 
