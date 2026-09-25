@@ -12,6 +12,11 @@
  * As in opus_jni.c, the per-frame PCM arrays are pinned with
  * GetPrimitiveArrayCritical to avoid a copy on the audio hot path, falling
  * back to GetShortArrayElements.
+ *
+ * Both bound Kotlin classes are ordinary classes, so every function here is an
+ * *instance* method and takes its receiver as `jobject instance` (unused). The
+ * jclass in opus_jni.c is not a precedent to copy: LibOpusNative is an object
+ * whose natives are @JvmStatic, so those really are static methods.
  */
 
 #include <jni.h>
@@ -68,9 +73,9 @@ static SpeexPreprocessHandle *to_preprocess_handle(jlong handle) {
 
 JNIEXPORT jlong JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeCreate(
-        JNIEnv *env, jclass clazz, jint frame_size, jint sample_rate) {
+        JNIEnv *env, jobject instance, jint frame_size, jint sample_rate) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     if (frame_size <= 0 || sample_rate <= 0) {
         return 0;
     }
@@ -102,9 +107,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeCreate(
  */
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeDestroy(
-        JNIEnv *env, jclass clazz, jlong handle) {
+        JNIEnv *env, jobject instance, jlong handle) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     if (h != NULL) {
         if (h->state != NULL) {
@@ -116,9 +121,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeDestroy(
 
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetDenoise(
-        JNIEnv *env, jclass clazz, jlong handle, jboolean enable) {
+        JNIEnv *env, jobject instance, jlong handle, jboolean enable) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
@@ -130,9 +135,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetDenoise(
 
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetNoiseSuppress(
-        JNIEnv *env, jclass clazz, jlong handle, jint db) {
+        JNIEnv *env, jobject instance, jlong handle, jint db) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
@@ -144,9 +149,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetNoiseSuppress
 
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgc(
-        JNIEnv *env, jclass clazz, jlong handle, jboolean enable) {
+        JNIEnv *env, jobject instance, jlong handle, jboolean enable) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
@@ -158,9 +163,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgc(
 
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcTarget(
-        JNIEnv *env, jclass clazz, jlong handle, jint target) {
+        JNIEnv *env, jobject instance, jlong handle, jint target) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
@@ -172,9 +177,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcTarget(
 
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcMaxGain(
-        JNIEnv *env, jclass clazz, jlong handle, jint db) {
+        JNIEnv *env, jobject instance, jlong handle, jint db) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
@@ -186,9 +191,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcMaxGain(
 
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcIncrement(
-        JNIEnv *env, jclass clazz, jlong handle, jint dbPerSec) {
+        JNIEnv *env, jobject instance, jlong handle, jint dbPerSec) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
@@ -200,9 +205,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcIncrement(
 
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcDecrement(
-        JNIEnv *env, jclass clazz, jlong handle, jint dbPerSec) {
+        JNIEnv *env, jobject instance, jlong handle, jint dbPerSec) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
@@ -213,15 +218,17 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetAgcDecrement(
 }
 
 /*
- * The AGC's current gain in dB (0 until it has adapted). speexdsp keeps it as a
- * linear multiplier, so this is the same conversion SPEEX_PREPROCESS_GET_AGC_GAIN
- * performs. Used to compensate the noise-suppression floor for the AGC boost.
+ * The AGC's current gain in dB, forwarded from the state. speexdsp holds the
+ * gain as a linear multiplier (initialised to 1, i.e. 0 dB until it adapts) and
+ * SPEEX_PREPROCESS_GET_AGC_GAIN is the ctl that reports it in dB
+ * (preprocess.c). AudioPreprocessor uses it to compensate the
+ * noise-suppression floor for the AGC boost.
  */
 JNIEXPORT jint JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeGetAgcGain(
-        JNIEnv *env, jclass clazz, jlong handle) {
+        JNIEnv *env, jobject instance, jlong handle) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     if (st == NULL) {
@@ -248,8 +255,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeGetAgcGain(
  */
 JNIEXPORT jint JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeRun(
-        JNIEnv *env, jclass clazz, jlong handle, jshortArray frame) {
-    (void) clazz;
+        JNIEnv *env, jobject instance, jlong handle, jshortArray frame) {
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     if (env == NULL || h == NULL || h->state == NULL) {
         return -1;
@@ -268,8 +275,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeRun(
         return -1;
     }
 
-    /* speex_preprocess_run() processes the buffer in place and returns the
-     * VAD decision for this frame (1 = speech probable). */
+    /* Processes the buffer in place. The VAD is off (see nativeCreate), so
+     * speex_preprocess_run() returns a constant 1 here (preprocess.c) — this is
+     * "processed", not a speech decision. */
     int vad = speex_preprocess_run(h->state, elements);
 
     unlock_shorts(env, frame, elements, frameCrit, 0);
@@ -305,9 +313,9 @@ static SpeexEchoHandle *to_echo_handle(jlong handle) {
 
 JNIEXPORT jlong JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCreate(
-        JNIEnv *env, jclass clazz, jint frame_size, jint filter_length, jint sample_rate) {
+        JNIEnv *env, jobject instance, jint frame_size, jint filter_length, jint sample_rate) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     if (frame_size <= 0 || filter_length <= 0 || sample_rate <= 0) {
         return 0;
     }
@@ -339,9 +347,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCreate(
  * handle, and a repeated call with the same non-zero value is a double free. */
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeDestroy(
-        JNIEnv *env, jclass clazz, jlong handle) {
+        JNIEnv *env, jobject instance, jlong handle) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexEchoHandle *h = to_echo_handle(handle);
     if (h != NULL) {
         if (h->state != NULL) {
@@ -357,9 +365,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeDestroy(
  *  pass the SpeexEchoState pointer itself. */
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetEchoState(
-        JNIEnv *env, jclass clazz, jlong handle, jlong echo_handle) {
+        JNIEnv *env, jobject instance, jlong handle, jlong echo_handle) {
     (void) env;
-    (void) clazz;
+    (void) instance;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     SpeexPreprocessState *st = h != NULL ? h->state : NULL;
     SpeexEchoHandle *eh = to_echo_handle(echo_handle);
@@ -380,9 +388,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetEchoState(
  */
 JNIEXPORT jboolean JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCancel(
-        JNIEnv *env, jclass clazz, jlong handle, jshortArray near_arr,
+        JNIEnv *env, jobject instance, jlong handle, jshortArray near_arr,
         jshortArray far_arr, jshortArray out_arr) {
-    (void) clazz;
+    (void) instance;
     SpeexEchoHandle *h = to_echo_handle(handle);
     if (env == NULL || h == NULL || h->state == NULL) {
         return JNI_FALSE;
