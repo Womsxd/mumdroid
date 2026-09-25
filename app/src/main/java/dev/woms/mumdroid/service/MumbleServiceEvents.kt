@@ -10,9 +10,11 @@ import dev.woms.mumdroid.core.model.MumbleVersion
 import dev.woms.mumdroid.core.model.PermissionDeny
 import dev.woms.mumdroid.core.model.RegisteredUser
 import dev.woms.mumdroid.core.model.UserUpdate
+import dev.woms.mumdroid.core.net.ChannelAclReply
 import dev.woms.mumdroid.core.net.ClientTlsPolicy
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.MumbleListener
+import dev.woms.mumdroid.core.net.UserStatsReply
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -103,8 +105,8 @@ internal class MumbleServiceEvents(
 
     // ---- MumbleListener ----
 
-    override fun onAcl(acl: dev.woms.mumdroid.core.proto.ACL) {
-        context.admin.handleAcl(context.state.client, acl) { id, token ->
+    override fun onAcl(reply: ChannelAclReply) {
+        context.admin.handleAcl(context.state.client, reply) { id, token ->
             host.persistAccessToken(id, token)
         }
     }
@@ -336,9 +338,9 @@ internal class MumbleServiceEvents(
         }
     }
 
-    override fun onUserStats(stats: dev.woms.mumdroid.core.proto.UserStats) {
-        val name = context.roster.userMap[stats.session]?.name.orEmpty()
-        context.admin.handleUserStats(context.state.client, stats, name)
+    override fun onUserStats(reply: UserStatsReply) {
+        val name = context.roster.userMap[reply.session]?.name.orEmpty()
+        context.admin.handleUserStats(context.state.client, reply, name)
     }
 
     override fun onInfo(message: String) {

@@ -6,19 +6,17 @@ import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
 import dev.woms.mumdroid.core.model.PermissionDeny
 import dev.woms.mumdroid.core.net.AclUserNames
 import dev.woms.mumdroid.core.net.ChanAclSnapshot
-import dev.woms.mumdroid.core.net.ChanAclWrite
-import dev.woms.mumdroid.core.net.ChannelPasswordAcl
-import dev.woms.mumdroid.core.proto.ACL
+import dev.woms.mumdroid.core.net.ChannelAclReply
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 
 /** What the caller must do to apply a channel password. */
 internal sealed class PasswordApply {
-    /** The ACL query already answered: send this snapshot with [password]. */
-    data class Send(val snap: ACL, val password: String) : PasswordApply()
+    /** The ACL query already answered: send this reply with [password]. */
+    data class Send(val reply: ChannelAclReply, val password: String) : PasswordApply()
 
-    /** No snapshot yet: query [channelId] and retry when the reply arrives. */
+    /** No reply yet: query [channelId] and retry when it arrives. */
     data class Query(val channelId: Int) : PasswordApply()
 }
 
@@ -48,7 +46,7 @@ internal class ChannelAclState {
     val channelPasswordPrompt: StateFlow<ChannelPasswordPrompt?> = _channelPasswordPrompt
 
     /** Last ACL reply, kept so [preparePasswordApply] can skip a second query. */
-    private var lastAclQuery: ACL? = null
+    private var lastAclReply: ChannelAclReply? = null
 
     /** Password waiting for the ACL reply of its channel. */
     private var pendingPasswordApply: Pair<Int, String>? = null
@@ -74,31 +72,28 @@ internal class ChannelAclState {
         return channel.id to pending.third
     }
 
-    /** Records an ACL reply; returns the channel + password to send now, if any. */
-    fun onAcl(acl: ACL): Pair<ACL, String>? {
-        lastAclQuery = acl
-        _channelAcl.value = ChanAclWrite.fromProto(acl)
-        _channelAclPassword.value = ChannelAclPassword(
-            acl.channelId,
-            ChannelPasswordAcl.extractPassword(acl),
-        )
+    /** Records an ACL reply; returns the reply + password to send now, if any. */
+    fun onAcl(reply: ChannelAclReply): Pair<ChannelAclReply, String>? {
+        lastAclReply = reply
+        _channelAcl.value = reply.snapshot()
+        _channelAclPassword.value = ChannelAclPassword(reply.channelId, reply.password())
         val pending = pendingPasswordApply
-        if (pending != null && pending.first == acl.channelId) {
+        if (pending != null && pending.first == reply.channelId) {
             pendingPasswordApply = null
-            return acl to pending.second
+            return reply to pending.second
         }
         return null
     }
 
     /**
-     * @return ACL snapshot + password to send now, or the channel id to query,
-     *   or null if nothing to do (empty password with no snapshot).
+     * @return ACL reply + password to send now, or the channel id to query,
+     *   or null if nothing to do (empty password with no reply).
      */
     fun preparePasswordApply(channelId: Int, password: String): PasswordApply? {
         val token = password.trim()
-        val snap = lastAclQuery
-        if (snap != null && snap.channelId == channelId) {
-            return PasswordApply.Send(snap, token)
+        val reply = lastAclReply
+        if (reply != null && reply.channelId == channelId) {
+            return PasswordApply.Send(reply, token)
         }
         if (token.isEmpty()) return null
         pendingPasswordApply = channelId to token
@@ -106,9 +101,9 @@ internal class ChannelAclState {
     }
 
     /** Builds the ACL write that applies [password]; null when unchanged. */
-    fun passwordAclMessage(snap: ACL, password: String): ACL? {
-        val msg = ChannelPasswordAcl.apply(snap, password) ?: return null
-        _channelAclPassword.value = ChannelAclPassword(snap.channelId, password)
+    fun passwordAclMessage(reply: ChannelAclReply, password: String): ChannelAclReply? {
+        val msg = reply.withPassword(password) ?: return null
+        _channelAclPassword.value = ChannelAclPassword(reply.channelId, password)
         return msg
     }
 
@@ -164,7 +159,7 @@ internal class ChannelAclState {
     }
 
     fun clear() {
-        lastAclQuery = null
+        lastAclReply = null
         pendingPasswordApply = null
         pendingCreatePassword = null
         _channelAcl.value = null

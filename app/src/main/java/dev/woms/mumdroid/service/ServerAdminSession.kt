@@ -199,7 +199,7 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
         persistToken: suspend (channelId: Int, token: String) -> Unit,
     ) {
         when (val action = acl.preparePasswordApply(channelId, password)) {
-            is PasswordApply.Send -> sendPasswordAcl(client, action.snap, action.password, persistToken)
+            is PasswordApply.Send -> sendPasswordAcl(client, action.reply, action.password, persistToken)
             is PasswordApply.Query -> {
                 val c = client ?: return
                 scope.launch { c.requestAcl(action.channelId) }
@@ -211,24 +211,24 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
     /** Handles an ACL reply that may carry the password the editor is waiting for. */
     fun handleAcl(
         client: MumbleClient?,
-        acl: dev.woms.mumdroid.core.proto.ACL,
+        reply: dev.woms.mumdroid.core.net.ChannelAclReply,
         persistToken: suspend (channelId: Int, token: String) -> Unit,
     ) {
-        val pending = this.acl.onAcl(acl) ?: return
+        val pending = this.acl.onAcl(reply) ?: return
         sendPasswordAcl(client, pending.first, pending.second, persistToken)
     }
 
     private fun sendPasswordAcl(
         client: MumbleClient?,
-        snap: dev.woms.mumdroid.core.proto.ACL,
+        reply: dev.woms.mumdroid.core.net.ChannelAclReply,
         password: String,
         persistToken: suspend (channelId: Int, token: String) -> Unit,
     ) {
-        val msg = acl.passwordAclMessage(snap, password) ?: return
+        val msg = acl.passwordAclMessage(reply, password) ?: return
         val c = client ?: return
         scope.launch {
             if (password.isNotEmpty()) {
-                persistToken(snap.channelId, password)
+                persistToken(reply.channelId, password)
                 c.setTokens(tokensState.tokens())
             }
             c.sendAcl(msg)
@@ -287,13 +287,13 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
 
     fun handleUserStats(
         client: MumbleClient?,
-        stats: dev.woms.mumdroid.core.proto.UserStats,
+        stats: dev.woms.mumdroid.core.net.UserStatsReply,
         userName: String,
     ) {
         this.stats.onStats(stats, userName)
-        // The raw proto address is what murmur will store in the ban entry;
-        // the formatted snapshot string cannot be matched against it.
-        val address = if (stats.hasAddress()) stats.address.toByteArray() else ByteArray(0)
+        // The raw address is what murmur will store in the ban entry; the
+        // formatted snapshot string cannot be matched against it.
+        val address = stats.addressBytes()
         val kick = timedBans.sendKickWithAddress(stats.session, address)
         if (kick != null) {
             client?.banUser(kick.session, kick.reason, kick.banCertificate, kick.banIp)

@@ -1,6 +1,7 @@
 package dev.woms.mumdroid
 
 import com.google.protobuf.ByteString
+import dev.woms.mumdroid.core.net.UserStatsReply
 import dev.woms.mumdroid.core.proto.UserStats
 import dev.woms.mumdroid.core.proto.Version
 import dev.woms.mumdroid.service.AdminUserStats
@@ -15,6 +16,9 @@ import org.junit.Test
 class AdminUserStatsTest {
 
     private val stats = AdminUserStats()
+
+    /** Wraps a built reply in the core/net type the session layer consumes. */
+    private fun reply(message: UserStats): UserStatsReply = UserStatsReply.fromProto(message)
 
     private fun partial(session: Int, ping: Int = 0) = UserStats.newBuilder()
         .setSession(session)
@@ -39,7 +43,7 @@ class AdminUserStatsTest {
 
     @Test
     fun onStats_publishesTheParsedSnapshot() {
-        stats.onStats(full(7), "alice")
+        stats.onStats(reply(full(7)), "alice")
         val snapshot = stats.userStats.value!!
         assertEquals(7, snapshot.session)
         assertEquals("alice", snapshot.userName)
@@ -48,8 +52,8 @@ class AdminUserStatsTest {
 
     @Test
     fun onStats_mergesAPartialReplyOverTheSameSession() {
-        stats.onStats(full(7), "alice")
-        stats.onStats(partial(7, ping = 33), "alice")
+        stats.onStats(reply(full(7)), "alice")
+        stats.onStats(reply(partial(7, ping = 33)), "alice")
         val snapshot = stats.userStats.value!!
         // Connection details came from the first reply and must survive.
         assertEquals("1.5.0", snapshot.release)
@@ -58,8 +62,8 @@ class AdminUserStatsTest {
 
     @Test
     fun onStats_doesNotMergeAcrossSessions() {
-        stats.onStats(full(7), "alice")
-        val other = stats.onStats(partial(9), "bob")
+        stats.onStats(reply(full(7)), "alice")
+        val other = stats.onStats(reply(partial(9)), "bob")
         assertEquals(9, other.session)
         assertEquals("", other.release)
         assertEquals("bob", other.userName)
@@ -67,7 +71,7 @@ class AdminUserStatsTest {
 
     @Test
     fun clearIfSession_onlyDropsTheMatchingSnapshot() {
-        stats.onStats(full(7), "alice")
+        stats.onStats(reply(full(7)), "alice")
         stats.clearIfSession(9)
         assertEquals(7, stats.userStats.value!!.session)
         stats.clearIfSession(7)
@@ -76,7 +80,7 @@ class AdminUserStatsTest {
 
     @Test
     fun clear_dropsTheSnapshot() {
-        stats.onStats(full(7), "alice")
+        stats.onStats(reply(full(7)), "alice")
         stats.clear()
         assertNull(stats.userStats.value)
     }

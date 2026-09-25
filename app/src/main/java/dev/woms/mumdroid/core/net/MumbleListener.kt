@@ -100,7 +100,7 @@ interface MumbleListener {
     fun onBanList(bans: List<BanEntry>, query: Boolean) {}
 
     /** Server returned the channel ACL / group listing. */
-    fun onAcl(acl: dev.woms.mumdroid.core.proto.ACL) {}
+    fun onAcl(reply: ChannelAclReply) {}
 
     /** Server reply to a QueryUsers request (id<->name mapping). */
     fun onQueryUsers(ids: List<Int>, names: List<String>) {}
@@ -121,7 +121,7 @@ interface MumbleListener {
     fun onPermissionQuery(channelId: Int, permissions: Long, flush: Boolean) {}
 
     /** Server reported connection quality / stats for a user (`UserStats`). */
-    fun onUserStats(stats: dev.woms.mumdroid.core.proto.UserStats) {}
+    fun onUserStats(reply: UserStatsReply) {}
 
     /** Server denied an action. */
     fun onPermissionDenied(deny: PermissionDeny) {

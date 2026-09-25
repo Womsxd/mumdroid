@@ -4,6 +4,7 @@ import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.PermissionDeny
+import dev.woms.mumdroid.core.net.ChannelAclReply
 import dev.woms.mumdroid.core.net.ChannelPasswordAcl
 import dev.woms.mumdroid.core.proto.ACL
 import dev.woms.mumdroid.service.ChannelAclState
@@ -18,6 +19,9 @@ import org.junit.Test
 class ChannelAclStateTest {
 
     private val state = ChannelAclState()
+
+    private fun replyOf(channelId: Int, password: String = ""): ChannelAclReply =
+        ChannelAclReply.fromProto(aclOf(channelId, password))
 
     private fun aclOf(channelId: Int, password: String = ""): ACL {
         val builder = ACL.newBuilder().setChannelId(channelId).setInheritAcls(true)
@@ -69,7 +73,7 @@ class ChannelAclStateTest {
 
     @Test
     fun onAcl_publishesTheSnapshotAndTheParsedPassword() {
-        assertNull(state.onAcl(aclOf(4, "secret")))
+        assertNull(state.onAcl(replyOf(4, "secret")))
         assertEquals(4, state.channelAcl.value!!.channelId)
         assertEquals(ChannelAclPassword(4, "secret"), state.channelAclPassword.value)
     }
@@ -78,26 +82,26 @@ class ChannelAclStateTest {
     fun onAcl_completesAPendingPasswordApply() {
         // The first apply has no snapshot: it must ask for a query first.
         assertEquals(PasswordApply.Query(4), state.preparePasswordApply(4, "secret"))
-        val pending = state.onAcl(aclOf(4))
+        val pending = state.onAcl(replyOf(4))
         assertNotNull(pending)
         assertEquals("secret", pending!!.second)
         // Only once: the reply of a later unrelated query must not resend it.
-        assertNull(state.onAcl(aclOf(4)))
+        assertNull(state.onAcl(replyOf(4)))
     }
 
     @Test
     fun onAcl_ignoresAPendingApplyForAnotherChannel() {
         state.preparePasswordApply(4, "secret")
-        assertNull(state.onAcl(aclOf(9)))
+        assertNull(state.onAcl(replyOf(9)))
     }
 
     @Test
     fun preparePasswordApply_reusesTheCachedSnapshot() {
-        state.onAcl(aclOf(4))
+        state.onAcl(replyOf(4))
         val action = state.preparePasswordApply(4, " secret ")
         assertTrue(action is PasswordApply.Send)
         assertEquals("secret", (action as PasswordApply.Send).password)
-        assertNull(action.snap.aclsList.firstOrNull())
+        assertNull(action.reply.message.aclsList.firstOrNull())
     }
 
     @Test
@@ -107,16 +111,16 @@ class ChannelAclStateTest {
 
     @Test
     fun passwordAclMessage_returnsNullWhenThePasswordIsUnchanged() {
-        val snap = aclOf(4, "secret")
+        val snap = replyOf(4, "secret")
         assertNull(state.passwordAclMessage(snap, "secret"))
     }
 
     @Test
     fun passwordAclMessage_updatesTheParsedPasswordFlow() {
-        val snap = aclOf(4, "old")
+        val snap = replyOf(4, "old")
         val msg = state.passwordAclMessage(snap, "new")
         assertNotNull(msg)
-        assertEquals("new", ChannelPasswordAcl.extractPassword(msg!!))
+        assertEquals("new", msg!!.password())
         assertEquals(ChannelAclPassword(4, "new"), state.channelAclPassword.value)
     }
 
@@ -198,7 +202,7 @@ class ChannelAclStateTest {
 
     @Test
     fun clear_resetsEveryFlowAndPendingRequest() {
-        state.onAcl(aclOf(4, "secret"))
+        state.onAcl(replyOf(4, "secret"))
         state.onQueryUsers(listOf(1), listOf("Alice"))
         state.notePasswordJoin(4)
         state.clear()

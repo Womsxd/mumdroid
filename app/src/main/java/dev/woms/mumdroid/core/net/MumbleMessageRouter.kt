@@ -179,7 +179,7 @@ internal class MumbleMessageRouter(
                 }, bl.query)
             }
             MessageType.ACL -> {
-                listener.onAcl(ACL.parseFrom(body))
+                listener.onAcl(ChannelAclReply.fromProto(ACL.parseFrom(body)))
             }
             MessageType.QUERY_USERS -> {
                 // Server reply mapping user ids to names (and vice versa).
@@ -218,7 +218,7 @@ internal class MumbleMessageRouter(
                 )
             }
             MessageType.USER_STATS -> {
-                listener.onUserStats(UserStats.parseFrom(body))
+                listener.onUserStats(UserStatsReply.fromProto(UserStats.parseFrom(body)))
             }
             MessageType.REQUEST_BLOB -> {
                 val rb = RequestBlob.parseFrom(body)

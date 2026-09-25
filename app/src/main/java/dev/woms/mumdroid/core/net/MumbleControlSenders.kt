@@ -89,6 +89,9 @@ internal interface MumbleControlSender {
     /** Desktop `ACLEditor::accept` from a structured snapshot. */
     fun sendAcl(snapshot: ChanAclSnapshot)
 
+    /** Desktop `ACLEditor::accept` on a cached server reply (password write). */
+    fun sendAcl(reply: ChannelAclReply)
+
     /** Desktop `ACLEditor::id` / name refresh. */
     fun queryUsers(ids: List<Int> = emptyList(), names: List<String> = emptyList())
 
@@ -350,6 +353,11 @@ internal class MumbleControlSenders : MumbleControlSender {
     /** Desktop `ACLEditor::accept` from a structured snapshot. */
     override fun sendAcl(snapshot: ChanAclSnapshot) {
         sendAcl(ChanAclWrite.toWriteMessage(snapshot))
+    }
+
+    /** Desktop `ACLEditor::accept` on a cached server reply (password write). */
+    override fun sendAcl(reply: ChannelAclReply) {
+        sendAcl(reply.message)
     }
 
     /**
