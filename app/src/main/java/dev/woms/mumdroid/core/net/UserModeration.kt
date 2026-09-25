@@ -81,6 +81,25 @@ object UserModeration {
             .setPrioritySpeaker(enabled)
             .build()
 
+    /** Server deafen for another session. */
+    fun remoteDeafen(session: Int, deafened: Boolean): UserState =
+        UserState.newBuilder()
+            .setSession(session)
+            .setDeaf(deafened)
+            .build()
+
+    /**
+     * The local user's own mute/deafen echo (`self_mute` / `self_deaf`), sent
+     * alongside the local roster update so the server and the other clients
+     * agree with what the UI already shows.
+     */
+    fun selfMuteDeafen(session: Int, muted: Boolean, deafened: Boolean): UserState =
+        UserState.newBuilder()
+            .setSession(session)
+            .setSelfMute(muted)
+            .setSelfDeaf(deafened)
+            .build()
+
     /** Desktop `ServerHandler::joinChannel` for any session. */
     fun moveToChannel(session: Int, channelId: Int): UserState =
         UserState.newBuilder()

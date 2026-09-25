@@ -161,9 +161,7 @@ internal class UserModerationCommands(
         scope.launch {
             c.sendMessage(
                 MessageType.USER_STATE,
-                dev.woms.mumdroid.core.proto.UserState.newBuilder()
-                    .setSession(session)
-                    .setDeaf(deafened).build(),
+                UserModeration.remoteDeafen(session, deafened),
             )
         }
     }
@@ -230,11 +228,7 @@ internal class VoiceCommands(
         scope.launch {
             c.sendMessage(
                 MessageType.USER_STATE,
-                dev.woms.mumdroid.core.proto.UserState.newBuilder()
-                    .setSession(c.currentSession)
-                    .setSelfMute(muted)
-                    .setSelfDeaf(deafened)
-                    .build(),
+                UserModeration.selfMuteDeafen(c.currentSession, muted, deafened),
             )
         }
     }
