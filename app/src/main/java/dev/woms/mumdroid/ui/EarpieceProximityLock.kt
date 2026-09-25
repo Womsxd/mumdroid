@@ -254,6 +254,22 @@ internal class EarpieceProximityLock(private val activity: Activity) : SensorEve
         scrim.hide()
     }
 
+    /**
+     * Takes the system screen-off for as long as the sensor stays covered.
+     *
+     * The acquire is deliberately unbounded — hence the `WakelockTimeout`
+     * suppression: `PROXIMITY_SCREEN_OFF_WAKE_LOCK` is a *display* level whose
+     * hold time is by definition the time the phone is at the ear (a whole call,
+     * potentially), so a timeout would light the panel back up mid-call, which is
+     * exactly what this feature exists to prevent. That lint targets partial/CPU
+     * wake locks, where a forgotten release drains the battery. Releasing is
+     * [releaseWakeLock]'s job; it is guarded by `isHeld`, and the lock is not
+     * reference counted, so acquire/release stay paired across every state
+     * transition.
+     *
+     * @return false when the level is unsupported or the system rejected it; the
+     *         caller then falls back to dimming the screen itself.
+     */
     @SuppressLint("WakelockTimeout")
     private fun acquireWakeLock(): Boolean {
         if (!powerManager.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) {
