@@ -3,12 +3,8 @@
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
@@ -16,7 +12,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.AppSettings
-import kotlin.math.roundToInt
 
 // ---- Network ----
 
@@ -87,18 +82,11 @@ private fun ServerPingIntervalSlider(seconds: Int, onSecondsChange: (Int) -> Uni
     val clamped = AppSettings.clampServerPingIntervalSeconds(seconds)
     // Discrete values 5,10,…,60: 12 stops → 10 steps between the ends.
     val steps = ((max - min) / step) - 1
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(
-            pluralStringResource(R.plurals.server_ping_interval, clamped, clamped),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Slider(
-            value = clamped.toFloat(),
-            onValueChange = {
-                onSecondsChange(AppSettings.clampServerPingIntervalSeconds(it.roundToInt()))
-            },
-            valueRange = min.toFloat()..max.toFloat(),
-            steps = steps,
-        )
-    }
+    IntSlider(
+        label = pluralStringResource(R.plurals.server_ping_interval, clamped, clamped),
+        value = clamped,
+        valueRange = min.toFloat()..max.toFloat(),
+        onValueChange = { onSecondsChange(AppSettings.clampServerPingIntervalSeconds(it)) },
+        steps = steps,
+    )
 }

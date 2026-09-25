@@ -16,39 +16,92 @@ import dev.woms.mumdroid.core.audio.VoiceBandwidth
 import kotlin.math.roundToInt
 
 // ---- volume / quality sliders ----
+//
+// Thin wrappers over IntSlider: each names its label, range and step count, so
+// the screen keeps calling them by setting name.
 
 @Composable
 internal fun InputVolumeSlider(volume: Int, onVolumeChange: (Int) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(
-            stringResource(R.string.microphone_volume, volume),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Slider(
-            value = volume.toFloat(),
-            onValueChange = { onVolumeChange(it.roundToInt()) },
-            valueRange = 0f..200f,
-            steps = 39,
-        )
-    }
+    IntSlider(
+        label = stringResource(R.string.microphone_volume, volume),
+        value = volume,
+        valueRange = 0f..200f,
+        onValueChange = onVolumeChange,
+        steps = 39,
+    )
 }
 
 @Composable
 internal fun OutputVolumeSlider(volume: Int, onVolumeChange: (Int) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(
-            stringResource(R.string.incoming_volume, volume),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Slider(
-            value = volume.toFloat(),
-            onValueChange = { onVolumeChange(it.roundToInt()) },
-            valueRange = 0f..200f,
-            steps = 39,
-        )
-    }
+    IntSlider(
+        label = stringResource(R.string.incoming_volume, volume),
+        value = volume,
+        valueRange = 0f..200f,
+        onValueChange = onVolumeChange,
+        steps = 39,
+    )
 }
 
+@Composable
+internal fun AgcMaxGainSlider(maxGainDb: Int, onMaxGainChange: (Int) -> Unit) {
+    IntSlider(
+        label = stringResource(R.string.agc_max_gain, maxGainDb),
+        value = maxGainDb,
+        valueRange = 5f..60f,
+        onValueChange = onMaxGainChange,
+        steps = 10,
+    )
+}
+
+@Composable
+internal fun NoiseLevelSlider(level: Int, onLevelChange: (Int) -> Unit) {
+    IntSlider(
+        label = stringResource(R.string.suppression_level, level),
+        value = level,
+        valueRange = 0f..60f,
+        onValueChange = onLevelChange,
+        steps = 11,
+    )
+}
+
+@Composable
+internal fun VadSpeechThresholdSlider(threshold: Int, onThresholdChange: (Int) -> Unit) {
+    IntSlider(
+        label = stringResource(R.string.speech_threshold, threshold),
+        value = threshold,
+        valueRange = 0f..100f,
+        onValueChange = onThresholdChange,
+        steps = 19,
+    )
+}
+
+@Composable
+internal fun VadSilenceThresholdSlider(threshold: Int, max: Int, onThresholdChange: (Int) -> Unit) {
+    IntSlider(
+        label = stringResource(R.string.silence_threshold, threshold),
+        value = threshold,
+        valueRange = 0f..max.toFloat(),
+        onValueChange = onThresholdChange,
+        steps = 19,
+    )
+}
+
+@Composable
+internal fun VadHoldSlider(holdMs: Int, onHoldChange: (Int) -> Unit) {
+    IntSlider(
+        label = stringResource(R.string.voice_hold, holdMs),
+        value = holdMs,
+        valueRange = 0f..500f,
+        onValueChange = onHoldChange,
+        steps = 24,
+    )
+}
+
+/**
+ * The transmit bitrate. Left hand-written rather than built on [IntSlider]: its
+ * label sits above a second line reporting the bandwidth the bitrate costs,
+ * which is derived from the codec settings and has a style of its own.
+ */
 @Composable
 internal fun TransmitQualitySlider(
     quality: Int,
@@ -86,86 +139,6 @@ internal fun TransmitQualitySlider(
             ),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-internal fun AgcMaxGainSlider(maxGainDb: Int, onMaxGainChange: (Int) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(
-            stringResource(R.string.agc_max_gain, maxGainDb),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Slider(
-            value = maxGainDb.toFloat(),
-            onValueChange = { onMaxGainChange(it.roundToInt()) },
-            valueRange = 5f..60f,
-            steps = 10,
-        )
-    }
-}
-
-@Composable
-internal fun NoiseLevelSlider(level: Int, onLevelChange: (Int) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(
-            stringResource(R.string.suppression_level, level),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Slider(
-            value = level.toFloat(),
-            onValueChange = { onLevelChange(it.roundToInt()) },
-            valueRange = 0f..60f,
-            steps = 11,
-        )
-    }
-}
-
-@Composable
-internal fun VadSpeechThresholdSlider(threshold: Int, onThresholdChange: (Int) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(
-            stringResource(R.string.speech_threshold, threshold),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Slider(
-            value = threshold.toFloat(),
-            onValueChange = { onThresholdChange(it.roundToInt()) },
-            valueRange = 0f..100f,
-            steps = 19,
-        )
-    }
-}
-
-@Composable
-internal fun VadSilenceThresholdSlider(threshold: Int, max: Int, onThresholdChange: (Int) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(
-            stringResource(R.string.silence_threshold, threshold),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Slider(
-            value = threshold.toFloat(),
-            onValueChange = { onThresholdChange(it.roundToInt()) },
-            valueRange = 0f..max.toFloat(),
-            steps = 19,
-        )
-    }
-}
-
-@Composable
-internal fun VadHoldSlider(holdMs: Int, onHoldChange: (Int) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(
-            stringResource(R.string.voice_hold, holdMs),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Slider(
-            value = holdMs.toFloat(),
-            onValueChange = { onHoldChange(it.roundToInt()) },
-            valueRange = 0f..500f,
-            steps = 24,
         )
     }
 }
