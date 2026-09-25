@@ -147,8 +147,8 @@ object ChanAclWrite {
             group = if (acl.hasUserId()) "" else acl.group,
             applyHere = acl.applyHere,
             applySubs = acl.applySubs,
-            grant = ChanACL.fromProtoUInt32(acl.grant),
-            deny = ChanACL.fromProtoUInt32(acl.deny),
+            grant = ChanAclCodec.fromProtoUInt32(acl.grant),
+            deny = ChanAclCodec.fromProtoUInt32(acl.deny),
         )
 
     private fun groupFromProto(group: ACL.ChanGroup): ChanAclGroup =
@@ -167,8 +167,8 @@ object ChanAclWrite {
             .setApplyHere(acl.applyHere)
             .setApplySubs(acl.applySubs)
             .setInherited(false)
-            .setGrant(ChanACL.toProtoUInt32(acl.grant))
-            .setDeny(ChanACL.toProtoUInt32(acl.deny))
+            .setGrant(ChanAclCodec.toProtoUInt32(acl.grant))
+            .setDeny(ChanAclCodec.toProtoUInt32(acl.deny))
         if (acl.userId >= ChanACL.UserId.SUPERUSER) {
             builder.setUserId(acl.userId)
         } else {

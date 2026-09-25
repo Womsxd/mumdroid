@@ -1,6 +1,5 @@
 package dev.woms.mumdroid.core.net
 
-import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.PermissionDeny
 import dev.woms.mumdroid.core.proto.PermissionDenied
 
@@ -36,6 +35,6 @@ object PermissionDenyCodec {
             },
             reason = msg.reason,
             channelId = msg.channelId,
-            permission = ChanACL.fromProtoUInt32(msg.permission),
+            permission = ChanAclCodec.fromProtoUInt32(msg.permission),
         )
 }

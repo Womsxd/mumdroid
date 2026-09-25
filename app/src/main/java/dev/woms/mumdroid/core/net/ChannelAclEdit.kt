@@ -486,7 +486,7 @@ object ChannelAclEdit {
     }
 
     private fun setBit(mask: Long, bit: Int, on: Boolean): Long {
-        val value = ChanACL.fromProtoUInt32(bit)
+        val value = bit.toLong()
         return if (on) mask or value else mask and value.inv()
     }
 

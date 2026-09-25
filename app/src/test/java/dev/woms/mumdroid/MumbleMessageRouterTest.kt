@@ -2,9 +2,9 @@ package dev.woms.mumdroid
 
 import com.google.protobuf.ByteString
 import dev.woms.mumdroid.core.model.BanEntry
-import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.ChannelUpdate
 import dev.woms.mumdroid.core.model.UserUpdate
+import dev.woms.mumdroid.core.net.ChanAclCodec
 import dev.woms.mumdroid.core.net.MessageType
 import dev.woms.mumdroid.core.net.MumbleListener
 import dev.woms.mumdroid.core.net.MumbleMessageRouter
@@ -157,7 +157,7 @@ class MumbleMessageRouterTest {
 
         assertEquals(listOf(7), listener.connected)
         assertEquals(
-            listOf(Triple(0, ChanACL.fromWire(0x1), false)),
+            listOf(Triple(0, ChanAclCodec.fromWire(0x1), false)),
             listener.permissionQueries,
         )
     }

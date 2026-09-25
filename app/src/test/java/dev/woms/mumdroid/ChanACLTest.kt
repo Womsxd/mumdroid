@@ -1,6 +1,7 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.model.ChanACL
+import dev.woms.mumdroid.core.net.ChanAclCodec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -247,14 +248,14 @@ class ChanACLTest {
     }
 
     @Test
-    fun fromWire_matchesOfficialUnsignedIntCast() {
-        assertEquals(ChanACL.WRITE.toLong(), ChanACL.fromWire(ChanACL.WRITE.toLong()))
-        assertEquals(0L, ChanACL.fromWire(1L shl 32))
-        assertEquals(1L, ChanACL.fromWire((1L shl 32) or 1L))
-        assertFalse(ChanACL.has(ChanACL.fromWire(1L shl 32), 1 shl 31))
+    fun codec_matchesOfficialUnsignedIntCast() {
+        assertEquals(ChanACL.WRITE.toLong(), ChanAclCodec.fromWire(ChanACL.WRITE.toLong()))
+        assertEquals(0L, ChanAclCodec.fromWire(1L shl 32))
+        assertEquals(1L, ChanAclCodec.fromWire((1L shl 32) or 1L))
+        assertFalse(ChanACL.has(ChanAclCodec.fromWire(1L shl 32), 1 shl 31))
         val bit31 = Integer.MIN_VALUE
-        assertEquals(0x80000000L, ChanACL.fromProtoUInt32(bit31))
-        assertTrue(ChanACL.has(ChanACL.fromProtoUInt32(bit31), bit31))
-        assertEquals(bit31, ChanACL.toProtoUInt32(0x80000000L))
+        assertEquals(0x80000000L, ChanAclCodec.fromProtoUInt32(bit31))
+        assertTrue(ChanACL.has(ChanAclCodec.fromProtoUInt32(bit31), bit31))
+        assertEquals(bit31, ChanAclCodec.toProtoUInt32(0x80000000L))
     }
 }

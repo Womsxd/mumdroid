@@ -79,13 +79,6 @@ object ChanACL {
             listOf(KICK, BAN, REGISTER, SELF_REGISTER, RESET_USER_CONTENT)
 
     /**
-     * Official `ChanACL::Permissions` / `unsigned int` width. `ServerSync.permissions`
-     * is proto `uint64` only because of a historical oversight; the desktop
-     * client does `static_cast<unsigned int>(msg.permissions())`.
-     */
-    const val UINT32_MASK = 0xFFFFFFFFL
-
-    /**
      * Official `User::iId` sentinels: `-1` unregistered, `0` SuperUser.
      * An ACL with [ANY] applies to a [Group] name instead of a user.
      */
@@ -146,23 +139,8 @@ object ChanACL {
         const val USER_LISTENER_LIMIT = 13
     }
 
-    /**
-     * Desktop `msgServerSync`: keep the low 32 bits of the `uint64` field
-     * (official `unsigned int` cast). Bits 32+ are dropped.
-     */
-    fun fromWire(bits: Long): Long = bits and UINT32_MASK
-
-    /**
-     * Widens a proto `uint32` permission field. Java protobuf exposes uint32
-     * as signed [Int]; bit 31 would otherwise look negative.
-     */
-    fun fromProtoUInt32(bits: Int): Long = bits.toLong() and UINT32_MASK
-
-    /** Narrows to proto `uint32` / official `unsigned int`. */
-    fun toProtoUInt32(bits: Long): Int = (bits and UINT32_MASK).toInt()
-
     fun has(permissions: Long, bit: Int): Boolean =
-        permissions and fromProtoUInt32(bit) != 0L
+        permissions and bit.toLong() != 0L
 
     fun canMuteDeafen(permissions: Long): Boolean =
         has(permissions, MUTE_DEAFEN)
