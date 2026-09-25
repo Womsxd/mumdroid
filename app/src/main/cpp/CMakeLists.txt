@@ -101,6 +101,12 @@ add_library(speexdsp SHARED
 # speex/speexdsp_config_types.h that upstream normally creates via configure;
 # the include/speex subdirectory must be on the path because speexdsp_types.h
 # includes "speexdsp_config_types.h" without a prefix.
+#
+# Keep that dir to files upstream is missing (config.h) or generates
+# (speexdsp_config_types.h) — do NOT copy upstream headers into it. A quoted
+# include like mdf.c's "pseudofloat.h" is resolved next to the including file
+# first, so upstream's own copy under ${SPEEXDSP_DIR}/libspeexdsp always wins
+# and a duplicate here would be a dead file that silently drifts.
 target_include_directories(speexdsp PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/speexdsp-config/include/speex
         ${CMAKE_CURRENT_SOURCE_DIR}/speexdsp-config/libspeexdsp
