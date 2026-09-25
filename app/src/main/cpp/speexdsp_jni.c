@@ -263,8 +263,10 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeRun(
     }
 
     jsize len = (*env)->GetArrayLength(env, frame);
-    /* Reject any length but the state's own: a shorter array would make
-     * speex_preprocess_run() read and write past the Java array's end. */
+    /* Reject any length but the state's own. A shorter array would make
+     * speex_preprocess_run() read and write past the Java array's end; a longer
+     * one is memory-safe but rejected too, so this boundary is as strict as
+     * SpeexDspProcessor.run()'s `samples.size == frameSize` check. */
     if (len != h->frame_size) {
         return -1;
     }

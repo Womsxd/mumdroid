@@ -25,12 +25,14 @@ internal class UdpVoiceTransport(
     companion object {
         private const val TAG = "UdpVoiceManager"
 
-        /** Matches the official `MAX_UDP_PACKET_SIZE` (murmur/MumbleProtocol.h):
-         *  1024. A larger bound would let a spoofed oversized datagram be read
-         *  in full and pushed through OCB2, which costs one AES block op per
-         *  16-byte block (256 AES for 4096 B vs. 64 for 1024 B). Aligning with
-         *  the server also keeps behaviour identical: murmur drops any packet
-         *  with `len > MAX_UDP_PACKET_SIZE`. */
+        /** The receive buffer size, matching the official `MAX_UDP_PACKET_SIZE`
+         *  (murmur/MumbleProtocol.h): 1024. `DatagramSocket.receive` truncates a
+         *  datagram to this buffer, so an oversized one still costs only 1024
+         *  bytes of OCB2 work — one AES block op per 16-byte block, 64 for
+         *  1024 B rather than 256 for 4096 B. Note this *truncates* instead of
+         *  dropping: murmur discards a datagram with
+         *  `len > MAX_UDP_PACKET_SIZE` outright, whereas here the 1024-byte
+         *  prefix still reaches OCB2 and then fails to authenticate. */
         internal const val MAX_PACKET = 1024
         private const val RECEIVE_POLL_MS = 250
 

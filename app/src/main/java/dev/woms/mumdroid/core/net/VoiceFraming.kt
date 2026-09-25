@@ -149,19 +149,22 @@ class VoiceFraming(
     private fun decodeLegacy(plain: ByteArray): Decoded {
         // Extended legacy ping replies from the server are header-less 24-byte
         // blocks: [4B server version (BE)][8B echoed timestamp][4B users]
-        // [4B max users][4B max bandwidth]. This check MUST come before the
-        // protobuf-ping-header check below: the first byte is the most
-        // significant byte of the BE server version, and every major=1
-        // server (i.e. virtually all of them) carries 0x01 there — treating
-        // the header check as first-class would swallow the extended ping as
-        // a bogus protobuf ping (protobuf parsing is lenient, so it can
-        // "succeed" with a garbage timestamp). The official UDPDecoder
-        // (MumbleProtocol.cpp) checks the header first and returns the
-        // protobuf result unconditionally, so it drops these extended pings
-        // whenever the 23-byte tail happens to parse; routing by length here
-        // is strictly more robust, and real protobuf pings never reach 24
-        // bytes (a serialised Ping body tops out around 14 bytes), so the
-        // size check is unambiguous. An undecodable 24-byte block is dropped.
+        // [4B max users][4B max bandwidth]. That length is what identifies the
+        // format: the version is `major<<16 | minor<<8 | patch` (see
+        // [MumbleVersion.formatLegacyVersion]), so its leading byte is the high
+        // byte of the major — 0x00 for every real server (majors are 1.x), never
+        // the 0x01 the protobuf-header branch below matches; a 1.x version's
+        // 0x01 sits in the *second* byte. The two checks therefore cannot
+        // collide on a real legacy reply, and the size check leads because 24
+        // bytes is the only thing that identifies a header-less block.
+        //
+        // Known narrow limitation, matching [ServerPingCodec.decode], which
+        // routes the same way: a protobuf ping reply that happened to be exactly
+        // 24 bytes would be taken for a legacy one and yield a garbage
+        // timestamp. Replies carrying the extended fields run ~19-40 bytes
+        // (timestamp and server_version_v2 are uint64 varints, so no small
+        // ceiling applies), which makes 24 reachable. An undecodable 24-byte
+        // block is dropped.
         if (plain.size == 24) {
             val ts = ServerPingCodec.decode(plain)?.timestamp ?: return Decoded.Unknown
             return Decoded.Ping(ts)

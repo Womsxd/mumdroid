@@ -299,11 +299,11 @@ class UdpVoiceManager(
 
     private fun handlePacket(data: ByteArray, length: Int) {
         if (length < 5) return
-        // Drop anything above the official `MAX_UDP_PACKET_SIZE` before it can
-        // be fed to OCB2 (murmur does the same `len > MAX_UDP_PACKET_SIZE ->
-        // continue`). Truncating at the buffer bound would otherwise still run
-        // AES over a partial forged datagram; an explicit cap keeps the worst
-        // case identical to the server's and bounds the per-packet decrypt work.
+        // Belt-and-braces cap that cannot fire today: the only caller is the
+        // transport's receive loop, whose buffer is already MAX_PACKET, so
+        // `length` arrives <= MAX_PACKET (the datagram is truncated there
+        // first). Kept explicit so a future caller handing over a longer buffer
+        // cannot push an oversized datagram through OCB2.
         if (length > MAX_PACKET) return
         // The datagram is `[4-byte OCB2 overhead][ciphertext]`; the framing
         // header byte is inside the encrypted payload, so decrypt the whole
