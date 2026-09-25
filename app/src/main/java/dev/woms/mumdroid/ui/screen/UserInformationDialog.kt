@@ -29,6 +29,10 @@ import dev.woms.mumdroid.ui.screen.settings.CertificateFormatting
 /**
  * Desktop `UserInformation` dialog: connection, ping, UDP packet stats.
  *
+ * The body is read top to bottom in four blocks, one composable each, so the
+ * dialog itself only owns the shell: the loading state, the scroll container
+ * and the dismiss button.
+ *
  * @param identityHash the server's own certificate hash for this user
  *   (`UserState.hash`, i.e. murmur's SHA-1 — see [CertificateFormatting.prettifyDigest]).
  *   This is the value that matches `/user`, the admin panel and the ban list,
@@ -46,18 +50,7 @@ fun UserInformationDialog(
         title = { Text(userName.ifEmpty { stringResource(R.string.user_information) }) },
         text = {
             if (info == null) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    CircularProgressIndicator()
-                    Text(
-                        stringResource(R.string.user_info_loading),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
-                }
+                LoadingIndicator()
             } else {
                 SelectionContainer {
                     Column(
@@ -67,121 +60,10 @@ fun UserInformationDialog(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        if (info.hasConnectionDetails) {
-                            SectionTitle(stringResource(R.string.user_info_connection))
-                            if (info.versionDisplay.isNotEmpty()) {
-                                InfoRow(stringResource(R.string.user_info_version), info.versionDisplay)
-                            }
-                            if (info.truncatedProtocol) {
-                                Text(
-                                    stringResource(R.string.user_info_version_truncated),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(bottom = 4.dp),
-                                )
-                            }
-                            if (info.osDisplay.isNotEmpty()) {
-                                InfoRow(stringResource(R.string.info_os), info.osDisplay)
-                            }
-                            if (info.certificate.isNotEmpty() || info.certificateFingerprint.isNotEmpty()) {
-                                InfoRow(
-                                    stringResource(R.string.user_info_certificate),
-                                    info.certificate.ifEmpty { info.certificateFingerprint },
-                                    emphasize = info.strongCertificate,
-                                )
-                                // The server's identity hash is SHA-1 (murmur's
-                                // `UserState.hash`); show it first so it can be
-                                // matched against /user, the admin panel and bans.
-                                if (identityHash.isNotEmpty()) {
-                                    InfoRow(
-                                        stringResource(R.string.cert_fingerprint_sha1),
-                                        CertificateFormatting.prettifyDigest(identityHash),
-                                    )
-                                }
-                                if (info.certificate.isNotEmpty() && info.certificateFingerprint.isNotEmpty()) {
-                                    InfoRow(
-                                        stringResource(R.string.cert_fingerprint),
-                                        info.certificateFingerprint,
-                                    )
-                                }
-                            }
-                            if (info.address.isNotEmpty()) {
-                                InfoRow(stringResource(R.string.user_info_address), info.address)
-                            }
-                            InfoRow(
-                                stringResource(R.string.user_info_opus),
-                                when (info.opus) {
-                                    true -> stringResource(R.string.user_info_opus_supported)
-                                    false -> stringResource(R.string.user_info_opus_unsupported)
-                                    null -> stringResource(R.string.user_info_opus_unknown)
-                                },
-                            )
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                        }
-
-                        SectionTitle(stringResource(R.string.user_info_ping))
-                        PingHeader()
-                        PingRow(
-                            stringResource(R.string.info_tcp_control),
-                            info.tcpPackets,
-                            UserConnectionInfo.formatPing(info.tcpPingAvg),
-                            UserConnectionInfo.formatPingDeviation(info.tcpPingVar),
-                        )
-                        PingRow(
-                            stringResource(R.string.info_udp_voice),
-                            info.udpPackets,
-                            UserConnectionInfo.formatPing(info.udpPingAvg),
-                            UserConnectionInfo.formatPingDeviation(info.udpPingVar),
-                        )
-
-                        if (info.hasUdpStats) {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                            SectionTitle(stringResource(R.string.user_info_udp_stats))
-                            if (info.fromClient != null || info.fromServer != null) {
-                                UdpStatsBlock(
-                                    fromClient = info.fromClient,
-                                    fromServer = info.fromServer,
-                                )
-                            }
-                            if (info.rollingFromClient != null || info.rollingFromServer != null) {
-                                Text(
-                                    rollingWindowLabel(info.rollingWindowSecs),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-                                )
-                                UdpStatsBlock(
-                                    fromClient = info.rollingFromClient,
-                                    fromServer = info.rollingFromServer,
-                                )
-                            }
-                        }
-
-                        if (info.onlineSecs != null || info.bandwidthBytesPerSec != null) {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                            SectionTitle(stringResource(R.string.user_info_session))
-                            if (info.onlineSecs != null) {
-                                val online = formatUserDuration(info.onlineSecs)
-                                InfoRow(
-                                    stringResource(R.string.user_info_time),
-                                    if (info.idleSecs != null) {
-                                        stringResource(
-                                            R.string.user_info_online_idle,
-                                            online,
-                                            formatUserDuration(info.idleSecs),
-                                        )
-                                    } else {
-                                        stringResource(R.string.user_info_online, online)
-                                    },
-                                )
-                            }
-                            if (info.bandwidthBytesPerSec != null) {
-                                InfoRow(
-                                    stringResource(R.string.user_info_bandwidth),
-                                    UserConnectionInfo.formatBandwidth(info.bandwidthBytesPerSec),
-                                )
-                            }
-                        }
+                        ConnectionSection(info, identityHash)
+                        PingSection(info)
+                        UdpStatsSection(info)
+                        SessionSection(info)
                     }
                 }
             }
@@ -192,6 +74,159 @@ fun UserInformationDialog(
             }
         },
     )
+}
+
+/** Shown until the server's reply lands. */
+@Composable
+private fun LoadingIndicator() {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator()
+        Text(
+            stringResource(R.string.user_info_loading),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+    }
+}
+
+/**
+ * Where the user connects from and what they run. Absent entirely when the
+ * server sent no connection details, which is also why it carries the trailing
+ * divider: it is the only block that may not be followed by its own.
+ */
+@Composable
+private fun ConnectionSection(info: UserConnectionInfo, identityHash: String) {
+    if (!info.hasConnectionDetails) return
+
+    SectionTitle(stringResource(R.string.user_info_connection))
+    if (info.versionDisplay.isNotEmpty()) {
+        InfoRow(stringResource(R.string.user_info_version), info.versionDisplay)
+    }
+    if (info.truncatedProtocol) {
+        Text(
+            stringResource(R.string.user_info_version_truncated),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+    }
+    if (info.osDisplay.isNotEmpty()) {
+        InfoRow(stringResource(R.string.info_os), info.osDisplay)
+    }
+    if (info.certificate.isNotEmpty() || info.certificateFingerprint.isNotEmpty()) {
+        InfoRow(
+            stringResource(R.string.user_info_certificate),
+            info.certificate.ifEmpty { info.certificateFingerprint },
+            emphasize = info.strongCertificate,
+        )
+        // The server's identity hash is SHA-1 (murmur's
+        // `UserState.hash`); show it first so it can be
+        // matched against /user, the admin panel and bans.
+        if (identityHash.isNotEmpty()) {
+            InfoRow(
+                stringResource(R.string.cert_fingerprint_sha1),
+                CertificateFormatting.prettifyDigest(identityHash),
+            )
+        }
+        if (info.certificate.isNotEmpty() && info.certificateFingerprint.isNotEmpty()) {
+            InfoRow(
+                stringResource(R.string.cert_fingerprint),
+                info.certificateFingerprint,
+            )
+        }
+    }
+    if (info.address.isNotEmpty()) {
+        InfoRow(stringResource(R.string.user_info_address), info.address)
+    }
+    InfoRow(
+        stringResource(R.string.user_info_opus),
+        when (info.opus) {
+            true -> stringResource(R.string.user_info_opus_supported)
+            false -> stringResource(R.string.user_info_opus_unsupported)
+            null -> stringResource(R.string.user_info_opus_unknown)
+        },
+    )
+    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+}
+
+/** Control and voice ping, as the desktop client reports them. */
+@Composable
+private fun PingSection(info: UserConnectionInfo) {
+    SectionTitle(stringResource(R.string.user_info_ping))
+    PingHeader()
+    PingRow(
+        stringResource(R.string.info_tcp_control),
+        info.tcpPackets,
+        UserConnectionInfo.formatPing(info.tcpPingAvg),
+        UserConnectionInfo.formatPingDeviation(info.tcpPingVar),
+    )
+    PingRow(
+        stringResource(R.string.info_udp_voice),
+        info.udpPackets,
+        UserConnectionInfo.formatPing(info.udpPingAvg),
+        UserConnectionInfo.formatPingDeviation(info.udpPingVar),
+    )
+}
+
+/** The current and rolling UDP packet statistics, when the server sends them. */
+@Composable
+private fun UdpStatsSection(info: UserConnectionInfo) {
+    if (!info.hasUdpStats) return
+
+    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+    SectionTitle(stringResource(R.string.user_info_udp_stats))
+    if (info.fromClient != null || info.fromServer != null) {
+        UdpStatsBlock(
+            fromClient = info.fromClient,
+            fromServer = info.fromServer,
+        )
+    }
+    if (info.rollingFromClient != null || info.rollingFromServer != null) {
+        Text(
+            rollingWindowLabel(info.rollingWindowSecs),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+        )
+        UdpStatsBlock(
+            fromClient = info.rollingFromClient,
+            fromServer = info.rollingFromServer,
+        )
+    }
+}
+
+/** How long the user has been on the server and what they are costing it. */
+@Composable
+private fun SessionSection(info: UserConnectionInfo) {
+    if (info.onlineSecs == null && info.bandwidthBytesPerSec == null) return
+
+    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+    SectionTitle(stringResource(R.string.user_info_session))
+    if (info.onlineSecs != null) {
+        val online = formatUserDuration(info.onlineSecs)
+        InfoRow(
+            stringResource(R.string.user_info_time),
+            if (info.idleSecs != null) {
+                stringResource(
+                    R.string.user_info_online_idle,
+                    online,
+                    formatUserDuration(info.idleSecs),
+                )
+            } else {
+                stringResource(R.string.user_info_online, online)
+            },
+        )
+    }
+    if (info.bandwidthBytesPerSec != null) {
+        InfoRow(
+            stringResource(R.string.user_info_bandwidth),
+            UserConnectionInfo.formatBandwidth(info.bandwidthBytesPerSec),
+        )
+    }
 }
 
 @Composable

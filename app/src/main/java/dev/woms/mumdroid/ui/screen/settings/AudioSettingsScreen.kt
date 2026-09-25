@@ -1,5 +1,10 @@
 ﻿package dev.woms.mumdroid.ui.screen.settings
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,8 +25,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.audio.MicLevelMeter
 import dev.woms.mumdroid.core.audio.VoiceBandwidth
@@ -33,44 +40,54 @@ import dev.woms.mumdroid.core.model.VoiceMode
 
 // ---- Audio & Voice (merged) ----
 
+/**
+ * The audio and voice settings, in the desktop client's grouping: what is
+ * transmitted, what is done to the microphone, the input codec, the output, and
+ * finally the duplex behaviour.
+ *
+ * The microphone permission and the live level it feeds are the one piece of
+ * state the sections share, so it stays here and is handed down — the VAD
+ * section needs a level whenever VAD is on, while continuous/PTT modes only get
+ * one if the user asks for it.
+ */
 @Composable
 internal fun AudioSettingsScreen(
     settings: AppSettings,
     onChanged: (AppSettings) -> Unit,
     modifier: Modifier,
 ) {
+    val context = LocalContext.current
     // In VAD mode the microphone permission is requested automatically so the
     // user can tune the VAD thresholds. In continuous/PTT modes there is no
     // need for a permanent level bar — it can be activated manually instead.
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val micReady = remember { mutableStateOf(false) }
-    val manualMeter = remember { mutableStateOf(false) }
-    val micPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    var micReady by remember { mutableStateOf(false) }
+    var manualMeter by remember { mutableStateOf(false) }
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
     ) { granted ->
         // Re-trigger the level meter once permission is granted so recording
         // starts right away.
-        micReady.value = granted
+        micReady = granted
         if (granted && settings.voiceMode != VoiceMode.VAD) {
-            manualMeter.value = true
+            manualMeter = true
         }
     }
     LaunchedEffect(settings.voiceMode) {
         if (settings.voiceMode == VoiceMode.VAD) {
-            val granted = androidx.core.content.ContextCompat.checkSelfPermission(
-                context,
-                android.Manifest.permission.RECORD_AUDIO,
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            micReady.value = granted
-            manualMeter.value = false
-            if (!granted) {
-                micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            micReady = context.hasRecordAudioPermission()
+            manualMeter = false
+            if (!micReady) {
+                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
         } else {
-            micReady.value = false
-            manualMeter.value = false
+            micReady = false
+            manualMeter = false
         }
     }
+
+    val vadActive = settings.voiceMode == VoiceMode.VAD
+    val capture = micReady && (vadActive || manualMeter)
+    var liveLevel by remember { mutableIntStateOf(0) }
 
     // Independent microphone capture for a live level meter. It reads the mic
     // directly and reports the level of the *processed* audio (denoise when
@@ -80,18 +97,7 @@ internal fun AudioSettingsScreen(
     // thresholds / gain without needing a server connection.
     //
     // VAD mode: always on (the thresholds need a live level). Continuous/PTT:
-    // opt-in via the toggle button below.
-    fun hasMicPermission() = androidx.core.content.ContextCompat.checkSelfPermission(
-        context,
-        android.Manifest.permission.RECORD_AUDIO,
-    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-    val vadActive = settings.voiceMode == VoiceMode.VAD
-    val capture = micReady.value &&
-        (vadActive || manualMeter.value)
-    var liveLevel by remember { mutableIntStateOf(0) }
-    // Restart the meter whenever the audio processing settings it reflects
-    // change, so the live level reacts to toggles/sliders in real time.
+    // opt-in via the toggle button in the microphone section.
     DisposableEffect(
         capture,
         settings.noiseSuppressionEnabled,
@@ -131,232 +137,297 @@ internal fun AudioSettingsScreen(
     }
 
     Column(modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        SectionHeader(stringResource(R.string.sec_transmission))
-        VoiceModeDropdown(
-            mode = settings.voiceMode,
-            onModeChange = { onChanged(settings.copy(voiceMode = it)) },
+        TransmissionSection(
+            settings = settings,
+            onChanged = onChanged,
+            liveLevel = liveLevel,
+            meterConnected = capture,
         )
-
-        if (settings.voiceMode == VoiceMode.VAD) {
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            SectionHeader(stringResource(R.string.sec_voice_activity_detection))
-            VadMethodDropdown(
-                method = settings.vadMethod,
-                onMethodChange = { onChanged(settings.copy(vadMethod = it)) },
-            )
-            // Live level meter to help tune the thresholds, mirroring the
-            // desktop client's VAD level indicator.
-            VadLevelMeter(
-                level = liveLevel,
-                speechThreshold = settings.vadSpeechThreshold,
-                silenceThreshold = settings.vadSilenceThreshold,
-                connected = capture,
-            )
-            VadSpeechThresholdSlider(
-                threshold = settings.vadSpeechThreshold,
-                onThresholdChange = {
-                    onChanged(settings.copy(vadSpeechThreshold = it))
-                },
-            )
-            VadSilenceThresholdSlider(
-                threshold = settings.vadSilenceThreshold,
-                max = settings.vadSpeechThreshold,
-                onThresholdChange = {
-                    onChanged(settings.copy(vadSilenceThreshold = it))
-                },
-            )
-            VadHoldSlider(
-                holdMs = settings.vadHoldFrames * 20,
-                onHoldChange = { ms ->
-                    onChanged(settings.copy(vadHoldFrames = (ms / 20).coerceAtLeast(0)))
-                },
-            )
-        }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        SectionHeader(stringResource(R.string.sec_mic_processing))
-
-        MicSourceDropdown(
-            source = settings.micSource,
-            onSourceChange = { onChanged(settings.copy(micSource = it)) },
+        MicrophoneSection(
+            settings = settings,
+            onChanged = onChanged,
+            vadActive = vadActive,
+            meterActive = capture,
+            liveLevel = liveLevel,
+            onToggleMeter = {
+                if (capture) {
+                    manualMeter = false
+                } else if (context.hasRecordAudioPermission()) {
+                    micReady = true
+                    manualMeter = true
+                } else {
+                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            },
         )
 
-        // In non-VAD modes the level meter is opt-in: a manual toggle that
-        // opens the mic so the processing settings can be verified by ear/eye.
-        if (!vadActive) {
-            val meterActive = capture
-            Button(
-                onClick = {
-                    if (meterActive) {
-                        manualMeter.value = false
-                    } else if (hasMicPermission()) {
-                        micReady.value = true
-                        manualMeter.value = true
-                    } else {
-                        micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            ) {
-                Text(
-                    stringResource(
-                        if (meterActive) R.string.mic_meter_stop else R.string.mic_meter_start,
-                    ),
-                )
-            }
-            if (meterActive) {
-                VadLevelMeter(
-                    level = liveLevel,
-                    speechThreshold = 0,
-                    silenceThreshold = 0,
-                    connected = true,
-                )
-            }
-        }
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        InputCodecSection(settings, onChanged)
 
-        if (settings.micSource == MicSource.VOICE_COMMUNICATION) {
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        OutputSection(settings, onChanged)
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        BehaviourSection(settings, onChanged)
+    }
+}
+
+private fun Context.hasRecordAudioPermission(): Boolean =
+    ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+        PackageManager.PERMISSION_GRANTED
+
+/** Mode picker, plus the VAD tuning block it unlocks. */
+@Composable
+private fun TransmissionSection(
+    settings: AppSettings,
+    onChanged: (AppSettings) -> Unit,
+    liveLevel: Int,
+    meterConnected: Boolean,
+) {
+    SectionHeader(stringResource(R.string.sec_transmission))
+    VoiceModeDropdown(
+        mode = settings.voiceMode,
+        onModeChange = { onChanged(settings.copy(voiceMode = it)) },
+    )
+
+    if (settings.voiceMode == VoiceMode.VAD) {
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        SectionHeader(stringResource(R.string.sec_voice_activity_detection))
+        VadMethodDropdown(
+            method = settings.vadMethod,
+            onMethodChange = { onChanged(settings.copy(vadMethod = it)) },
+        )
+        // Live level meter to help tune the thresholds, mirroring the desktop
+        // client's VAD level indicator.
+        VadLevelMeter(
+            level = liveLevel,
+            speechThreshold = settings.vadSpeechThreshold,
+            silenceThreshold = settings.vadSilenceThreshold,
+            connected = meterConnected,
+        )
+        VadSpeechThresholdSlider(
+            threshold = settings.vadSpeechThreshold,
+            onThresholdChange = {
+                onChanged(settings.copy(vadSpeechThreshold = it))
+            },
+        )
+        VadSilenceThresholdSlider(
+            threshold = settings.vadSilenceThreshold,
+            max = settings.vadSpeechThreshold,
+            onThresholdChange = {
+                onChanged(settings.copy(vadSilenceThreshold = it))
+            },
+        )
+        VadHoldSlider(
+            holdMs = settings.vadHoldFrames * 20,
+            onHoldChange = { ms ->
+                onChanged(settings.copy(vadHoldFrames = (ms / 20).coerceAtLeast(0)))
+            },
+        )
+    }
+}
+
+/** Input source, then the processing applied to it. */
+@Composable
+private fun MicrophoneSection(
+    settings: AppSettings,
+    onChanged: (AppSettings) -> Unit,
+    vadActive: Boolean,
+    meterActive: Boolean,
+    liveLevel: Int,
+    onToggleMeter: () -> Unit,
+) {
+    SectionHeader(stringResource(R.string.sec_mic_processing))
+
+    MicSourceDropdown(
+        source = settings.micSource,
+        onSourceChange = { onChanged(settings.copy(micSource = it)) },
+    )
+
+    // In non-VAD modes the level meter is opt-in: a manual toggle that opens
+    // the mic so the processing settings can be verified by ear/eye.
+    if (!vadActive) {
+        Button(
+            onClick = onToggleMeter,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        ) {
             Text(
-                stringResource(R.string.vc_processing_note),
+                stringResource(
+                    if (meterActive) R.string.mic_meter_stop else R.string.mic_meter_start,
+                ),
+            )
+        }
+        if (meterActive) {
+            VadLevelMeter(
+                level = liveLevel,
+                speechThreshold = 0,
+                silenceThreshold = 0,
+                connected = true,
+            )
+        }
+    }
+
+    if (settings.micSource == MicSource.VOICE_COMMUNICATION) {
+        Text(
+            stringResource(R.string.vc_processing_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+    } else {
+        MicEnhancementSection(settings, onChanged)
+    }
+}
+
+/**
+ * The three stages done in software before the codec: echo cancellation,
+ * automatic gain control and noise suppression.
+ */
+@Composable
+private fun MicEnhancementSection(settings: AppSettings, onChanged: (AppSettings) -> Unit) {
+    SwitchRow(
+        title = stringResource(R.string.echo_cancellation),
+        subtitle = stringResource(R.string.echo_cancellation_sub),
+        checked = settings.aecEnabled,
+        onCheckedChange = { onChanged(settings.copy(aecEnabled = it)) },
+    )
+
+    if (settings.aecEnabled) {
+        AecModeDropdown(
+            mode = settings.aecMode,
+            allowSystem = true,
+            onModeChange = { onChanged(settings.copy(aecMode = it)) },
+        )
+        if (settings.anyMediaPlayback()) {
+            Text(
+                stringResource(R.string.aec_media_software_only),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
-        } else {
-            SwitchRow(
-                title = stringResource(R.string.echo_cancellation),
-                subtitle = stringResource(R.string.echo_cancellation_sub),
-                checked = settings.aecEnabled,
-                onCheckedChange = { onChanged(settings.copy(aecEnabled = it)) },
-            )
-
-            if (settings.aecEnabled) {
-                AecModeDropdown(
-                    mode = settings.aecMode,
-                    allowSystem = true,
-                    onModeChange = { onChanged(settings.copy(aecMode = it)) },
-                )
-                if (settings.anyMediaPlayback()) {
-                    Text(
-                        stringResource(R.string.aec_media_software_only),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                    )
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-            SwitchRow(
-                title = stringResource(R.string.automatic_gain_control),
-                subtitle = stringResource(R.string.agc_sub),
-                checked = settings.agcEnabled,
-                onCheckedChange = { onChanged(settings.copy(agcEnabled = it)) },
-            )
-
-            if (settings.agcEnabled) {
-                AgcModeDropdown(
-                    mode = settings.agcMode,
-                    onModeChange = { onChanged(settings.copy(agcMode = it)) },
-                )
-
-                if (settings.agcMode == AgcMode.SPEEX) {
-                    AgcMaxGainSlider(
-                        maxGainDb = settings.agcMaxGainDb,
-                        onMaxGainChange = { onChanged(settings.copy(agcMaxGainDb = it)) },
-                    )
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-            SwitchRow(
-                title = stringResource(R.string.noise_suppression),
-                subtitle = stringResource(R.string.noise_suppression_sub),
-                checked = settings.noiseSuppressionEnabled,
-                onCheckedChange = { onChanged(settings.copy(noiseSuppressionEnabled = it)) },
-            )
-
-            if (settings.noiseSuppressionEnabled) {
-                NoiseModeDropdown(
-                    mode = settings.noiseSuppressionMode,
-                    enabled = true,
-                    onModeChange = { onChanged(settings.copy(noiseSuppressionMode = it)) },
-                )
-
-                // The suppression level only applies to the Speex software stage.
-                if (settings.noiseSuppressionMode == NoiseSuppressionMode.SPEEX ||
-                    settings.noiseSuppressionMode == NoiseSuppressionMode.SPEEX_RNNOISE
-                ) {
-                    NoiseLevelSlider(
-                        level = settings.noiseSuppressionDb,
-                        onLevelChange = { onChanged(settings.copy(noiseSuppressionDb = it)) },
-                    )
-                }
-            }
         }
+    }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        SectionHeader(stringResource(R.string.sec_input_codec))
+    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-        OpusImplementationDropdown(
-            implementation = settings.opusImplementation,
-            onImplementationChange = { onChanged(settings.copy(opusImplementation = it)) },
+    SwitchRow(
+        title = stringResource(R.string.automatic_gain_control),
+        subtitle = stringResource(R.string.agc_sub),
+        checked = settings.agcEnabled,
+        onCheckedChange = { onChanged(settings.copy(agcEnabled = it)) },
+    )
+
+    if (settings.agcEnabled) {
+        AgcModeDropdown(
+            mode = settings.agcMode,
+            onModeChange = { onChanged(settings.copy(agcMode = it)) },
         )
 
-        InputVolumeSlider(
-            volume = settings.inputVolume,
-            onVolumeChange = { onChanged(settings.copy(inputVolume = it)) },
-        )
-
-        TransmitQualitySlider(
-            quality = settings.transmitQuality,
-            framesPerPacket = settings.framesPerPacket,
-            tcpMode = settings.forceTcp,
-            onQualityChange = {
-                onChanged(settings.copy(transmitQuality = VoiceBandwidth.clampQualityKbps(it)))
-            },
-        )
-
-        AudioPerPacketDropdown(
-            framesPerPacket = settings.framesPerPacket,
-            onFramesPerPacketChange = { onChanged(settings.copy(framesPerPacket = it)) },
-        )
-
-        SwitchRow(
-            title = stringResource(R.string.low_latency_mode),
-            subtitle = stringResource(R.string.low_latency_sub),
-            checked = settings.lowLatency,
-            onCheckedChange = { onChanged(settings.copy(lowLatency = it)) },
-        )
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        SectionHeader(stringResource(R.string.sec_output))
-
-        if (settings.micSource == MicSource.MIC) {
-            VoicePlaybackModeDropdown(
-                mode = settings.voicePlaybackMode,
-                onModeChange = { onChanged(settings.copy(voicePlaybackMode = it)) },
+        if (settings.agcMode == AgcMode.SPEEX) {
+            AgcMaxGainSlider(
+                maxGainDb = settings.agcMaxGainDb,
+                onMaxGainChange = { onChanged(settings.copy(agcMaxGainDb = it)) },
             )
         }
+    }
 
-        OutputDeviceOrderList(
-            order = settings.outputDeviceOrder,
-            onOrderChange = { onChanged(settings.copy(outputDeviceOrder = it)) },
+    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+    SwitchRow(
+        title = stringResource(R.string.noise_suppression),
+        subtitle = stringResource(R.string.noise_suppression_sub),
+        checked = settings.noiseSuppressionEnabled,
+        onCheckedChange = { onChanged(settings.copy(noiseSuppressionEnabled = it)) },
+    )
+
+    if (settings.noiseSuppressionEnabled) {
+        NoiseModeDropdown(
+            mode = settings.noiseSuppressionMode,
+            enabled = true,
+            onModeChange = { onChanged(settings.copy(noiseSuppressionMode = it)) },
         )
 
-        OutputVolumeSlider(
-            volume = settings.outputVolume,
-            onVolumeChange = { onChanged(settings.copy(outputVolume = it)) },
-        )
+        // The suppression level only applies to the Speex software stage.
+        if (settings.noiseSuppressionMode == NoiseSuppressionMode.SPEEX ||
+            settings.noiseSuppressionMode == NoiseSuppressionMode.SPEEX_RNNOISE
+        ) {
+            NoiseLevelSlider(
+                level = settings.noiseSuppressionDb,
+                onLevelChange = { onChanged(settings.copy(noiseSuppressionDb = it)) },
+            )
+        }
+    }
+}
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        SectionHeader(stringResource(R.string.sec_behaviour))
-        SwitchRow(
-            title = stringResource(R.string.half_duplex),
-            subtitle = stringResource(R.string.half_duplex_sub),
-            checked = settings.halfDuplex,
-            onCheckedChange = { onChanged(settings.copy(halfDuplex = it)) },
+/** What the microphone is encoded to, and what it costs on the wire. */
+@Composable
+private fun InputCodecSection(settings: AppSettings, onChanged: (AppSettings) -> Unit) {
+    SectionHeader(stringResource(R.string.sec_input_codec))
+
+    OpusImplementationDropdown(
+        implementation = settings.opusImplementation,
+        onImplementationChange = { onChanged(settings.copy(opusImplementation = it)) },
+    )
+
+    InputVolumeSlider(
+        volume = settings.inputVolume,
+        onVolumeChange = { onChanged(settings.copy(inputVolume = it)) },
+    )
+
+    TransmitQualitySlider(
+        quality = settings.transmitQuality,
+        framesPerPacket = settings.framesPerPacket,
+        tcpMode = settings.forceTcp,
+        onQualityChange = {
+            onChanged(settings.copy(transmitQuality = VoiceBandwidth.clampQualityKbps(it)))
+        },
+    )
+
+    AudioPerPacketDropdown(
+        framesPerPacket = settings.framesPerPacket,
+        onFramesPerPacketChange = { onChanged(settings.copy(framesPerPacket = it)) },
+    )
+
+    SwitchRow(
+        title = stringResource(R.string.low_latency_mode),
+        subtitle = stringResource(R.string.low_latency_sub),
+        checked = settings.lowLatency,
+        onCheckedChange = { onChanged(settings.copy(lowLatency = it)) },
+    )
+}
+
+/** Where playback goes and how loud. */
+@Composable
+private fun OutputSection(settings: AppSettings, onChanged: (AppSettings) -> Unit) {
+    SectionHeader(stringResource(R.string.sec_output))
+
+    if (settings.micSource == MicSource.MIC) {
+        VoicePlaybackModeDropdown(
+            mode = settings.voicePlaybackMode,
+            onModeChange = { onChanged(settings.copy(voicePlaybackMode = it)) },
         )
     }
+
+    OutputDeviceOrderList(
+        order = settings.outputDeviceOrder,
+        onOrderChange = { onChanged(settings.copy(outputDeviceOrder = it)) },
+    )
+
+    OutputVolumeSlider(
+        volume = settings.outputVolume,
+        onVolumeChange = { onChanged(settings.copy(outputVolume = it)) },
+    )
+}
+
+@Composable
+private fun BehaviourSection(settings: AppSettings, onChanged: (AppSettings) -> Unit) {
+    SectionHeader(stringResource(R.string.sec_behaviour))
+    SwitchRow(
+        title = stringResource(R.string.half_duplex),
+        subtitle = stringResource(R.string.half_duplex_sub),
+        checked = settings.halfDuplex,
+        onCheckedChange = { onChanged(settings.copy(halfDuplex = it)) },
+    )
 }
