@@ -266,6 +266,34 @@ class UdpProtocolTest {
         assertNull(dev.woms.mumdroid.core.net.ProtoUdpCodec.decodeAudio(empty))
     }
 
+    /**
+     * The official `decodeAudio_protobuf` accepts positional data only when it
+     * is a full 3D position: `positional_data_size() != 0 && != 3` -> `return
+     * false`. The decoder must reject 1, 2, 4, ... floats, not silently ignore
+     * them.
+     */
+    @Test
+    fun protoUdpAudioRejectsPositionalDataThatIsNot3d() {
+        fun audioWithPositional(position: FloatArray): ByteArray {
+            val builder = dev.woms.mumdroid.core.udpproto.Audio.newBuilder()
+                .setSenderSession(1)
+                .setOpusData(com.google.protobuf.ByteString.copyFrom(byteArrayOf(1)))
+            position.forEach { builder.addPositionalData(it) }
+            return builder.build().toByteArray()
+        }
+
+        // Absent positional data is a plain audio packet.
+        assertNotNull(dev.woms.mumdroid.core.net.ProtoUdpCodec.decodeAudio(audioWithPositional(FloatArray(0))))
+        // Exactly three floats (X, Y, Z) is the only valid length.
+        assertNotNull(
+            dev.woms.mumdroid.core.net.ProtoUdpCodec.decodeAudio(audioWithPositional(floatArrayOf(1f, 2f, 3f))),
+        )
+        // Any other length is an invalid packet format.
+        for (n in intArrayOf(1, 2, 4, 5)) {
+            assertNull(dev.woms.mumdroid.core.net.ProtoUdpCodec.decodeAudio(audioWithPositional(FloatArray(n))))
+        }
+    }
+
     @Test
     fun outgoingVoice_stampsTenMsFrameNumbers() {
         val udp = dev.woms.mumdroid.core.net.UdpVoiceManager("127.0.0.1", 64738, clock = { 0L })

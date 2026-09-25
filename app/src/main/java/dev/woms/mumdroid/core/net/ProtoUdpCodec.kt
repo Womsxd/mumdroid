@@ -73,6 +73,10 @@ object ProtoUdpCodec {
         }
         // Audio packets without audio data are invalid (mirrors the official decoder).
         if (audio.opusData.isEmpty) return null
+        // Positional data is either absent or a full 3D position: the official
+        // decoder rejects any other count (`positional_data_size() != 0 && != 3`
+        // -> return false), so 1, 2, 4, ... floats invalidate the packet.
+        if (audio.positionalDataCount != 0 && audio.positionalDataCount != 3) return null
         return DecodedAudio(
             session = audio.senderSession,
             payload = audio.opusData.toByteArray(),
