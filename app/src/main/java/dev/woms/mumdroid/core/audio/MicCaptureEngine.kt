@@ -96,10 +96,29 @@ class MicCaptureEngine(
     var frameSize: Int = OpusCodec.FRAME_SIZE_10MS * 2
         private set
 
+    /**
+     * 10 ms frames bundled per transmitted packet; also fixes [frameSize].
+     *
+     * Structural: the capture loop's own buffer, the `AudioRecord` buffer and
+     * the echo canceller are all sized once, at [open], so a new value must
+     * arrive together with a capture restart — and the only producer of a
+     * change (the bandwidth controller) reports a new duration exactly that
+     * way. While open a differing value is therefore ignored: half-applying it
+     * would rebuild only the preprocessor and leave it paired with an echo
+     * state of the old frame size, which `speex_echo_get_residual()` resolves by
+     * writing `2 * echo_frame_size` past the preprocessor's `residual_echo`
+     * (allocated for its own frame size + 24) — a native heap overflow, not a
+     * degradation. The next [open] picks the value up.
+     */
     var framesPerPacket: Int = 2
         set(value) {
-            field = value.coerceIn(1, 6)
-            frameSize = OpusCodec.FRAME_SIZE_10MS * field
+            val frames = value.coerceIn(1, 6)
+            if (isOpen && frames != field) {
+                Log.w(TAG, "Ignoring framesPerPacket=$frames while open; restart capture to apply it")
+                return
+            }
+            field = frames
+            frameSize = OpusCodec.FRAME_SIZE_10MS * frames
         }
 
     /** Whether [open] has succeeded and [close] has not been called. */
@@ -149,15 +168,22 @@ class MicCaptureEngine(
         this.vadSpeechThreshold = vadSpeechThreshold
         this.vadSilenceThreshold = vadSilenceThreshold
         this.vadHoldFrames = vadHoldFrames
-        this.framesPerPacket = framesPerPacket
-
         // Serialize the native re-initialisation against the capture thread:
         // preprocessor.init() destroys the old native engines, which
         // processFrame may be running a native call on right now.
         synchronized(lock) {
+            // Structural (see [framesPerPacket]): only a closed engine may move
+            // the frame size. On an open one the setter ignores the change with
+            // a warning, keeping the engine self-consistent; a caller that
+            // really wants a new size must restart capture instead.
+            this.framesPerPacket = framesPerPacket
+
             if (!isOpen) return
 
-            if (denoiseEngineChanged || preprocessorQuantumChanged()) {
+            // On an open engine the frame size cannot change, so the denoise
+            // engine swap is the only re-initialisation: the echo canceller
+            // still matches the fresh preprocessor and is re-associated as is.
+            if (denoiseEngineChanged) {
                 preprocessor.init(sampleRate, frameSize)
                 // Re-associate the echo canceller with the fresh preprocessor
                 // state so residual suppression keeps working.
@@ -167,9 +193,6 @@ class MicCaptureEngine(
             updatePlatformEffects()
         }
     }
-
-    private fun preprocessorQuantumChanged(): Boolean = preprocessor.isInitialized &&
-        !preprocessor.matchesQuantum(frameSize)
 
     /**
      * Opens the microphone with the configured audio source and attaches the

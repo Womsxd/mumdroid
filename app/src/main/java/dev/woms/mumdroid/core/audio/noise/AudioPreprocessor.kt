@@ -101,9 +101,6 @@ class AudioPreprocessor(
     /** @return whether the object is initialized and can process audio. */
     val isInitialized: Boolean get() = initialized
 
-    /** @return whether the processor is initialized for the given [quantum]. */
-    fun matchesQuantum(quantum: Int): Boolean = initialized && this.quantum == quantum
-
     /**
      * Initializes the pre-processor. Must be called before any other method.
      *
