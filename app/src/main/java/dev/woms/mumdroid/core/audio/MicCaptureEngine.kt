@@ -38,6 +38,13 @@ class MicCaptureEngine(
     // --- state initialised FIRST (the config setters below reference it) ---
     private val preprocessor = AudioPreprocessor()
     private var record: AudioRecord? = null
+
+    /**
+     * `@Volatile` because the playback thread reads it in [pushFarEndFrame]
+     * without taking [lock] (see there); the capture thread and the lifecycle
+     * methods still touch it under [lock].
+     */
+    @Volatile
     private var echoCanceller: SpeexEchoCanceller? = null
 
     /**
@@ -50,6 +57,9 @@ class MicCaptureEngine(
      *
      * Held for the duration of a single frame only, never across the blocking
      * [read], so a stalled microphone cannot wedge [close].
+     *
+     * The playback-side [pushFarEndFrame] is intentionally left outside it —
+     * see its KDoc — so a processing frame never stalls the output thread.
      */
     private val lock = Any()
     private var systemAgc: AutomaticGainControl? = null
@@ -275,9 +285,20 @@ class MicCaptureEngine(
     /**
      * Feeds the speaker reference for the software AEC: called from the
      * playback path with every PCM frame written to the speaker.
+     *
+     * Deliberately *not* serialized on [lock]. This runs on the realtime
+     * playback thread, while [lock] is held by the capture thread for a whole
+     * processing frame — including the native denoise/RNNoise inference, which
+     * can take milliseconds — so blocking here would stall the next AudioTrack
+     * write and risk an output underrun. It does not need the lock:
+     * [SpeexEchoCanceller.pushFar] never touches the native state (it only
+     * appends to the canceller's own ring, guarded by that class's internal
+     * lock), so racing a [close] that nulls the field merely writes to a
+     * detached ring the native side can no longer read. [echoCanceller] is
+     * `@Volatile` so [open]'s fresh instance is visible here.
      */
     fun pushFarEndFrame(pcm: ShortArray) {
-        synchronized(lock) { echoCanceller?.pushFar(pcm) }
+        echoCanceller?.pushFar(pcm)
     }
 
     /**
