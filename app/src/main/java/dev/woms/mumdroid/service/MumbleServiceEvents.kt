@@ -4,10 +4,12 @@ import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.CertificateDecision
 import dev.woms.mumdroid.core.model.ChanACL
-import dev.woms.mumdroid.core.model.Channel
+import dev.woms.mumdroid.core.model.ChannelUpdate
 import dev.woms.mumdroid.core.model.ChatMessage
 import dev.woms.mumdroid.core.model.MumbleVersion
+import dev.woms.mumdroid.core.model.PermissionDeny
 import dev.woms.mumdroid.core.model.RegisteredUser
+import dev.woms.mumdroid.core.model.UserUpdate
 import dev.woms.mumdroid.core.net.ClientTlsPolicy
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.MumbleListener
@@ -207,26 +209,22 @@ internal class MumbleServiceEvents(
         host.stopSelf()
     }
 
-    override fun onChannelState(channel: Channel) {
-        context.roster.putChannel(channel)
-        if (context.state.connected.value && context.roster.localUser()?.channelId == channel.id) {
+    override fun onChannelState(update: ChannelUpdate) {
+        val (existing, merged) = context.roster.mergeChannelState(update)
+        context.roster.putChannel(merged)
+        if (context.state.connected.value && context.roster.localUser()?.channelId == merged.id) {
             updateConnectedStatus()
         }
         context.scope.launch { context.roster.publishChannelsNow() }
-    }
-
-    override fun onChannelStateProto(state: dev.woms.mumdroid.core.proto.ChannelState) {
-        val (existing, merged) = context.roster.mergeChannelState(state)
-        onChannelState(merged)
         context.admin.maybeCreatePassword(existing == null, merged)?.let { (id, password) ->
             applyChannelPassword(id, password)
         }
     }
 
-    override fun onPermissionDenied(denied: dev.woms.mumdroid.core.proto.PermissionDenied) {
+    override fun onPermissionDenied(deny: PermissionDeny) {
         val handled = context.admin.promptForChannelPassword(
-            denied,
-            context.roster.channelMap[denied.channelId],
+            deny,
+            context.roster.channelMap[deny.channelId],
             ChanACL.ENTER.toLong(),
             onDenied = { context.notices.system(it) },
             passwordDeniedMessage = { name ->
@@ -234,7 +232,7 @@ internal class MumbleServiceEvents(
             },
         )
         if (handled) return
-        onInfo(context.notices.permissionDeniedText(denied))
+        onInfo(context.notices.permissionDeniedText(deny))
     }
 
     override fun onCodecVersion(opus: Boolean) {
@@ -247,10 +245,10 @@ internal class MumbleServiceEvents(
         context.roster.removeChannel(channelId)
     }
 
-    override fun onUserState(user: dev.woms.mumdroid.core.proto.UserState) {
-        val merged = context.roster.mergeUserState(user) ?: return
+    override fun onUserState(update: UserUpdate) {
+        val merged = context.roster.mergeUserState(update) ?: return
         val (existing, updated) = merged
-        context.notices.applyListening(updated.session, user)
+        context.notices.applyListening(updated.session, update)
         val speakBlocked = updated.mute || updated.deaf || updated.suppress ||
             updated.selfMute || updated.selfDeaf
         if (updated.session == context.roster.localSession) {
@@ -258,16 +256,16 @@ internal class MumbleServiceEvents(
                 wasBlocked = existing?.isSpeakBlocked == true,
                 nowBlocked = speakBlocked,
             )
-            if (user.hasChannelId() && !context.lastChannel.restorePending) {
+            if (update.channelId != null && !context.lastChannel.restorePending) {
                 context.lastChannel.persistFromLocal(context.state.host, context.state.port, context.state.connectedServerId)
                 updateConnectedStatus()
             }
         }
 
-        if (user.hasChannelId()) {
+        if (update.channelId != null) {
             context.notices.announceChannelChange(
-                protoSession = user.session,
-                newChannel = user.channelId,
+                protoSession = update.session,
+                newChannel = update.channelId,
                 existing = existing,
                 updatedName = updated.name,
                 restorePending = context.lastChannel.restorePending,

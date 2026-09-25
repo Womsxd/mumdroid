@@ -114,7 +114,7 @@ internal class MumbleMessageRouter(
             }
             MessageType.CHANNEL_STATE -> {
                 val cs = ChannelState.parseFrom(body)
-                listener.onChannelStateProto(cs)
+                listener.onChannelState(ChannelStateMerge.toUpdate(cs))
             }
             MessageType.CHANNEL_REMOVE -> {
                 val cr = ChannelRemove.parseFrom(body)
@@ -122,7 +122,7 @@ internal class MumbleMessageRouter(
             }
             MessageType.USER_STATE -> {
                 val us = UserState.parseFrom(body)
-                listener.onUserState(us)
+                UserStateMerge.toUpdate(us)?.let(listener::onUserState)
             }
             MessageType.USER_REMOVE -> {
                 val ur = UserRemove.parseFrom(body)
@@ -148,7 +148,7 @@ internal class MumbleMessageRouter(
             }
             MessageType.PERMISSION_DENIED -> {
                 val pd = PermissionDenied.parseFrom(body)
-                listener.onPermissionDenied(pd)
+                listener.onPermissionDenied(PermissionDenyCodec.fromProto(pd))
             }
             MessageType.SERVER_CONFIG -> {
                 val sc = ServerConfig.parseFrom(body)

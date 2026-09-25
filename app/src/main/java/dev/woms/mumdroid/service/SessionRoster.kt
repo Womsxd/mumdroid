@@ -4,8 +4,10 @@ import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelLinks
 import dev.woms.mumdroid.core.model.ChannelTree
+import dev.woms.mumdroid.core.model.ChannelUpdate
 import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.User
+import dev.woms.mumdroid.core.model.UserUpdate
 import dev.woms.mumdroid.core.net.UserStateMerge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -133,29 +135,25 @@ internal class SessionRoster(private val scope: CoroutineScope) {
         channelMap[channel.id] = channel
     }
 
-    fun mergeChannelState(state: dev.woms.mumdroid.core.proto.ChannelState): Pair<Channel?, Channel> {
-        val existing = channelMap[state.channelId]
+    fun mergeChannelState(update: ChannelUpdate): Pair<Channel?, Channel> {
+        val existing = channelMap[update.channelId]
         val previousLinks = existing?.linkedIds ?: emptySet()
         val nextLinks = ChannelLinks.nextDirectLinks(
             existing = previousLinks,
-            replace = if (state.linksCount > 0) state.linksList else emptyList(),
-            add = state.linksAddList,
-            remove = state.linksRemoveList,
+            replace = update.links ?: emptyList(),
+            add = update.linksAdd,
+            remove = update.linksRemove,
         )
         val merged = Channel(
-            id = state.channelId,
-            parentId = if (state.hasParent()) state.parent else existing?.parentId ?: 0,
-            name = if (state.hasName()) state.name else existing?.name ?: "",
-            description = if (state.hasDescription()) state.description else existing?.description ?: "",
-            position = if (state.hasPosition()) state.position else existing?.position ?: 0,
-            temporary = if (state.hasTemporary()) state.temporary else existing?.temporary ?: false,
-            maxUsers = if (state.hasMaxUsers()) state.maxUsers else existing?.maxUsers ?: 0,
-            isEnterRestricted = if (state.hasIsEnterRestricted()) {
-                state.isEnterRestricted
-            } else {
-                existing?.isEnterRestricted ?: false
-            },
-            canEnter = if (state.hasCanEnter()) state.canEnter else existing?.canEnter ?: true,
+            id = update.channelId,
+            parentId = update.parentId ?: existing?.parentId ?: 0,
+            name = update.name ?: existing?.name ?: "",
+            description = update.description ?: existing?.description ?: "",
+            position = update.position ?: existing?.position ?: 0,
+            temporary = update.temporary ?: existing?.temporary ?: false,
+            maxUsers = update.maxUsers ?: existing?.maxUsers ?: 0,
+            isEnterRestricted = update.isEnterRestricted ?: existing?.isEnterRestricted ?: false,
+            canEnter = update.canEnter ?: existing?.canEnter ?: true,
             linkedIds = nextLinks,
         )
         channelMap[merged.id] = merged
@@ -174,22 +172,21 @@ internal class SessionRoster(private val scope: CoroutineScope) {
         scope.launch { _channels.value = buildChannelTree() }
     }
 
-    fun mergeUserState(user: dev.woms.mumdroid.core.proto.UserState): Pair<User?, User>? {
-        val existing = if (UserStateMerge.hasValidSession(user)) userMap[user.session] else null
-        if (!UserStateMerge.shouldApply(existing, user)) return null
-        val selfMute = if (user.hasSelfMute()) user.selfMute else existing?.selfMute ?: false
-        val selfDeaf = if (user.hasSelfDeaf()) user.selfDeaf else existing?.selfDeaf ?: false
-        val mute = if (user.hasMute()) user.mute else existing?.mute ?: false
-        val deaf = if (user.hasDeaf()) user.deaf else existing?.deaf ?: false
-        val suppress = if (user.hasSuppress()) user.suppress else existing?.suppress ?: false
-        val prioritySpeaker =
-            if (user.hasPrioritySpeaker()) user.prioritySpeaker else existing?.prioritySpeaker ?: false
+    fun mergeUserState(update: UserUpdate): Pair<User?, User>? {
+        val existing = userMap[update.session]
+        if (!UserStateMerge.shouldApply(existing, update)) return null
+        val selfMute = update.selfMute ?: existing?.selfMute ?: false
+        val selfDeaf = update.selfDeaf ?: existing?.selfDeaf ?: false
+        val mute = update.mute ?: existing?.mute ?: false
+        val deaf = update.deaf ?: existing?.deaf ?: false
+        val suppress = update.suppress ?: existing?.suppress ?: false
+        val prioritySpeaker = update.prioritySpeaker ?: existing?.prioritySpeaker ?: false
         val speakBlocked = mute || deaf || suppress || selfMute || selfDeaf
         val updated = User(
-            session = user.session,
-            name = if (user.hasName()) user.name else existing?.name ?: "",
-            userId = if (user.hasUserId()) user.userId else existing?.userId ?: -1,
-            channelId = if (user.hasChannelId()) user.channelId else existing?.channelId ?: 0,
+            session = update.session,
+            name = update.name ?: existing?.name ?: "",
+            userId = update.userId ?: existing?.userId ?: -1,
+            channelId = update.channelId ?: existing?.channelId ?: 0,
             selfMute = selfMute,
             selfDeaf = selfDeaf,
             mute = mute,
@@ -197,10 +194,10 @@ internal class SessionRoster(private val scope: CoroutineScope) {
             suppress = suppress,
             prioritySpeaker = prioritySpeaker,
             talkState = if (speakBlocked) TalkState.PASSIVE else existing?.talkState ?: TalkState.PASSIVE,
-            isLocalUser = user.session == localSession,
-            localBlock = existing?.localBlock ?: (user.session in localBlockSet),
-            localIgnore = existing?.localIgnore ?: (user.session in localIgnoreSet),
-            hash = if (user.hasHash()) user.hash else existing?.hash.orEmpty(),
+            isLocalUser = update.session == localSession,
+            localBlock = existing?.localBlock ?: (update.session in localBlockSet),
+            localIgnore = existing?.localIgnore ?: (update.session in localIgnoreSet),
+            hash = update.hash ?: existing?.hash.orEmpty(),
         )
         userMap[updated.session] = updated
         return existing to updated
@@ -222,17 +219,17 @@ internal class SessionRoster(private val scope: CoroutineScope) {
 
     fun applyListeningChannels(
         session: Int,
-        msg: dev.woms.mumdroid.core.proto.UserState,
+        update: UserUpdate,
         onStarted: (channelId: Int) -> Unit,
         onStopped: (channelId: Int) -> Unit,
         onUserStarted: (actorName: String) -> Unit,
         onUserStopped: (actorName: String) -> Unit,
     ) {
-        if (msg.listeningChannelAddCount == 0 && msg.listeningChannelRemoveCount == 0) return
+        if (update.listeningAdded.isEmpty() && update.listeningRemoved.isEmpty()) return
         val set = listeningBySession.getOrPut(session) { ConcurrentHashMap.newKeySet() }
         val myChannel = userMap[localSession]?.channelId
         val actorName = userMap[session]?.name.orEmpty()
-        for (channelId in msg.listeningChannelAddList) {
+        for (channelId in update.listeningAdded) {
             if (!set.add(channelId)) continue
             when {
                 session == localSession && localSession != 0 -> onStarted(channelId)
@@ -240,7 +237,7 @@ internal class SessionRoster(private val scope: CoroutineScope) {
                     onUserStarted(actorName)
             }
         }
-        for (channelId in msg.listeningChannelRemoveList) {
+        for (channelId in update.listeningRemoved) {
             if (!set.remove(channelId)) continue
             when {
                 session == localSession && localSession != 0 -> onStopped(channelId)

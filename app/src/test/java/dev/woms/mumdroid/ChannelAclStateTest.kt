@@ -3,9 +3,9 @@ package dev.woms.mumdroid
 import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelAclPassword
+import dev.woms.mumdroid.core.model.PermissionDeny
 import dev.woms.mumdroid.core.net.ChannelPasswordAcl
 import dev.woms.mumdroid.core.proto.ACL
-import dev.woms.mumdroid.core.proto.PermissionDenied
 import dev.woms.mumdroid.service.ChannelAclState
 import dev.woms.mumdroid.service.PasswordApply
 import org.junit.Assert.assertEquals
@@ -38,12 +38,13 @@ class ChannelAclStateTest {
     private fun denied(
         channelId: Int = 4,
         permission: Long = ChanACL.ENTER.toLong(),
-        type: PermissionDenied.DenyType = PermissionDenied.DenyType.Permission,
-    ): PermissionDenied = PermissionDenied.newBuilder()
-        .setChannelId(channelId)
-        .setPermission(permission.toInt())
-        .setType(type)
-        .build()
+        type: PermissionDeny.DenyType = PermissionDeny.DenyType.PERMISSION,
+    ): PermissionDeny = PermissionDeny(
+        type = type,
+        reason = "",
+        channelId = channelId,
+        permission = permission,
+    )
 
     private val restricted = Channel(id = 4, name = "Gate", isEnterRestricted = true)
 

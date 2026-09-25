@@ -1,15 +1,14 @@
 package dev.woms.mumdroid.service
 
-import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelAclPassword
 import dev.woms.mumdroid.core.model.ChannelPasswordPrompt
+import dev.woms.mumdroid.core.model.PermissionDeny
 import dev.woms.mumdroid.core.net.AclUserNames
 import dev.woms.mumdroid.core.net.ChanAclSnapshot
 import dev.woms.mumdroid.core.net.ChanAclWrite
 import dev.woms.mumdroid.core.net.ChannelPasswordAcl
 import dev.woms.mumdroid.core.proto.ACL
-import dev.woms.mumdroid.core.proto.PermissionDenied
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -120,14 +119,14 @@ internal class ChannelAclState {
      * @return true when the prompt took over the denial.
      */
     fun promptForChannelPassword(
-        denied: PermissionDenied,
+        deny: PermissionDeny,
         channel: Channel?,
         enterPermission: Long,
         onDenied: (String) -> Unit,
         passwordDeniedMessage: (String) -> String,
     ): Boolean {
-        if (denied.type != PermissionDenied.DenyType.Permission) return false
-        if ((ChanACL.fromProtoUInt32(denied.permission) and enterPermission) == 0L) return false
+        if (deny.type != PermissionDeny.DenyType.PERMISSION) return false
+        if ((deny.permission and enterPermission) == 0L) return false
         if (channel == null || !channel.isEnterRestricted) return false
         val retry = passwordJoinChannelId == channel.id
         passwordJoinChannelId = null

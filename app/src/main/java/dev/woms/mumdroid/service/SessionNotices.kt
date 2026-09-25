@@ -1,10 +1,12 @@
 package dev.woms.mumdroid.service
 
 import dev.woms.mumdroid.R
+import dev.woms.mumdroid.core.model.PermissionDeny
 import dev.woms.mumdroid.core.model.ServerRemoval
 import dev.woms.mumdroid.core.model.ServerRemovalKind
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.UserRemoveNotice
+import dev.woms.mumdroid.core.model.UserUpdate
 
 /**
  * Join / leave / kick system lines and permission-denied copy.
@@ -26,10 +28,10 @@ internal class SessionNotices(
         chat.appendSystem(serverName(), message)
     }
 
-    fun applyListening(session: Int, msg: dev.woms.mumdroid.core.proto.UserState) {
+    fun applyListening(session: Int, update: UserUpdate) {
         roster.applyListeningChannels(
             session,
-            msg,
+            update,
             onStarted = { id -> system(strings.getString(R.string.listening_started, roster.channelName(id))) },
             onStopped = { id -> system(strings.getString(R.string.listening_stopped, roster.channelName(id))) },
             onUserStarted = { actor ->
@@ -138,34 +140,34 @@ internal class SessionNotices(
         return RemovedEvent(null, null, removed, isLocal)
     }
 
-    fun permissionDeniedText(denied: dev.woms.mumdroid.core.proto.PermissionDenied): String {
-        if (denied.reason.isNotEmpty()) return denied.reason
-        return when (denied.type) {
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.Permission ->
+    fun permissionDeniedText(deny: PermissionDeny): String {
+        if (deny.reason.isNotEmpty()) return deny.reason
+        return when (deny.type) {
+            PermissionDeny.DenyType.PERMISSION ->
                 strings.getString(R.string.permission_denied_permission)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.SuperUser ->
+            PermissionDeny.DenyType.SUPER_USER ->
                 strings.getString(R.string.permission_denied_superuser)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.ChannelName ->
+            PermissionDeny.DenyType.CHANNEL_NAME ->
                 strings.getString(R.string.permission_denied_channel_name)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.TextTooLong ->
+            PermissionDeny.DenyType.TEXT_TOO_LONG ->
                 strings.getString(R.string.permission_denied_text_too_long)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.TemporaryChannel ->
+            PermissionDeny.DenyType.TEMPORARY_CHANNEL ->
                 strings.getString(R.string.permission_denied_temporary)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.MissingCertificate ->
+            PermissionDeny.DenyType.MISSING_CERTIFICATE ->
                 strings.getString(R.string.permission_denied_certificate)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.UserName ->
+            PermissionDeny.DenyType.USER_NAME ->
                 strings.getString(R.string.permission_denied_username)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.ChannelFull ->
+            PermissionDeny.DenyType.CHANNEL_FULL ->
                 strings.getString(R.string.permission_denied_channel_full)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.NestingLimit ->
+            PermissionDeny.DenyType.NESTING_LIMIT ->
                 strings.getString(R.string.permission_denied_nesting)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.ChannelCountLimit ->
+            PermissionDeny.DenyType.CHANNEL_COUNT_LIMIT ->
                 strings.getString(R.string.permission_denied_channel_count)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.ChannelListenerLimit ->
+            PermissionDeny.DenyType.CHANNEL_LISTENER_LIMIT ->
                 strings.getString(R.string.permission_denied_channel_listener)
-            dev.woms.mumdroid.core.proto.PermissionDenied.DenyType.UserListenerLimit ->
+            PermissionDeny.DenyType.USER_LISTENER_LIMIT ->
                 strings.getString(R.string.permission_denied_user_listener)
-            else -> strings.getString(R.string.permission_denied)
+            PermissionDeny.DenyType.OTHER -> strings.getString(R.string.permission_denied)
         }
     }
 

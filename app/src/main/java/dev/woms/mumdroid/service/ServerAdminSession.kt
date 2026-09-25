@@ -154,12 +154,12 @@ internal class ServerAdminSession(private val scope: CoroutineScope) {
         acl.maybeCreatePassword(isNew, channel)
 
     fun promptForChannelPassword(
-        denied: dev.woms.mumdroid.core.proto.PermissionDenied,
+        deny: dev.woms.mumdroid.core.model.PermissionDeny,
         channel: Channel?,
         enterPermission: Long,
         onDenied: (String) -> Unit,
         passwordDeniedMessage: (String) -> String,
-    ): Boolean = acl.promptForChannelPassword(denied, channel, enterPermission, onDenied, passwordDeniedMessage)
+    ): Boolean = acl.promptForChannelPassword(deny, channel, enterPermission, onDenied, passwordDeniedMessage)
 
     fun clearPasswordPrompt() = acl.clearPasswordPrompt()
 

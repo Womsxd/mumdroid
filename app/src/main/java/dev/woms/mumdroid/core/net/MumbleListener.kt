@@ -2,9 +2,10 @@ package dev.woms.mumdroid.core.net
 
 import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.CertificateDecision
-import dev.woms.mumdroid.core.model.Channel
+import dev.woms.mumdroid.core.model.ChannelUpdate
+import dev.woms.mumdroid.core.model.PermissionDeny
 import dev.woms.mumdroid.core.model.RegisteredUser
-import dev.woms.mumdroid.core.proto.UserState
+import dev.woms.mumdroid.core.model.UserUpdate
 
 /**
  * Callbacks delivered by [MumbleClient] as the connection progresses and
@@ -40,32 +41,18 @@ interface MumbleListener {
         respond(CertificateDecision.REJECT)
     }
 
-    /** A channel was added or updated. */
-    fun onChannelState(channel: Channel)
-
-    /** Raw ChannelState so the service can merge unset protobuf fields. */
-    fun onChannelStateProto(state: dev.woms.mumdroid.core.proto.ChannelState) {
-        onChannelState(
-            Channel(
-                id = state.channelId,
-                parentId = state.parent,
-                name = state.name,
-                description = state.description,
-                position = state.position,
-                temporary = state.temporary,
-                maxUsers = if (state.hasMaxUsers()) state.maxUsers else 0,
-                isEnterRestricted = if (state.hasIsEnterRestricted()) state.isEnterRestricted else false,
-                canEnter = if (state.hasCanEnter()) state.canEnter else true,
-                linkedIds = state.linksList.toSet(),
-            )
-        )
-    }
+    /**
+     * A channel was added or updated. The update carries protobuf field
+     * *presence* as nullability, because the roster has to merge unset fields
+     * over the entry it already holds.
+     */
+    fun onChannelState(update: ChannelUpdate)
 
     /** A channel was removed. */
     fun onChannelRemoved(channelId: Int)
 
-    /** A user was added or updated. */
-    fun onUserState(user: UserState)
+    /** A user was added or updated (presence-preserving, see [onChannelState]). */
+    fun onUserState(update: UserUpdate)
 
     /**
      * A user left, or was kicked/banned.
@@ -137,8 +124,8 @@ interface MumbleListener {
     fun onUserStats(stats: dev.woms.mumdroid.core.proto.UserStats) {}
 
     /** Server denied an action. */
-    fun onPermissionDenied(denied: dev.woms.mumdroid.core.proto.PermissionDenied) {
-        onInfo(denied.reason.ifEmpty { "Permission denied" })
+    fun onPermissionDenied(deny: PermissionDeny) {
+        onInfo(deny.reason.ifEmpty { "Permission denied" })
     }
 
     /** Server announced the voice codec. We only speak Opus. */

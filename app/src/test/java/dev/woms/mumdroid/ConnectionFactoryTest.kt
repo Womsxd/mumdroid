@@ -1,9 +1,9 @@
 package dev.woms.mumdroid
 
-import dev.woms.mumdroid.core.model.Channel
+import dev.woms.mumdroid.core.model.ChannelUpdate
+import dev.woms.mumdroid.core.model.UserUpdate
 import dev.woms.mumdroid.core.net.MumbleClient
 import dev.woms.mumdroid.core.net.MumbleListener
-import dev.woms.mumdroid.core.proto.UserState
 import dev.woms.mumdroid.data.AccessTokenSource
 import dev.woms.mumdroid.data.CertificateMaterialSource
 import dev.woms.mumdroid.data.PinnedFingerprintSource
@@ -31,9 +31,9 @@ class ConnectionFactoryTest {
         override fun onConnected(session: Int, welcomeText: String, maxBandwidth: Int) {}
         override fun onRejected(reason: String, type: Int) {}
         override fun onDisconnected(reason: String) {}
-        override fun onChannelState(channel: Channel) {}
+        override fun onChannelState(update: ChannelUpdate) {}
         override fun onChannelRemoved(channelId: Int) {}
-        override fun onUserState(user: UserState) {}
+        override fun onUserState(update: UserUpdate) {}
         override fun onUserRemoved(
             session: Int,
             actor: Int,

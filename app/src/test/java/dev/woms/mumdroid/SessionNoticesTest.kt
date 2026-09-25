@@ -1,8 +1,10 @@
 package dev.woms.mumdroid
 
 import dev.woms.mumdroid.core.model.Channel
+import dev.woms.mumdroid.core.model.PermissionDeny
 import dev.woms.mumdroid.core.model.ServerRemovalKind
 import dev.woms.mumdroid.core.model.User
+import dev.woms.mumdroid.core.net.PermissionDenyCodec
 import dev.woms.mumdroid.core.proto.PermissionDenied
 import dev.woms.mumdroid.service.SessionChat
 import dev.woms.mumdroid.service.SessionNotices
@@ -167,7 +169,9 @@ class SessionNoticesTest {
 
     @Test
     fun permissionDeniedText_prefersTheServerReason() {
-        val denied = PermissionDenied.newBuilder().setReason("nope").build()
+        val denied = PermissionDenyCodec.fromProto(
+            PermissionDenied.newBuilder().setReason("nope").build(),
+        )
 
         assertEquals("nope", notices().permissionDeniedText(denied))
     }
@@ -175,20 +179,37 @@ class SessionNoticesTest {
     @Test
     fun permissionDeniedText_mapsKnownDenyTypes() {
         val notices = notices()
-        fun deny(type: PermissionDenied.DenyType) =
-            PermissionDenied.newBuilder().setType(type).build()
+        fun deny(type: PermissionDeny.DenyType) = PermissionDeny(
+            type = type,
+            reason = "",
+            channelId = 0,
+            permission = 0L,
+        )
 
         assertEquals(
             strings.getString(R.string.permission_denied_superuser),
-            notices.permissionDeniedText(deny(PermissionDenied.DenyType.SuperUser)),
+            notices.permissionDeniedText(deny(PermissionDeny.DenyType.SUPER_USER)),
         )
         assertEquals(
             strings.getString(R.string.permission_denied_channel_full),
-            notices.permissionDeniedText(deny(PermissionDenied.DenyType.ChannelFull)),
+            notices.permissionDeniedText(deny(PermissionDeny.DenyType.CHANNEL_FULL)),
         )
         assertEquals(
             strings.getString(R.string.permission_denied_permission),
-            notices.permissionDeniedText(deny(PermissionDenied.DenyType.Permission)),
+            notices.permissionDeniedText(deny(PermissionDeny.DenyType.PERMISSION)),
         )
+    }
+
+    /** The wire type must map to the same domain values the copy above uses. */
+    @Test
+    fun permissionDenyTranslation_matchesTheDomainValues() {
+        fun translate(type: PermissionDenied.DenyType) =
+            PermissionDenyCodec.fromProto(PermissionDenied.newBuilder().setType(type).build()).type
+
+        assertEquals(PermissionDeny.DenyType.PERMISSION, translate(PermissionDenied.DenyType.Permission))
+        assertEquals(PermissionDeny.DenyType.SUPER_USER, translate(PermissionDenied.DenyType.SuperUser))
+        assertEquals(PermissionDeny.DenyType.CHANNEL_FULL, translate(PermissionDenied.DenyType.ChannelFull))
+        assertEquals(PermissionDeny.DenyType.OTHER, translate(PermissionDenied.DenyType.Text))
+        assertEquals(PermissionDeny.DenyType.OTHER, translate(PermissionDenied.DenyType.H9K))
     }
 }
