@@ -278,6 +278,25 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeRun(
  * not feed back into the transmission.
  * ------------------------------------------------------------------------- */
 
+/*
+ * Echo-canceller handle: the opaque SpeexEchoState plus the frame size it was
+ * created for. speex_echo_cancellation() processes st->frame_size samples at
+ * the near / far / out buffers (mdf.c: reads them in the DC-notch and copy
+ * loops and writes the result back), so Java arrays of any other length would
+ * read and write past their end — 16-bit samples in the JVM heap. The state
+ * is opaque here (SpeexEchoState is defined in mdf.c), so nativeCancel() can
+ * only enforce this by carrying the size on the handle, exactly as
+ * SpeexPreprocessHandle does.
+ */
+typedef struct {
+    SpeexEchoState *state;
+    jint frame_size;
+} SpeexEchoHandle;
+
+static SpeexEchoHandle *to_echo_handle(jlong handle) {
+    return (SpeexEchoHandle *) (intptr_t) handle;
+}
+
 JNIEXPORT jlong JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCreate(
         JNIEnv *env, jclass clazz, jint frame_size, jint filter_length, jint sample_rate) {
@@ -286,10 +305,17 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCreate(
     if (frame_size <= 0 || filter_length <= 0 || sample_rate <= 0) {
         return 0;
     }
-    SpeexEchoState *st = speex_echo_state_init((int) frame_size, (int) filter_length);
-    if (st == NULL) {
+    SpeexEchoHandle *h = (SpeexEchoHandle *) calloc(1, sizeof(SpeexEchoHandle));
+    if (h == NULL) {
         return 0;
     }
+    SpeexEchoState *st = speex_echo_state_init((int) frame_size, (int) filter_length);
+    if (st == NULL) {
+        free(h);
+        return 0;
+    }
+    h->state = st;
+    h->frame_size = frame_size;
     /* speex_echo_state_init*() starts from st->sampling_rate = 8000 and derives
      * notch_radius / beta0 / beta_max / spec_average from it (mdf.c:427-434,
      * 500-505). SPEEX_ECHO_SET_SAMPLING_RATE is the only thing that recomputes
@@ -300,7 +326,7 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCreate(
      * the same call right after speex_echo_state_init_mc() (AudioInput.cpp). */
     int rate = (int) sample_rate;
     speex_echo_ctl(st, SPEEX_ECHO_SET_SAMPLING_RATE, &rate);
-    return (jlong) (intptr_t) st;
+    return (jlong) (intptr_t) h;
 }
 
 JNIEXPORT void JNICALL
@@ -308,9 +334,12 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeDestroy(
         JNIEnv *env, jclass clazz, jlong handle) {
     (void) env;
     (void) clazz;
-    SpeexEchoState *st = (SpeexEchoState *) (intptr_t) handle;
-    if (st != NULL) {
-        speex_echo_state_destroy(st);
+    SpeexEchoHandle *h = to_echo_handle(handle);
+    if (h != NULL) {
+        if (h->state != NULL) {
+            speex_echo_state_destroy(h->state);
+        }
+        free(h);
     }
 }
 
@@ -325,7 +354,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetEchoState(
     (void) clazz;
     SpeexPreprocessHandle *h = to_preprocess_handle(handle);
     SpeexPreprocessState *st = h != NULL ? h->state : NULL;
-    SpeexEchoState *echo_st = (SpeexEchoState *) (intptr_t) echo_handle;
+    SpeexEchoHandle *eh = to_echo_handle(echo_handle);
+    SpeexEchoState *echo_st = eh != NULL ? eh->state : NULL;
     if (st == NULL) {
         return;
     }
@@ -335,6 +365,9 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeSetEchoState(
 /*
  * Cancels one frame: out = near - estimate(far).
  *
+ * @param near_arr/far_arr/out_arr the frame buffers; each length must be
+ *        exactly the frame_size the state was created with, because
+ *        speex_echo_cancellation() reads and writes that many samples at each.
  * @return true on success; on failure `out` is a copy of `near` (passthrough).
  */
 JNIEXPORT jboolean JNICALL
@@ -342,13 +375,16 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCancel(
         JNIEnv *env, jclass clazz, jlong handle, jshortArray near_arr,
         jshortArray far_arr, jshortArray out_arr) {
     (void) clazz;
-    SpeexEchoState *st = (SpeexEchoState *) (intptr_t) handle;
-    if (env == NULL || st == NULL) {
+    SpeexEchoHandle *h = to_echo_handle(handle);
+    if (env == NULL || h == NULL || h->state == NULL) {
         return JNI_FALSE;
     }
 
     jsize nearLen = (*env)->GetArrayLength(env, near_arr);
-    if (nearLen <= 0 || (*env)->GetArrayLength(env, far_arr) != nearLen ||
+    /* Reject any length but the state's own: a shorter array would make
+     * speex_echo_cancellation() read and write past the Java array's end. */
+    if (nearLen != h->frame_size ||
+        (*env)->GetArrayLength(env, far_arr) != nearLen ||
         (*env)->GetArrayLength(env, out_arr) != nearLen) {
         return JNI_FALSE;
     }
@@ -372,7 +408,7 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCancel(
         return JNI_FALSE;
     }
 
-    speex_echo_cancellation(st, nearEl, farEl, outEl);
+    speex_echo_cancellation(h->state, nearEl, farEl, outEl);
 
     unlock_shorts(env, near_arr, nearEl, nearCrit, JNI_ABORT);
     unlock_shorts(env, far_arr, farEl, farCrit, JNI_ABORT);
