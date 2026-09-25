@@ -94,6 +94,12 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeCreate(
     return (jlong) (intptr_t) h;
 }
 
+/*
+ * Destroys the state and the handle. The handle arrives by value, so this
+ * cannot clear the caller's copy: SpeexDspProcessor.close() zeroes its
+ * nativeHandle right after the call, and a repeated call with the same non-zero
+ * value would be a double free (the only check here is for 0).
+ */
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexDspProcessor_nativeDestroy(
         JNIEnv *env, jclass clazz, jlong handle) {
@@ -329,6 +335,8 @@ Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeCreate(
     return (jlong) (intptr_t) h;
 }
 
+/* Same contract as SpeexDspProcessor_nativeDestroy: the caller owns zeroing its
+ * handle, and a repeated call with the same non-zero value is a double free. */
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_SpeexEchoCanceller_nativeDestroy(
         JNIEnv *env, jclass clazz, jlong handle) {

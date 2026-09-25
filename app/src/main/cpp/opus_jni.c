@@ -90,6 +90,13 @@ Java_dev_woms_mumdroid_core_audio_LibOpusNative_encoderCreate(
     return (jlong) (intptr_t) enc;
 }
 
+/*
+ * Destroys the encoder. The handle arrives by value, so this cannot clear the
+ * caller's copy: the Kotlin owner must zero its own field right after the call
+ * (LibOpusBackend.destroyEncoderLocked does) and must never pass the same
+ * non-zero handle twice — a second call would be a double free, since the only
+ * check here is for 0.
+ */
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_LibOpusNative_encoderDestroy(
         JNIEnv *env, jclass clazz, jlong handle) {
@@ -189,6 +196,8 @@ Java_dev_woms_mumdroid_core_audio_LibOpusNative_decoderCreate(
     return (jlong) (intptr_t) dec;
 }
 
+/* Same contract as encoderDestroy: the caller owns zeroing its handle, and a
+ * repeated call with the same non-zero value is a double free. */
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_LibOpusNative_decoderDestroy(
         JNIEnv *env, jclass clazz, jlong handle) {

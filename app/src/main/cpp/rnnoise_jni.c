@@ -189,6 +189,12 @@ Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeProcess(
     return speech;
 }
 
+/*
+ * Destroys the state and the handle. The handle arrives by value, so this
+ * cannot clear the caller's copy: RnNoiseProcessor.close() zeroes its
+ * nativeHandle right after the call, and a repeated call with the same non-zero
+ * value would be a double free (the only check here is for 0).
+ */
 JNIEXPORT void JNICALL
 Java_dev_woms_mumdroid_core_audio_noise_RnNoiseProcessor_nativeDestroy(
         JNIEnv *env, jobject obj, jlong handle) {

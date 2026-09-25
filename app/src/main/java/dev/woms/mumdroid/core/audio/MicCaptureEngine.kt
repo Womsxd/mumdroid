@@ -238,6 +238,10 @@ class MicCaptureEngine(
             if (rec.state != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "AudioRecord init failed")
                 rec.release()
+                // Tear down the preprocessor / echo canceller created above, as
+                // the other failure paths do: an engine whose open() failed must
+                // not hold native state until its owner happens to call close().
+                close()
                 return false
             }
             rec.setPreferredDevice(preferredDevice)
