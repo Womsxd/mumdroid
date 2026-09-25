@@ -5,6 +5,7 @@ import com.google.protobuf.MessageLite
 import dev.woms.mumdroid.core.model.BanEntry
 import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.RegisteredUser
+import dev.woms.mumdroid.core.model.VoiceTargetTarget
 import dev.woms.mumdroid.core.proto.ACL
 import dev.woms.mumdroid.core.proto.Authenticate
 import dev.woms.mumdroid.core.proto.BanList
@@ -51,6 +52,13 @@ internal interface MumbleControlSender {
 
     /** Desktop `ServerHandler::startListeningToChannel` / `stopListeningToChannel`. */
     fun setChannelListening(channelId: Int, listen: Boolean)
+
+    /**
+     * Registers or clears a shout / whisper target: one `VoiceTarget` carrying
+     * [id] and a receiver entry per [targets] element (empty clears it). The ids
+     * come from [VoiceTargetRegistry].
+     */
+    fun sendVoiceTarget(id: Int, targets: List<VoiceTargetTarget>)
 
     /** Desktop `ServerHandler::createChannel`: ChannelState without `channel_id`. */
     fun createChannel(
@@ -258,6 +266,10 @@ internal class MumbleControlSenders : MumbleControlSender {
             MessageType.USER_STATE,
             UserModeration.setChannelListening(localSession(), channelId, listen),
         )
+    }
+
+    override fun sendVoiceTarget(id: Int, targets: List<VoiceTargetTarget>) {
+        writeMessage(MessageType.VOICE_TARGET, VoiceTargetWrite.message(id, targets))
     }
 
     /**

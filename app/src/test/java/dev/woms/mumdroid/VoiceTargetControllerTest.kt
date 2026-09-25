@@ -1,11 +1,12 @@
 package dev.woms.mumdroid
 
-import com.google.protobuf.MessageLite
 import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.User
 import dev.woms.mumdroid.core.model.VoiceTargetId
 import dev.woms.mumdroid.core.model.VoiceTargetSpec
+import dev.woms.mumdroid.core.model.VoiceTargetTarget
 import dev.woms.mumdroid.core.net.MessageType
+import dev.woms.mumdroid.core.net.VoiceTargetWrite
 import dev.woms.mumdroid.core.proto.VoiceTarget
 import dev.woms.mumdroid.service.SessionRoster
 import dev.woms.mumdroid.service.VoiceTargetController
@@ -24,8 +25,11 @@ class VoiceTargetControllerTest {
         val roster = SessionRoster(CoroutineScope(Dispatchers.Unconfined))
         val sent = mutableListOf<Sent>()
         val controller = VoiceTargetController(roster)
-        controller.send = { type: Int, message: MessageLite ->
-            sent.add(Sent(type, message as VoiceTarget))
+        // The sink is domain-shaped now, so the fake builds the message with
+        // the same core/net helper the real sender uses — the assertions below
+        // therefore still cover the wire shape.
+        controller.send = { id: Int, targets: List<VoiceTargetTarget> ->
+            sent.add(Sent(MessageType.VOICE_TARGET, VoiceTargetWrite.message(id, targets)))
         }
         return controller to sent
     }

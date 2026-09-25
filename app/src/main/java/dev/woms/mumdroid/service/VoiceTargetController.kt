@@ -1,13 +1,11 @@
 package dev.woms.mumdroid.service
 
-import com.google.protobuf.MessageLite
 import dev.woms.mumdroid.core.model.TalkState
 import dev.woms.mumdroid.core.model.VoiceTargetId
 import dev.woms.mumdroid.core.model.VoiceTargetSpec
 import dev.woms.mumdroid.core.model.VoiceTargetStatus
-import dev.woms.mumdroid.core.net.MessageType
+import dev.woms.mumdroid.core.model.VoiceTargetTarget
 import dev.woms.mumdroid.core.net.VoiceTargetRegistry
-import dev.woms.mumdroid.core.net.VoiceTargetWrite
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -41,11 +39,13 @@ internal class VoiceTargetController(private val roster: SessionRoster) {
     val sendTargetId: Int get() = _sendTargetId.value
 
     /**
-     * Control-channel sink for the registration messages. Set while a client is
+     * Control-channel sink for the registration messages ([id] plus the
+     * receiver targets; an empty list clears it). Set while a client is
      * attached and cleared with it, so a teardown cannot write to a dead socket.
+     * Message assembly stays in core/net.
      */
     @Volatile
-    var send: ((type: Int, message: MessageLite) -> Unit)? = null
+    var send: ((id: Int, targets: List<VoiceTargetTarget>) -> Unit)? = null
 
     /**
      * Talk state to show for the local user while transmitting: whispering for a
@@ -103,8 +103,8 @@ internal class VoiceTargetController(private val roster: SessionRoster) {
         val resolution = registry.resolve(usable)
         for (op in resolution.ops) {
             when (op) {
-                is VoiceTargetRegistry.Op.Register -> emit(VoiceTargetWrite.message(op.id, listOf(op.target)))
-                is VoiceTargetRegistry.Op.Clear -> emit(VoiceTargetWrite.message(op.id, emptyList()))
+                is VoiceTargetRegistry.Op.Register -> emit(op.id, listOf(op.target))
+                is VoiceTargetRegistry.Op.Clear -> emit(op.id, emptyList())
             }
         }
         _sendTargetId.value = resolution.targetId
@@ -119,7 +119,7 @@ internal class VoiceTargetController(private val roster: SessionRoster) {
     fun clear() {
         if (_status.value.isRegular && registry.activeIds.isEmpty()) return
         for (op in registry.releaseAll()) {
-            if (op is VoiceTargetRegistry.Op.Clear) emit(VoiceTargetWrite.message(op.id, emptyList()))
+            if (op is VoiceTargetRegistry.Op.Clear) emit(op.id, emptyList())
         }
         _status.value = VoiceTargetStatus()
         _sendTargetId.value = VoiceTargetId.REGULAR_SPEECH
@@ -180,10 +180,10 @@ internal class VoiceTargetController(private val roster: SessionRoster) {
 
     private fun revoke(spec: VoiceTargetSpec?) {
         val id = spec?.let { registry.forget(it) } ?: return
-        emit(VoiceTargetWrite.message(id, emptyList()))
+        emit(id, emptyList())
     }
 
-    private fun emit(message: MessageLite) {
-        send?.invoke(MessageType.VOICE_TARGET, message)
+    private fun emit(id: Int, targets: List<VoiceTargetTarget>) {
+        send?.invoke(id, targets)
     }
 }

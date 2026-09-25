@@ -205,7 +205,7 @@ internal class VoiceSession(
      * null client detaches the sink (nothing may write during a teardown).
      */
     fun attachTargetSender(client: MumbleClient?) {
-        targets.send = client?.let { c -> { type, message -> c.sendMessage(type, message) } }
+        targets.send = client?.let { c -> { id, targets -> c.sendVoiceTarget(id, targets) } }
     }
 
     /** Sets (or clears) the shout/whisper target for the session. */
