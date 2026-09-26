@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Dark counterpart of the window theme (see values/themes.xml).
+
+         Used for everything drawn before Compose's first frame: the launch
+         window background and, on Android 12+, the system splash screen, both
+         of which are derived from this theme's ?android:colorBackground. The
+         light-only parent in values/ made those frames white even on a
+         dark-mode device, so a cold start flashed light before MumdroidTheme
+         painted. Keeping the parent dark here removes that flash.
+
+         Note this follows the *system* uiMode only; the in-app DarkTheme
+         preference (DarkTheme.ON/OFF) is applied later, by Compose. -->
+    <style name="Theme.Mumdroid" parent="android:Theme.Material.NoActionBar" />
+</resources>
