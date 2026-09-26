@@ -60,9 +60,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _settings = MutableStateFlow(AppSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
+    /**
+     * False until the first DataStore snapshot lands. [settings] starts as
+     * [AppSettings]'s compiled-in defaults, which are indistinguishable from a
+     * user choice, so consumers that would act on one (the window's night mode)
+     * wait for this instead.
+     */
+    private val _settingsLoaded = MutableStateFlow(false)
+    val settingsLoaded: StateFlow<Boolean> = _settingsLoaded.asStateFlow()
+
     init {
         viewModelScope.launch {
-            settingsStore.settings.collect { _settings.value = it }
+            settingsStore.settings.collect {
+                _settings.value = it
+                _settingsLoaded.value = true
+            }
         }
         serverList.startAutoPing(settings)
     }

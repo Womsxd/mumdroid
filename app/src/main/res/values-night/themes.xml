@@ -10,7 +10,9 @@
          dark-mode device, so a cold start flashed light before MumdroidTheme
          painted. Keeping the parent dark here removes that flash.
 
-         Note this follows the *system* uiMode only; the in-app DarkTheme
-         preference (DarkTheme.ON/OFF) is applied later, by Compose. -->
+         The activity's configuration decides which of the two applies, and
+         NightModeManager rewrites its night bits from the in-app DarkTheme
+         preference in attachBaseContext — so a forced dark/light mode selects
+         this file too, not just the device setting. -->
     <style name="Theme.Mumdroid" parent="android:Theme.Material.NoActionBar" />
 </resources>

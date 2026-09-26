@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.woms.mumdroid.core.appearance.NightModeManager
 import dev.woms.mumdroid.core.i18n.LocaleManager
 import dev.woms.mumdroid.core.model.DarkTheme
 import dev.woms.mumdroid.ui.EarpieceProximityEffect
@@ -38,7 +39,10 @@ internal fun DarkTheme.effectiveDark(): Boolean = when (this) {
 abstract class BaseActivity : ComponentActivity() {
 
     override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(LocaleManager.applyLocaleIfNeeded(newBase))
+        // Locale first, then night mode: each step derives its configuration
+        // from the previous one, so the night override keeps the chosen locale.
+        val localized = LocaleManager.applyLocaleIfNeeded(newBase)
+        super.attachBaseContext(NightModeManager.applyIfNeeded(localized))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,6 +66,21 @@ abstract class BaseActivity : ComponentActivity() {
                 val target = LocaleManager.localeFor(appSettings.language)
                 if (target != LocaleManager.currentLocale) {
                     LocaleManager.currentLocale = target
+                    recreate()
+                }
+            }
+
+            // The window theme — splash, window background and system-bar icon
+            // contrast — is fixed when the window is created, from the
+            // configuration NightModeManager wrote in attachBaseContext, so a
+            // changed preference needs a new window. Wait for the first
+            // DataStore snapshot: until it lands `settings` still holds
+            // AppSettings()'s compiled-in defaults, and mirroring a phantom
+            // "follow the system" would drop a forced dark/light choice.
+            val settingsLoaded by vm.settingsLoaded.collectAsStateWithLifecycle()
+            LaunchedEffect(settingsLoaded, appSettings.darkTheme) {
+                if (!settingsLoaded) return@LaunchedEffect
+                if (NightModeManager.store(this@BaseActivity, appSettings.darkTheme)) {
                     recreate()
                 }
             }
