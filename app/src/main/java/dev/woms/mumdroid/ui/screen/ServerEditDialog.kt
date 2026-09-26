@@ -3,6 +3,7 @@ package dev.woms.mumdroid.ui.screen
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
@@ -15,10 +16,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.woms.mumdroid.R
 import dev.woms.mumdroid.core.model.MumbleServer
+import dev.woms.mumdroid.core.model.ServerPort
 
 /** Dialog to add or edit a server. */
 @Composable
@@ -30,9 +33,14 @@ fun ServerEditDialog(
 ) {
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var host by remember { mutableStateOf(initial?.host ?: "") }
-    var port by remember { mutableStateOf((initial?.port ?: 64738).toString()) }
+    var port by remember { mutableStateOf((initial?.port ?: ServerPort.DEFAULT).toString()) }
     var username by remember { mutableStateOf(initial?.username ?: defaultUsername) }
     var password by remember { mutableStateOf(initial?.password ?: "") }
+
+    // Null while the field does not hold a port in 1..65535. One value drives
+    // both the field's error state and the save button, so the two can never
+    // disagree: the button no longer just greys out without saying why.
+    val portValue = ServerPort.parse(port)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -48,8 +56,18 @@ fun ServerEditDialog(
                     label = { Text(stringResource(R.string.server_host)) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
-                    value = port, onValueChange = { port = it },
-                    label = { Text(stringResource(R.string.server_port)) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    value = port,
+                    onValueChange = { port = ServerPort.filter(it) },
+                    label = { Text(stringResource(R.string.server_port)) },
+                    isError = portValue == null,
+                    supportingText = if (portValue == null) {
+                        { Text(stringResource(R.string.server_port_invalid)) }
+                    } else {
+                        null
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = username, onValueChange = { username = it },
@@ -64,9 +82,9 @@ fun ServerEditDialog(
         },
         confirmButton = {
             Button(
-                enabled = host.isNotBlank() && port.toIntOrNull() != null,
+                enabled = host.isNotBlank() && portValue != null,
                 onClick = {
-                    onSave(name, host.trim(), port.toIntOrNull() ?: 64738, username.trim(), password)
+                    onSave(name, host.trim(), portValue ?: ServerPort.DEFAULT, username.trim(), password)
                 },
             ) {
                 Text(stringResource(if (initial == null) R.string.add else R.string.save))

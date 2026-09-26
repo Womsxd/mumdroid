@@ -180,19 +180,19 @@ private fun ChannelPasswordDialog(
                     stringResource(R.string.channel_password_message, prompt.channelName),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                if (prompt.retry) {
-                    Text(
-                        stringResource(R.string.channel_password_wrong),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
                     label = { Text(stringResource(R.string.channel_password_label)) },
                     singleLine = true,
+                    // The rejection sits on the field instead of floating above
+                    // it, so it is the entry itself that is marked wrong.
+                    isError = prompt.retry,
+                    supportingText = if (prompt.retry) {
+                        { Text(stringResource(R.string.channel_password_wrong)) }
+                    } else {
+                        null
+                    },
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
