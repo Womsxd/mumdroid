@@ -3,6 +3,7 @@ package dev.woms.mumdroid.core.appearance
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Configuration
+import androidx.core.content.edit
 import dev.woms.mumdroid.core.appearance.NightModeManager.current
 import dev.woms.mumdroid.core.model.DarkTheme
 
@@ -48,7 +49,7 @@ object NightModeManager {
      */
     fun store(context: Context, theme: DarkTheme): Boolean {
         val changed = theme != current(context)
-        prefs(context).edit().putString(KEY_DARK_THEME, theme.name).apply()
+        prefs(context).edit { putString(KEY_DARK_THEME, theme.name) }
         return changed
     }
 
