@@ -46,10 +46,16 @@ object VoiceBandwidth {
      * `AudioInputDialog::updateBitrate` (and therefore
      * `AudioInput::getNetworkBandwidth` when summed).
      *
-     * Overhead bytes: 20 IP + 8 UDP + 4 OCB2 + 1 type + 2 framing +
-     * [frames] + 12 when tunnelling over TCP. Position is 12 bytes when
-     * whispering location. Packet rate is `100 / frames` per second, so
-     * the byte cost is multiplied by `800 / frames`.
+     * Overhead bytes: 20 IP + 8 UDP + 4 + 1 type + 2 framing + [frames], plus
+     * a flat 12 when tunnelling over TCP. Position is 12 bytes when whispering
+     * location. Packet rate is `100 / frames` per second, so the byte cost is
+     * multiplied by `800 / frames`.
+     *
+     * The flat 4 is the OCB2 tag on the UDP datagram path only. Official
+     * `AudioInput::getNetworkBandwidth` keeps it in TCP mode as well, where the
+     * tunneled body is plaintext and protected by TLS rather than OCB2, so read
+     * it as a fixed estimate — not as "every tunneled packet also carries
+     * OCB2". The numbers must match the official formula in both modes.
      */
     fun peakUsage(
         bitrate: Int,

@@ -109,7 +109,7 @@ dev.woms.mumdroid
     - 仅解码 Opus；CELT 与 Speex 载荷被丢弃，与现代桌面客户端一致。
 - **连通性。** 周期性 UDP ping 测量往返时间并检测语音路径故障。任一方 UDP 失效即切换到 TCP 隧道，UDP 恢复后切回。持续解密失败会触发加密重新同步。
     - 隧道语音不做 OCB2：`UDPTunnel` 体就是明文包，由其所在的 TLS 通道提供保护（官方客户端的强制 TCP 分支同样如此）。
-- **带宽自适应。** 请求的码率与包大小会被逐步降低（`adjustBandwidth`），直到 IP + UDP + OCB2 + 组帧开销符合服务器 `max_bandwidth`，最低降至 8 kbit/s。
+- **带宽自适应。** 请求的码率与包大小会被逐步降低（`adjustBandwidth`），直到按官方 `getNetworkBandwidth` 的固定开销估算（IP + UDP + 固定 4 字节 + 组帧，TCP 隧道模式另加固定 12 字节）符合服务器 `max_bandwidth`，最低降至 8 kbit/s。那 4 字节只在 UDP 数据报上是 OCB2 标签；隧道体是明文、由 TLS 保护，官方在两种模式下都保留该常量。
 
 ### 音频流水线
 

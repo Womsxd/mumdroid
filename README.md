@@ -109,7 +109,7 @@ dev.woms.mumdroid
     - Only Opus is decoded; CELT and Speex payloads are dropped, matching the modern desktop client.
 - **Connectivity.** Periodic UDP pings measure round-trip time and detect a broken voice path. If UDP stops working in either direction the client switches to TCP tunnelling, and switches back once UDP recovers. Persistent decryption failures trigger a crypt resync.
     - Tunneled voice skips OCB2: the `UDPTunnel` body is the plaintext packet, protected by the TLS channel it travels in (the official client's force-TCP branch does the same).
-- **Bandwidth adaptation.** The requested bitrate and packet size are reduced (`adjustBandwidth`) until IP + UDP + OCB2 + framing overhead fits the server's `max_bandwidth`, down to a floor of 8 kbit/s.
+- **Bandwidth adaptation.** The requested bitrate and packet size are reduced (`adjustBandwidth`) until the official `getNetworkBandwidth` fixed-overhead estimate (IP + UDP + a flat 4 bytes + framing, plus a flat 12 bytes in TCP tunnel mode) fits the server's `max_bandwidth`, down to a floor of 8 kbit/s. The flat 4 is the OCB2 tag on UDP datagrams only; a tunneled body is plaintext protected by TLS, and the official formula keeps the constant in both modes.
 
 ### Audio pipeline
 
