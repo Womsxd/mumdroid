@@ -5,6 +5,7 @@ import android.util.Log
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The client's keep-alive ping loop and its round-trip accounting, extracted
@@ -34,10 +35,20 @@ internal class TcpPingLoop(
     private val onRtt: (rttMillis: Long) -> Unit,
 ) {
     private var executor: ScheduledExecutorService? = null
-    private var inFlight = 0
+
+    /**
+     * Pings sent but not yet answered.
+     *
+     * [tick] runs on the scheduler thread and [onReply] on the TCP read thread,
+     * so this is atomic: a reply arriving between [tick]'s budget check and its
+     * increment would otherwise let a bare `++` store the value read before the
+     * reply, keeping already answered pings counted and skewing the timeout
+     * verdict by up to one round.
+     */
+    private val inFlight = AtomicInteger(0)
 
     /** Pings currently unanswered, exposed for tests and diagnostics. */
-    val inFlightCount: Int get() = inFlight
+    val inFlightCount: Int get() = inFlight.get()
 
     fun start() {
         stop()
@@ -53,12 +64,12 @@ internal class TcpPingLoop(
     /** One scheduled tick: bail out if the budget is gone, else send and count. */
     fun tick() {
         try {
-            if (inFlight >= maxInFlight) {
+            if (inFlight.get() >= maxInFlight) {
                 onTimeout()
                 return
             }
             sendPing(clock())
-            inFlight++
+            inFlight.incrementAndGet()
         } catch (e: Exception) {
             // A send failure is not a reason to kill the session: the next tick
             // (or the socket's own error handling) will react.
@@ -77,7 +88,9 @@ internal class TcpPingLoop(
      * @return the measured RTT, or null when the reply carried no usable one.
      */
     fun onReply(timestampMs: Long): Long? {
-        inFlight = 0
+        // Any reply means the channel is alive again: the whole budget clears,
+        // not just the ping this timestamp belongs to.
+        inFlight.set(0)
         val now = clock()
         if (timestampMs < 1 || timestampMs >= now) return null
         val rtt = now - timestampMs
@@ -90,7 +103,7 @@ internal class TcpPingLoop(
     fun stop() {
         executor?.shutdownNow()
         executor = null
-        inFlight = 0
+        inFlight.set(0)
     }
 
     private companion object {

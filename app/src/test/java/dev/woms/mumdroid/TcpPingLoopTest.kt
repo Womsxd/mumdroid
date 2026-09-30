@@ -14,6 +14,13 @@ class TcpPingLoopTest {
 
     private class Harness(clockStart: Long = 1_000L) {
         var now = clockStart
+
+        /**
+         * Runs inside [TcpPingLoop.tick]'s window — the clock is read between
+         * its budget check and its increment — so the reply/tick interleaving
+         * can be driven deterministically instead of won by a race.
+         */
+        var duringTick: (() -> Unit)? = null
         val sent = mutableListOf<Long>()
         val rtts = mutableListOf<Long>()
         var timeouts = 0
@@ -21,7 +28,10 @@ class TcpPingLoopTest {
             tag = "test",
             intervalSeconds = 1L,
             maxInFlight = 4,
-            clock = { now },
+            clock = {
+                duringTick?.invoke()
+                now
+            },
             sendPing = { sent += it },
             onTimeout = { timeouts++ },
             onRtt = { rtts += it },
@@ -103,5 +113,25 @@ class TcpPingLoopTest {
         h.loop.stop()
         assertEquals(0, h.loop.inFlightCount)
         h.loop.stop()
+    }
+
+    @Test
+    fun tick_keepsTheNewPingWhenAReplyLandsInsideTheWindow() {
+        // onReply runs on the read thread, so it can land between tick()'s
+        // budget check and its increment. That reply answered every ping
+        // outstanding at the time, so exactly one — the one just sent — must
+        // stay counted; a stale read-then-store would keep the old ones too.
+        val h = Harness()
+        repeat(3) { h.tick() }
+        assertEquals(3, h.loop.inFlightCount)
+
+        h.duringTick = {
+            // Fire once: onReply reads the clock as well.
+            h.duringTick = null
+            h.loop.onReply(timestampMs = 0L)
+        }
+        h.tick()
+
+        assertEquals("answered pings must not stay counted", 1, h.loop.inFlightCount)
     }
 }
