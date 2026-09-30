@@ -12,9 +12,16 @@ import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
 /**
- * A server certificate the client has seen (and optionally pinned), persisted
- * with Room. This mirrors the desktop client's certificate store so the user
- * can review and manage the servers they have connected to.
+ * The certificate pinned for one server address ([host]:[port]), persisted with
+ * Room. This mirrors the desktop client's certificate store so the user can
+ * review and manage the servers they have connected to.
+ *
+ * The pin is keyed by the *server address*, never by the fingerprint: several
+ * servers may legitimately present the same certificate (shared/self-signed
+ * certs, one cert for a host and several of its ports), and each must keep its
+ * own pin. Uniqueness is therefore on (host, port) — exactly the key the
+ * pinning check looks up — so a shared certificate can never shadow or drop
+ * another server's pin.
  *
  * @property id auto-generated primary key.
  * @property alias user-facing label shown in the certificate list.
@@ -28,7 +35,7 @@ import kotlinx.coroutines.flow.Flow
  */
 @Entity(
     tableName = "certificates",
-    indices = [Index(value = ["fingerprint"], unique = true)],
+    indices = [Index(value = ["host", "port"], unique = true)],
 )
 data class CertificateEntity(
     @PrimaryKey(autoGenerate = true)
@@ -54,21 +61,30 @@ interface CertificateDao {
     @Query("SELECT * FROM certificates WHERE id = :id")
     suspend fun getById(id: Long): CertificateEntity?
 
-    @Query("SELECT * FROM certificates WHERE fingerprint = :fingerprint LIMIT 1")
-    suspend fun findByFingerprint(fingerprint: String): CertificateEntity?
+    /**
+     * The certificate pinned for a host:port pair, if any. At most one row can
+     * exist per address (the unique index is on `(host, port)`), so this is the
+     * address's active pin.
+     */
+    @Query("SELECT * FROM certificates WHERE host = :host AND port = :port LIMIT 1")
+    suspend fun findByHostPort(host: String, port: Int): CertificateEntity?
 
-    /** Latest certificate recorded for a host:port pair (the active pin). */
-    @Query(
-        "SELECT * FROM certificates WHERE host = :host AND port = :port " +
-            "ORDER BY created_at DESC LIMIT 1",
-    )
-    suspend fun findLatestByHostPort(host: String, port: Int): CertificateEntity?
-
-    @Query("DELETE FROM certificates WHERE host = :host AND port = :port")
-    suspend fun deleteForHostPort(host: String, port: Int)
-
+    /**
+     * Records a pin without ever replacing an existing one: a conflict on
+     * `(host, port)` is ignored. Used for first-connection pinning, so a later
+     * connection can never silently overwrite the user's pin.
+     */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insert(certificate: CertificateEntity): Long
+    suspend fun insertIfAbsent(certificate: CertificateEntity): Long
+
+    /**
+     * Sets the pin for `(host, port)` to the given certificate, replacing any
+     * previous pin for that address (the explicit "update certificate" action).
+     * A single `INSERT OR REPLACE` is atomic, so the address always ends up
+     * with either the new pin or (on failure) its previous one — never none.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun replace(certificate: CertificateEntity): Long
 
     @Delete
     suspend fun delete(certificate: CertificateEntity)

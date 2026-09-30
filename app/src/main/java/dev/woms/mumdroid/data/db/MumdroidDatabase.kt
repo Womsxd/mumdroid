@@ -20,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UserCertificateEntity::class,
         UserCertificateConfigEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class MumdroidDatabase : RoomDatabase() {
@@ -213,6 +213,44 @@ abstract class MumdroidDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Pins move from being keyed by fingerprint (globally unique) to being
+         * keyed by the server address `(host, port)`. The old fingerprint unique
+         * let one server's pin shadow another's when both present the same
+         * certificate, and made "update certificate" silently drop a pin when
+         * the new fingerprint already belonged elsewhere. Keeping the newest
+         * row per address preserves the pin the pinning check actually used.
+         */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Collapse any duplicate address rows (possible before this
+                // migration: a re-recorded certificate could add a second row
+                // for the same host/port) down to the newest one, so the unique
+                // index below can be created.
+                db.execSQL(
+                    """
+                    DELETE FROM certificates WHERE EXISTS (
+                        SELECT 1 FROM certificates newer
+                        WHERE newer.host = certificates.host
+                          AND newer.port = certificates.port
+                          AND (
+                              newer.created_at > certificates.created_at
+                              OR (
+                                  newer.created_at = certificates.created_at
+                                  AND newer.id > certificates.id
+                              )
+                          )
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP INDEX IF EXISTS index_certificates_fingerprint")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_certificates_host_port " +
+                        "ON certificates(host, port)",
+                )
+            }
+        }
+
         fun getInstance(context: Context): MumdroidDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -225,6 +263,7 @@ abstract class MumdroidDatabase : RoomDatabase() {
                     MIGRATION_3_4,
                     MIGRATION_4_5,
                     MIGRATION_5_6,
+                    MIGRATION_6_7,
                 ).build()
                     .also { INSTANCE = it }
             }
