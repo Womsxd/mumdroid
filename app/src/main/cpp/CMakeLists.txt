@@ -41,6 +41,21 @@ string(CONCAT RNNOISE_MODEL_URL
         "${RNNOISE_MODEL_HASH}"
         ".tar.gz")
 
+# FetchContent defaults FETCHCONTENT_BASE_DIR to ${CMAKE_BINARY_DIR}/_deps, and
+# AGP gives every ABI — and every build type — its own binary dir. This model
+# tarball is ~59 MB compressed and unpacks to a 75 MB `rnnoise_data.c`, so the
+# default fetched and extracted it once per ABI (3 downloads per variant, ~176 MB
+# per variant, ~350 MB for debug + release). One shared cache directory fixes
+# that: whichever configure runs first fetches it, the rest reuse the extracted
+# sources. They are read-only input — each ABI still compiles its own objects.
+#
+# It lives under AGP's `.cxx` build area (git-ignored) and survives
+# `externalNativeBuildClean*`, so the model is re-fetched only when `.cxx` itself
+# is deleted. Overridable with -DFETCHCONTENT_BASE_DIR=... .
+set(FETCHCONTENT_BASE_DIR
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../../.cxx/rnnoise-model"
+        CACHE PATH "Shared RNNoise model-data cache for every ABI")
+
 include(FetchContent)
 # NOTE: DOWNLOAD_EXTRACT_TIMESTAMP is intentionally not passed here — it needs
 # CMake >= 3.24 while AGP ships 3.22 (it only suppresses a CMP0135 warning).
