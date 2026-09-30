@@ -119,7 +119,7 @@ internal class MumbleServiceEvents(
     override fun onBanList(bans: List<BanEntry>, query: Boolean) = context.admin.handleBanList(context.state.client, bans)
 
     override fun onPermissionQuery(channelId: Int, permissions: Long, flush: Boolean) {
-        context.roster.applyPermissionQuery(channelId, permissions, flush)
+        context.roster.acl.applyPermissionQuery(channelId, permissions, flush)
     }
 
     override fun onConnected(session: Int, welcomeText: String, maxBandwidth: Int) {

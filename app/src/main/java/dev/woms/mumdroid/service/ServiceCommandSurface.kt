@@ -239,28 +239,28 @@ internal class SessionPermissions(
     private val state: SessionState,
     private val roster: SessionRoster,
 ) {
-    fun canAdministerChannel(channelId: Int) = roster.canAdministerChannel(channelId)
-    fun canMuteUser(user: User) = roster.canMuteUser(user)
-    fun canPrioritySpeaker(user: User) = roster.canPrioritySpeaker(user)
-    fun canMoveInChannel(channelId: Int) = roster.canMoveInChannel(channelId)
-    fun canKickUser() = roster.canKickUser()
-    fun canBanUser() = roster.canBanUser()
-    fun canEditRegisteredUsers() = roster.canEditRegisteredUsers()
-    fun canRegisterUser(user: User) = roster.canRegisterUser(user)
-    fun canTextMessage(channelId: Int) = roster.canTextMessage(channelId)
-    fun canListen(channelId: Int) = roster.canListen(channelId)
-    fun canWriteChannel(channelId: Int) = roster.canWriteChannel(channelId)
-    fun canAddChannel(channelId: Int) = roster.canAddChannel(channelId)
-    fun canMakePermanentChannel(channelId: Int) = roster.canMakePermanentChannel(channelId)
-    fun canLinkChannel(channelId: Int) = roster.canLinkChannel(channelId)
-    fun canTraverse(channelId: Int) = roster.canTraverse(channelId)
-    fun canSpeak(channelId: Int) = roster.canSpeak(channelId)
-    fun canWhisper(channelId: Int) = roster.canWhisper(channelId)
-    fun mayWhisper(channelId: Int) = roster.mayWhisper(channelId)
-    fun canEnter(channelId: Int) = roster.canEnter(channelId)
-    fun canJoinChannel(channelId: Int) = roster.canJoinChannel(channelId)
-    fun canEditAcl(channelId: Int) = roster.canEditAcl(channelId)
-    fun canViewUserInfo(user: User) = roster.canViewUserInfo(user)
+    fun canAdministerChannel(channelId: Int) = roster.acl.canAdministerChannel(channelId)
+    fun canMuteUser(user: User) = roster.acl.canMuteUser(user)
+    fun canPrioritySpeaker(user: User) = roster.acl.canPrioritySpeaker(user)
+    fun canMoveInChannel(channelId: Int) = roster.acl.canMoveInChannel(channelId)
+    fun canKickUser() = roster.acl.canKickUser()
+    fun canBanUser() = roster.acl.canBanUser()
+    fun canEditRegisteredUsers() = roster.acl.canEditRegisteredUsers()
+    fun canRegisterUser(user: User) = roster.acl.canRegisterUser(user)
+    fun canTextMessage(channelId: Int) = roster.acl.canTextMessage(channelId)
+    fun canListen(channelId: Int) = roster.acl.canListen(channelId)
+    fun canWriteChannel(channelId: Int) = roster.acl.canWriteChannel(channelId)
+    fun canAddChannel(channelId: Int) = roster.acl.canAddChannel(channelId)
+    fun canMakePermanentChannel(channelId: Int) = roster.acl.canMakePermanentChannel(channelId)
+    fun canLinkChannel(channelId: Int) = roster.acl.canLinkChannel(channelId)
+    fun canTraverse(channelId: Int) = roster.acl.canTraverse(channelId)
+    fun canSpeak(channelId: Int) = roster.acl.canSpeak(channelId)
+    fun canWhisper(channelId: Int) = roster.acl.canWhisper(channelId)
+    fun mayWhisper(channelId: Int) = roster.acl.mayWhisper(channelId)
+    fun canEnter(channelId: Int) = roster.acl.canEnter(channelId)
+    fun canJoinChannel(channelId: Int) = roster.acl.canJoinChannel(channelId)
+    fun canEditAcl(channelId: Int) = roster.acl.canEditAcl(channelId)
+    fun canViewUserInfo(user: User) = roster.acl.canViewUserInfo(user)
 
     fun supportsSelectiveBan(): Boolean {
         val c = state.client ?: return false
@@ -285,7 +285,7 @@ internal class SessionPermissions(
     fun canResetUserContent(): Boolean {
         val c = state.client ?: return false
         return UserModeration.canResetUserContent(
-            roster.rootPermissions(),
+            roster.acl.rootPermissions(),
             c.serverVersionV2,
             c.serverVersionLegacy,
         )

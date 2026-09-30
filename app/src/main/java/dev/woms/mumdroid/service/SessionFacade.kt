@@ -51,7 +51,7 @@ internal class SessionFacade(
     // ---- roster ----
     val channels: StateFlow<List<Channel>> = roster.channels
     val users: StateFlow<List<User>> = roster.users
-    val permissionEpoch: StateFlow<Int> = roster.permissionEpoch
+    val permissionEpoch: StateFlow<Int> = roster.acl.permissionEpoch
     val listeningChannels: StateFlow<Set<Int>> = roster.listeningChannels
 
     // ---- voice ----

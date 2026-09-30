@@ -156,7 +156,7 @@ internal class SessionChannels(
     }
 
     fun ensurePermissions(channelId: Int) {
-        if (roster.hasPermissions(channelId)) return
+        if (roster.acl.hasPermissions(channelId)) return
         callbacks.client()?.queryPermissions(channelId)
     }
 }

@@ -1,6 +1,5 @@
 package dev.woms.mumdroid.service
 
-import dev.woms.mumdroid.core.model.ChanACL
 import dev.woms.mumdroid.core.model.Channel
 import dev.woms.mumdroid.core.model.ChannelLinks
 import dev.woms.mumdroid.core.model.ChannelTree
@@ -16,7 +15,11 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Live channel tree, user table, local mute/ignore, listen-in, and ACL bits.
+ * Live channel tree, user table, local mute/ignore and listen-in.
+ *
+ * The ACL bits the server reported and the questions asked of them live in
+ * [RosterPermissions], held here as [acl]: they are a cache of one map rather
+ * than roster state, and nothing in them reads the tables above.
  */
 internal class SessionRoster(private val scope: CoroutineScope) {
 
@@ -26,9 +29,6 @@ internal class SessionRoster(private val scope: CoroutineScope) {
     private val _users = MutableStateFlow<List<User>>(emptyList())
     val users: StateFlow<List<User>> = _users
 
-    private val _permissionEpoch = MutableStateFlow(0)
-    val permissionEpoch: StateFlow<Int> = _permissionEpoch
-
     private val _listeningChannels = MutableStateFlow<Set<Int>>(emptySet())
     val listeningChannels: StateFlow<Set<Int>> = _listeningChannels
 
@@ -37,7 +37,9 @@ internal class SessionRoster(private val scope: CoroutineScope) {
     val localBlockSet = ConcurrentHashMap.newKeySet<Int>()
     val localIgnoreSet = ConcurrentHashMap.newKeySet<Int>()
     val listeningBySession = ConcurrentHashMap<Int, MutableSet<Int>>()
-    val channelPermissions = ConcurrentHashMap<Int, Long>()
+
+    /** The ACL bits the server reported, and the queries built on them. */
+    val acl = RosterPermissions()
 
     var localSession: Int = 0
 
@@ -211,12 +213,6 @@ internal class SessionRoster(private val scope: CoroutineScope) {
         return removed
     }
 
-    fun applyPermissionQuery(channelId: Int, permissions: Long, flush: Boolean) {
-        if (flush) channelPermissions.clear()
-        channelPermissions[channelId] = permissions
-        _permissionEpoch.value++
-    }
-
     fun applyListeningChannels(
         session: Int,
         update: UserUpdate,
@@ -267,95 +263,6 @@ internal class SessionRoster(private val scope: CoroutineScope) {
         publishLocalListening()
     }
 
-    fun permissions(channelId: Int): Long = channelPermissions[channelId] ?: 0L
-
-    fun hasPermissions(channelId: Int): Boolean = channelPermissions.containsKey(channelId)
-
-    fun canAdministerChannel(channelId: Int): Boolean =
-        ChanACL.canMuteDeafenOrWrite(permissions(channelId))
-
-    fun canMuteUser(user: User): Boolean =
-        ChanACL.canOfferMute(
-            permissions(user.channelId),
-            isSelf = user.isLocalUser,
-            muted = user.mute,
-            suppressed = user.suppress,
-        )
-
-    fun canPrioritySpeaker(user: User): Boolean =
-        ChanACL.canPrioritySpeaker(permissions(user.channelId))
-
-    fun canMoveInChannel(channelId: Int): Boolean =
-        ChanACL.canMove(permissions(channelId))
-
-    fun canKickUser(): Boolean = ChanACL.canKick(rootPermissions())
-
-    fun canBanUser(): Boolean = ChanACL.canBan(rootPermissions())
-
-    fun canEditRegisteredUsers(): Boolean = ChanACL.canRegisterOthers(rootPermissions())
-
-    fun canRegisterUser(user: User): Boolean =
-        ChanACL.canOfferRegister(
-            rootPermissions(),
-            isSelf = user.isLocalUser,
-            isRegistered = user.isRegistered,
-            hasCertificate = user.hash.isNotEmpty(),
-        )
-
-    fun canTextMessage(channelId: Int): Boolean =
-        ChanACL.canTextMessage(permissions(channelId))
-
-    fun canListen(channelId: Int): Boolean =
-        ChanACL.canListen(permissions(channelId))
-
-    fun canWriteChannel(channelId: Int): Boolean =
-        ChanACL.canWrite(permissions(channelId))
-
-    fun canAddChannel(channelId: Int): Boolean =
-        ChanACL.canAddChannel(permissions(channelId))
-
-    fun canMakePermanentChannel(channelId: Int): Boolean =
-        ChanACL.canMakePermanentChannel(permissions(channelId))
-
-    fun canLinkChannel(channelId: Int): Boolean =
-        ChanACL.canLinkChannel(permissions(channelId))
-
-    fun canTraverse(channelId: Int): Boolean =
-        ChanACL.canTraverse(permissions(channelId))
-
-    fun canSpeak(channelId: Int): Boolean =
-        ChanACL.canSpeak(permissions(channelId))
-
-    fun canWhisper(channelId: Int): Boolean =
-        ChanACL.canWhisper(permissions(channelId))
-
-    /**
-     * Whether whispering to [channelId] may be offered. Unlike [canWhisper] this
-     * stays true while the channel's ACL bits have not arrived yet: hiding the
-     * entry until a query returns would make it pop in on every menu open, and
-     * murmur validates the permission again when the target is registered.
-     */
-    fun mayWhisper(channelId: Int): Boolean =
-        !hasPermissions(channelId) || canWhisper(channelId)
-
-    fun canEnter(channelId: Int): Boolean =
-        ChanACL.canEnter(permissions(channelId))
-
-    fun canJoinChannel(channelId: Int): Boolean =
-        ChanACL.canJoinChannel(permissions(channelId))
-
-    fun canEditAcl(channelId: Int): Boolean =
-        ChanACL.canEditAcl(permissions(channelId), rootPermissions())
-
-    fun canViewUserInfo(user: User): Boolean =
-        ChanACL.canViewUserInfo(
-            rootPermissions(),
-            permissions(user.channelId),
-            isSelf = user.isLocalUser,
-        )
-
-    fun rootPermissions(): Long = permissions(ChanACL.ChannelId.ROOT)
-
     fun clear() {
         channelMap.clear()
         userMap.clear()
@@ -363,7 +270,7 @@ internal class SessionRoster(private val scope: CoroutineScope) {
         localIgnoreSet.clear()
         listeningBySession.clear()
         _listeningChannels.value = emptySet()
-        channelPermissions.clear()
+        acl.clear()
         localSession = 0
         _channels.value = emptyList()
         _users.value = emptyList()
