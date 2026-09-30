@@ -6,8 +6,11 @@ import dev.woms.mumdroid.core.model.AudioContext
 import dev.woms.mumdroid.core.model.TalkState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class VoiceJitterBufferTest {
 
@@ -243,5 +246,58 @@ class VoiceJitterBufferTest {
         assertTrue(jb.mix(out))
         assertTrue(out[0] < out[out.lastIndex])
         assertTrue(out[0] < 2_000)
+    }
+
+    @Test
+    fun mix_rejectsAConcurrentCaller() {
+        // The accumulator and the tap lists are written outside `lock`, so an
+        // overlapping second caller would corrupt the quantum silently. Park the
+        // first mix inside `clock()` (past the guard) and drive a second one.
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        var firstCall = true
+        val jb = buffer(
+            prerollFrames = 1,
+            clock = {
+                if (firstCall) {
+                    firstCall = false
+                    entered.countDown()
+                    release.await()
+                }
+                0L
+            },
+        )
+
+        val mixing = Thread { jb.mix(ShortArray(4)) }.apply { isDaemon = true }
+        mixing.start()
+        try {
+            assertTrue("the first mix must reach the clock", entered.await(5, TimeUnit.SECONDS))
+            assertThrows(IllegalStateException::class.java) { jb.mix(ShortArray(4)) }
+        } finally {
+            // Always unblock the parked mix, even when an assertion above failed.
+            release.countDown()
+            mixing.join(5_000)
+        }
+
+        // The guard is released by the running call, not left latched.
+        assertFalse(jb.mix(ShortArray(4)))
+    }
+
+    @Test
+    fun mix_acceptsANewPlaybackThread() {
+        // AudioOutput builds a fresh playback thread on every start() (deafen
+        // and undeafen restart the same instance), so the guard must be about
+        // overlap, never about which thread is mixing.
+        val jb = buffer(prerollFrames = 1)
+        val first = ShortArray(4)
+        val worker = Thread { jb.mix(first) }.apply { isDaemon = true }
+        worker.start()
+        worker.join(5_000)
+        assertFalse("the first thread must have returned", worker.isAlive)
+
+        jb.push(1, ShortArray(4) { 5 })
+        val second = ShortArray(4)
+        assertTrue(jb.mix(second))
+        assertEquals(5.toShort(), second[0])
     }
 }

@@ -4,6 +4,7 @@ import android.os.SystemClock
 import dev.woms.mumdroid.core.model.AudioContext
 import dev.woms.mumdroid.core.model.TalkState
 import java.util.TreeMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 /**
@@ -43,14 +44,29 @@ class VoiceJitterBuffer(
     private val sessions = LinkedHashMap<Int, JitterSession>()
 
     /**
+     * Guards [mix]: false while no quantum is being mixed.
+     *
+     * [mixAcc] and the tap lists below live outside `lock` (the playback thread
+     * owns them), so a caller overlapping a running mix would interleave with
+     * them — garbled audio, and duplicated or lost listener taps — with nothing
+     * to report it. The single-caller contract used to be a comment only; this
+     * makes a second caller fail on entry instead.
+     *
+     * Deliberately not a thread-identity check: [AudioOutput.start] builds a
+     * fresh playback thread on every start (deafen and undeafen call it again
+     * on the same instance), so pinning an owner thread would reject a
+     * legitimate resume. Overlap is what is unsafe, so overlap is asserted.
+     */
+    private val mixing = AtomicBoolean(false)
+
+    /**
      * Scratch accumulator for [mix], reused across quanta.
      *
      * [mix] is called only from the playback thread and always with the same
      * quantum size ([AudioOutput.MIX_QUANTUM]), so allocating the accumulator
      * per call produced a fresh `IntArray(out.size)` — about 4 KB — every
      * quantum. It must be zeroed before each mix, and a second concurrent
-     * caller would corrupt it, which is why the playback thread stays the only
-     * caller.
+     * caller would corrupt it: [mixing] fails that caller instead.
      */
     private var mixAcc = IntArray(0)
 
@@ -63,10 +79,10 @@ class VoiceJitterBuffer(
      * the opposite order, and it would also observe the session map halfway
      * through an iteration that removes entries. Reusing the lists instead of
      * allocating three per quantum needs the same single-caller assumption as
-     * [mixAcc] — [mix] is only ever called from the playback thread and is
-     * never re-entered (a nested call would already clobber the accumulator) —
-     * and they are cleared at the top of every quantum. The `Pair` for a
-     * talk-on transition is still allocated per event, not per quantum.
+     * [mixAcc] (asserted by [mixing]: a nested or concurrent call would already
+     * clobber the accumulator), and they are cleared at the top of every
+     * quantum. The `Pair` for a talk-on transition is still allocated per
+     * event, not per quantum.
      */
     private val endedIds = ArrayList<Int>()
     private val talkOnEvents = ArrayList<Pair<Int, TalkState>>()
@@ -217,9 +233,27 @@ class VoiceJitterBuffer(
     /**
      * Mixes one playback quantum into [out]. Returns true when at least one
      * started session contributed samples (as opposed to pure silence).
+     *
+     * Single caller (see [mixing]): a second, overlapping call throws on entry
+     * instead of corrupting the shared accumulator and tap lists.
      */
     fun mix(out: ShortArray): Boolean {
         if (out.isEmpty()) return false
+        check(mixing.compareAndSet(false, true)) {
+            "mix() has a single caller thread and is not re-entrant"
+        }
+        return try {
+            mixQuantum(out)
+        } finally {
+            mixing.set(false)
+        }
+    }
+
+    /**
+     * The mixing body, reachable only while [mixing] is held. The accumulator
+     * and the tap lists belong to whichever thread got past [mix]'s check.
+     */
+    private fun mixQuantum(out: ShortArray): Boolean {
         // Owned by the playback thread, so resizing/clearing it needs no lock
         // (the same thread is the only one that reaches this point).
         if (mixAcc.size != out.size) mixAcc = IntArray(out.size)
