@@ -4,8 +4,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -17,6 +24,10 @@ import dev.woms.mumdroid.core.model.AppSettings
 
 @Composable
 internal fun NetworkSettingsScreen(settings: AppSettings, onChanged: (AppSettings) -> Unit, modifier: Modifier) {
+    // Turning pinning off silently accepts any certificate, so the switch does
+    // not write it directly: it asks first and only records the change once the
+    // user confirms the risk.
+    var confirmDisablePinning by remember { mutableStateOf(false) }
     Column(modifier = modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         SectionHeader(stringResource(R.string.sec_connection))
         SwitchRow(
@@ -29,7 +40,13 @@ internal fun NetworkSettingsScreen(settings: AppSettings, onChanged: (AppSetting
             title = stringResource(R.string.certificate_pinning),
             subtitle = stringResource(R.string.certificate_pinning_sub),
             checked = settings.certificatePinning,
-            onCheckedChange = { onChanged(settings.copy(certificatePinning = it)) },
+            onCheckedChange = { enabled ->
+                if (enabled) {
+                    onChanged(settings.copy(certificatePinning = true))
+                } else {
+                    confirmDisablePinning = true
+                }
+            },
         )
         SwitchRow(
             title = stringResource(R.string.allow_legacy_tls),
@@ -70,6 +87,29 @@ internal fun NetworkSettingsScreen(settings: AppSettings, onChanged: (AppSetting
             subtitle = stringResource(R.string.quality_of_service_sub),
             checked = settings.qualityOfService,
             onCheckedChange = { onChanged(settings.copy(qualityOfService = it)) },
+        )
+    }
+
+    if (confirmDisablePinning) {
+        AlertDialog(
+            onDismissRequest = { confirmDisablePinning = false },
+            title = { Text(stringResource(R.string.certificate_pinning_disable_title)) },
+            text = { Text(stringResource(R.string.certificate_pinning_disable_warning)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDisablePinning = false
+                        onChanged(settings.copy(certificatePinning = false))
+                    },
+                ) {
+                    Text(stringResource(R.string.certificate_pinning_disable_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDisablePinning = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
         )
     }
 }

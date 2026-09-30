@@ -462,6 +462,9 @@
     </plurals>
     <string name="certificate_pinning">证书固定</string>
     <string name="certificate_pinning_sub">校验服务器证书指纹</string>
+    <string name="certificate_pinning_disable_title">关闭证书固定？</string>
+    <string name="certificate_pinning_disable_warning">连接将接受任意服务器证书，包括拦截连接者伪造的证书，你的身份与语音流量可能因此被读取或篡改。仅在你确实无法连接某个服务器时才关闭。</string>
+    <string name="certificate_pinning_disable_confirm">仍然关闭</string>
     <string name="allow_legacy_tls">允许旧版 TLS</string>
     <string name="allow_legacy_tls_sub">对只支持旧协议的服务器额外提供 TLS 1.0/1.1，下次连接生效；弱于官方客户端的 TLS 1.2 下限，且 Android 15 及以上系统本就不允许这两个版本</string>
     <string name="hide_client_info">不发送客户端信息</string>
